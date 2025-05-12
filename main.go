@@ -60,7 +60,7 @@ func loggerWrap(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writer := captureStatusCodeWriter{ResponseWriter: w}
 		handler.ServeHTTP(&writer, r)
-		log.Printf("%s: %d %s %s\n", r.RemoteAddr, r.Method, r.URL.Path, writer.statusCode)
+		log.Printf("%s: %d %s %s\n", r.RemoteAddr, writer.statusCode, r.Method, r.URL.Path)
 	})
 }
 
