@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/chrisdd2/aws-login/auth"
 	"github.com/chrisdd2/aws-login/embed"
 	"github.com/chrisdd2/aws-login/storage"
 	"github.com/rs/zerolog"
@@ -56,6 +58,14 @@ func loadStorage(file string) (*storage.MemoryStorage, error) {
 	return storage.NewMemoryStorageFromJson(f)
 }
 
+func loggerWrap(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writer := captureStatusCodeWriter{ResponseWriter: w}
+		handler.ServeHTTP(&writer, r)
+		log.Info().Str("method", r.Method).Str("path", r.URL.Path).Str("from", r.RemoteAddr).Int("status-code", writer.statusCode).Send()
+	})
+}
+
 func main() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
@@ -89,13 +99,41 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Send()
 	}
+	token := auth.LoginToken{
+		Key: []byte("hello"),
+	}
+	auth := auth.GithubAuth{
+		ClientSecret: os.Getenv("CLIENT_SECRET"),
+		ClientId:     os.Getenv("CLIENT_ID"),
+	}
+	apiRouter := NewApiRouter(store)
+	apiRouter.HandleFunc("/auth/github", func(w http.ResponseWriter, r *http.Request) {
+		info, err := auth.HandleCallback(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// enc := json.NewEncoder(w)
+		// enc.SetIndent("", "  ")
+		// err = enc.Encode(info)
+		jwtToken, err := token.SignToken(*info)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Add("Content-Type", "application/json")
+		fmt.Fprintf(w, "{ \"token\": \"%s\"}", jwtToken)
+
+	})
 	mux := http.NewServeMux()
+	mux.Handle("/api/", http.StripPrefix("/api", apiRouter))
+	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, auth.RedirectUrl(), http.StatusTemporaryRedirect)
+	})
 	mux.Handle("/", http.FileServerFS(assets))
-	if err := http.ListenAndServe(":8080", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writer := captureStatusCodeWriter{ResponseWriter: w}
-		mux.ServeHTTP(&writer, r)
-		log.Info().Str("method", r.Method).Str("path", r.URL.Path).Str("from", r.RemoteAddr).Int("status-code", writer.statusCode).Send()
-	})); err != nil {
+
+	log.Info().Int("port", 8080).Msg("listening for connections")
+	if err := http.ListenAndServe(":8080", loggerWrap(mux)); err != nil {
 		log.Fatal().Err(err).Send()
 	}
 }
