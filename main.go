@@ -5,11 +5,13 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/signal"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/embed"
+	"github.com/chrisdd2/aws-login/storage"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -44,9 +46,44 @@ func (w *captureStatusCodeWriter) WriteHeader(statusCode int) {
 	w.ResponseWriter.WriteHeader(statusCode)
 }
 
+func loadStorage(file string) (*storage.MemoryStorage, error) {
+	f, err := os.Open(file)
+	if err != nil {
+		log.Info().Err(err).Send()
+		return &storage.MemoryStorage{}, nil
+	}
+	defer f.Close()
+	return storage.NewMemoryStorageFromJson(f)
+}
+
 func main() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	filename := "store.json"
+
+	store, err := loadStorage(filename)
+	if err != nil {
+		log.Fatal().Err(err).Send()
+	}
+	saveStorage := func() {
+		log.Info().Str("filename", filename).Msg("saving storage")
+		f, err := os.Create(filename)
+		if err != nil {
+			log.Fatal().Err(err).Send()
+		}
+		err = storage.SaveMemoryStorageFromJson(store, f)
+		if err != nil {
+			log.Fatal().Err(err).Send()
+		}
+	}
+	defer saveStorage()
+	exitSignal := make(chan os.Signal, 10)
+	signal.Notify(exitSignal, os.Interrupt, os.Kill)
+	go func() {
+		<-exitSignal
+		saveStorage()
+		os.Exit(1)
+	}()
 
 	assets, err := fs.Sub(embed.AssetsFs, "assets")
 	if err != nil {
