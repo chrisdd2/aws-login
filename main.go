@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,27 +15,24 @@ import (
 	"github.com/chrisdd2/aws-login/auth"
 	"github.com/chrisdd2/aws-login/embed"
 	"github.com/chrisdd2/aws-login/storage"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
 
 func example() {
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
-		log.Fatal().Err(err).Send()
+		log.Fatalln(err)
 	}
 	redirectUrl := "https://console.aws.amazon.com/console/home"
 
 	for role, err := range findRolesIterator(context.Background(), iam.NewFromConfig(cfg), "assumeable-role") {
 		if err != nil {
-			log.Fatal().Err(err).Send()
+			log.Fatalln(err)
 		}
-		log.Info().Msg(role)
 		url, err := generateSigninUrl(context.Background(), sts.NewFromConfig(cfg), role, "mysession", redirectUrl)
 		if err != nil {
-			log.Fatal().Err(err).Send()
+			log.Fatalln(err)
 		}
-		log.Info().Msg(url)
+		log.Println(url)
 	}
 }
 
@@ -51,7 +49,7 @@ func (w *captureStatusCodeWriter) WriteHeader(statusCode int) {
 func loadStorage(file string) (*storage.MemoryStorage, error) {
 	f, err := os.Open(file)
 	if err != nil {
-		log.Info().Err(err).Send()
+		log.Println(err)
 		return &storage.MemoryStorage{}, nil
 	}
 	defer f.Close()
@@ -62,28 +60,26 @@ func loggerWrap(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writer := captureStatusCodeWriter{ResponseWriter: w}
 		handler.ServeHTTP(&writer, r)
-		log.Info().Str("method", r.Method).Str("path", r.URL.Path).Str("from", r.RemoteAddr).Int("status-code", writer.statusCode).Send()
+		log.Printf("%s: %d %s %s\n", r.RemoteAddr, r.Method, r.URL.Path, writer.statusCode)
 	})
 }
 
 func main() {
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 	filename := "store.json"
 
 	store, err := loadStorage(filename)
 	if err != nil {
-		log.Fatal().Err(err).Send()
+		log.Fatalln(err)
 	}
 	saveStorage := func() {
-		log.Info().Str("filename", filename).Msg("saving storage")
+		log.Printf("saving storage to [%s]\n", filename)
 		f, err := os.Create(filename)
 		if err != nil {
-			log.Fatal().Err(err).Send()
+			log.Fatalln(err)
 		}
 		err = storage.SaveMemoryStorageFromJson(store, f)
 		if err != nil {
-			log.Fatal().Err(err).Send()
+			log.Fatalln(err)
 		}
 	}
 	defer saveStorage()
@@ -97,7 +93,7 @@ func main() {
 
 	assets, err := fs.Sub(embed.AssetsFs, "assets")
 	if err != nil {
-		log.Fatal().Err(err).Send()
+		log.Fatalln(err)
 	}
 	token := auth.LoginToken{
 		Key: []byte("hello"),
@@ -132,8 +128,8 @@ func main() {
 	})
 	mux.Handle("/", http.FileServerFS(assets))
 
-	log.Info().Int("port", 8080).Msg("listening for connections")
+	log.Printf("listening on port [%d]\n", 8080)
 	if err := http.ListenAndServe(":8080", loggerWrap(mux)); err != nil {
-		log.Fatal().Err(err).Send()
+		log.Fatalln(err)
 	}
 }
