@@ -41,6 +41,13 @@ type captureStatusCodeWriter struct {
 	statusCode int
 }
 
+func (w *captureStatusCodeWriter) Write(data []byte) (int, error) {
+	if w.statusCode == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(data)
+}
+
 func (w *captureStatusCodeWriter) WriteHeader(statusCode int) {
 	w.statusCode = statusCode
 	w.ResponseWriter.WriteHeader(statusCode)
