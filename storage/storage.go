@@ -9,13 +9,15 @@ type User struct {
 	Id    string `json:"id,omitempty"`
 	Email string `json:"email,omitempty"`
 	Label string `json:"label,omitempty"`
+	Tags  string `json:"tags,omitempty"`
 }
 type Account struct {
-	Id                string   `json:"id,omitempty"`
-	AwsAccountId      int      `json:"aws_account_id,omitempty"`
-	ManagementRoleArn string   `json:"management_role_arn,omitempty"`
-	Roles             []string `json:"roles,omitempty"`
-	FriendlyName      string   `json:"friendly_name,omitempty"`
+	Id                string            `json:"id,omitempty"`
+	AwsAccountId      int               `json:"aws_account_id,omitempty"`
+	ManagementRoleArn string            `json:"management_role_arn,omitempty"`
+	Roles             []string          `json:"roles,omitempty"`
+	FriendlyName      string            `json:"friendly_name,omitempty"`
+	Tags              map[string]string `json:"tags,omitempty"`
 }
 
 type UserPermissionId struct {

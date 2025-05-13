@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"slices"
@@ -71,24 +70,26 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		w.Header().Add("Content-Type", "application/json")
-		fmt.Fprintf(w, "{ \"token\": \"%s\"}", jwtToken)
+		writeJson(w, struct {
+			Label       string `json:"label,omitempty"`
+			Email       string `json:"email,omitempty"`
+			AccessToken string `json:"access_token,omitempty"`
+		}{
+			Label:       info.Username,
+			Email:       info.Email,
+			AccessToken: jwtToken,
+		})
 	})
 	router.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, router.auth.RedirectUrl(), http.StatusTemporaryRedirect)
 	})
 
-	router.HandleFunc("/credentials", protectedEndpoint(router.token, func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		user := ctx.Value(UserCtx).(*auth.UserInfo)
-		account := r.URL.Query().Get("account")
-		role := r.URL.Query().Get("role")
-
+	checkAccess := func(ctx context.Context, userId, role, account string, w http.ResponseWriter) bool {
 		ok := false
-		for perm, err := range router.store.ListUserPermissions(ctx, user.Id, account, storage.UserPermissionAssume) {
+		for perm, err := range router.store.ListUserPermissions(ctx, userId, account, storage.UserPermissionAssume) {
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return false
 			}
 			if slices.Contains(perm.Value, role) {
 				ok = true
@@ -97,8 +98,21 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 		}
 		if !ok {
 			http.Error(w, "no access to assume", http.StatusForbidden)
+			return false
+		}
+		return true
+	}
+
+	router.HandleFunc("/credentials", protectedEndpoint(router.token, func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := ctx.Value(UserCtx).(*auth.UserInfo)
+		account := r.URL.Query().Get("account")
+		role := r.URL.Query().Get("role")
+
+		if !checkAccess(ctx, user.Id, role, account, w) {
 			return
 		}
+
 		resp, err := router.sts.AssumeRole(ctx, &sts.AssumeRoleInput{RoleArn: &role, RoleSessionName: &user.Username, DurationSeconds: &sessionDuration})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
@@ -117,21 +131,10 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 		account := r.URL.Query().Get("account")
 		role := r.URL.Query().Get("role")
 
-		ok := false
-		for perm, err := range router.store.ListUserPermissions(ctx, user.Id, account, storage.UserPermissionAssume) {
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			if slices.Contains(perm.Value, role) {
-				ok = true
-				break
-			}
-		}
-		if !ok {
-			http.Error(w, "no access to assume", http.StatusForbidden)
+		if !checkAccess(ctx, user.Id, role, account, w) {
 			return
 		}
+
 		url, err := generateSigninUrl(ctx, router.sts, role, user.Username, awsConsoleUrl)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
