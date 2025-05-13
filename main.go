@@ -9,7 +9,6 @@ import (
 
 	"github.com/chrisdd2/aws-login/auth"
 	"github.com/chrisdd2/aws-login/storage"
-	"github.com/chrisdd2/aws-login/ui"
 )
 
 type captureStatusCodeWriter struct {
