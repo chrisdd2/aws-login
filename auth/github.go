@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -34,9 +35,8 @@ type GithubAuth struct {
 	ClientId     string
 }
 
-
 func (g *GithubAuth) RedirectUrl() string {
-	return generateGithubAuthUrl(g.ClientId, []string{"user:email"})
+	return generateGithubAuthUrl(g.ClientId, []string{"user"})
 }
 
 func (g *GithubAuth) HandleCallback(r *http.Request) (*UserInfo, error) {
@@ -60,19 +60,45 @@ func (g *GithubAuth) HandleCallback(r *http.Request) (*UserInfo, error) {
 		return nil, err
 	}
 	resp.Body.Close()
-	req, err = http.NewRequest("GET", "https://api.github.com/user", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
-	resp, err = http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
 	loginInfo := struct {
 		Login string `json:"login"`
 	}{}
-	err = json.NewDecoder(resp.Body).Decode(&loginInfo)
-	return &UserInfo{Username: loginInfo.Login}, err
+	err = fetchJsonAuthed("https://api.github.com/user", token.AccessToken, &loginInfo)
+	if err != nil {
+		return nil, err
+	}
+	emails := []struct {
+		Email    string `json:"email,omitempty"`
+		Verified bool   `json:"verified,omitempty"`
+		Primary  bool   `json:"primary,omitempty"`
+	}{}
+	err = fetchJsonAuthed("https://api.github.com/user/emails", token.AccessToken, &emails)
+	if err != nil {
+		return nil, err
+	}
+	userEmail := ""
+	for _, email := range emails {
+		if email.Primary && email.Verified {
+			userEmail = email.Email
+			break
+		}
+	}
+	if userEmail == "" {
+		return nil, errors.New("unable to determine github email")
+	}
+	return &UserInfo{Username: loginInfo.Login, Email: userEmail}, err
+}
+
+func fetchJsonAuthed(url string, accessToken string, v any) error {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", accessToken))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return json.NewDecoder(resp.Body).Decode(v)
 }
