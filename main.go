@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -57,7 +56,7 @@ func loadStorage(file string) (*storage.MemoryStorage, error) {
 	f, err := os.Open(file)
 	if err != nil {
 		log.Println(err)
-		return &storage.MemoryStorage{}, nil
+		return storage.NewMemoryStorage(), nil
 	}
 	defer f.Close()
 	return storage.NewMemoryStorageFromJson(f)
@@ -102,37 +101,17 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	token := auth.LoginToken{
-		Key: []byte("hello"),
-	}
-	auth := auth.GithubAuth{
+	apiRouter := NewApiRouter(store, &auth.GithubAuth{
 		ClientSecret: os.Getenv("CLIENT_SECRET"),
 		ClientId:     os.Getenv("CLIENT_ID"),
-	}
-	apiRouter := NewApiRouter(store)
-	apiRouter.HandleFunc("/auth/github", func(w http.ResponseWriter, r *http.Request) {
-		info, err := auth.HandleCallback(r)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		// enc := json.NewEncoder(w)
-		// enc.SetIndent("", "  ")
-		// err = enc.Encode(info)
-		jwtToken, err := token.SignToken(*info)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Add("Content-Type", "application/json")
-		fmt.Fprintf(w, "{ \"token\": \"%s\"}", jwtToken)
+	},
+		auth.LoginToken{
+			Key: []byte("hello"),
+		},
+	)
 
-	})
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiRouter))
-	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, auth.RedirectUrl(), http.StatusTemporaryRedirect)
-	})
 	mux.Handle("/", http.FileServerFS(assets))
 
 	log.Printf("listening on port [%d]\n", 8080)

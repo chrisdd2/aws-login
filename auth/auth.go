@@ -3,6 +3,7 @@ package auth
 import "net/http"
 
 type UserInfo struct {
+	Id       string
 	Username string
 	Email    string
 }
