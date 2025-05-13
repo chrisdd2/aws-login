@@ -1,39 +1,16 @@
 package main
 
 import (
-	"context"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"text/template"
 
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/iam"
-	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/auth"
-	"github.com/chrisdd2/aws-login/embed"
 	"github.com/chrisdd2/aws-login/storage"
+	"github.com/chrisdd2/aws-login/ui"
 )
-
-func example() {
-	cfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		log.Fatalln(err)
-	}
-	redirectUrl := "https://console.aws.amazon.com/console/home"
-
-	for role, err := range findRolesIterator(context.Background(), iam.NewFromConfig(cfg), "assumeable-role") {
-		if err != nil {
-			log.Fatalln(err)
-		}
-		url, err := generateSigninUrl(context.Background(), sts.NewFromConfig(cfg), role, "mysession", redirectUrl)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		log.Println(url)
-	}
-}
 
 type captureStatusCodeWriter struct {
 	http.ResponseWriter
@@ -97,10 +74,6 @@ func main() {
 		os.Exit(1)
 	}()
 
-	assets, err := fs.Sub(embed.AssetsFs, "assets")
-	if err != nil {
-		log.Fatalln(err)
-	}
 	apiRouter := NewApiRouter(store, &auth.GithubAuth{
 		ClientSecret: os.Getenv("CLIENT_SECRET"),
 		ClientId:     os.Getenv("CLIENT_ID"),
@@ -110,9 +83,17 @@ func main() {
 		},
 	)
 
+	templates, err := template.ParseFS(ui.UiFs, "*.tmpl")
+	if err != nil {
+		log.Fatalln(err)
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiRouter))
-	mux.Handle("/", http.FileServerFS(assets))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Content-Type", "text/html; charset=utf-8")
+		templates.ExecuteTemplate(w, "main", nil)
+	})
 
 	log.Printf("listening on port [%d]\n", 8080)
 	if err := http.ListenAndServe(":8080", loggerWrap(mux)); err != nil {
