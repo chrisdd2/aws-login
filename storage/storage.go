@@ -11,10 +11,11 @@ type User struct {
 	Label string `json:"label,omitempty"`
 }
 type Account struct {
-	Id                string `json:"id,omitempty"`
-	AwsAccountId      int    `json:"aws_account_id,omitempty"`
-	ManagementRoleArn string `json:"management_role_arn,omitempty"`
-	FriendlyName      string
+	Id                string   `json:"id,omitempty"`
+	AwsAccountId      int      `json:"aws_account_id,omitempty"`
+	ManagementRoleArn string   `json:"management_role_arn,omitempty"`
+	Roles             []string `json:"roles,omitempty"`
+	FriendlyName      string   `json:"friendly_name,omitempty"`
 }
 
 type UserPermissionId struct {
@@ -22,6 +23,11 @@ type UserPermissionId struct {
 	AccountId string `json:"account_id,omitempty"`
 	Scope     string `json:"scope,omitempty"`
 }
+
+const (
+	UserPermissionAssume = "ASSUME"
+	UserPermissionAdmin  = "ADMIN"
+)
 
 type UserPermission struct {
 	UserPermissionId
@@ -35,7 +41,7 @@ type UserPermissionIter = func(yield func(UserPermission, error) bool)
 type Storage interface {
 	// read
 	ListUsers(ctx context.Context, filter string) UserIter
-	ListUserPermissions(ctx context.Context, userId string) UserPermissionIter
+	ListUserPermissions(ctx context.Context, userId string, accountId string, scope string) UserPermissionIter
 	ListAccounts(ctx context.Context) AccountIter
 	ListAccountsForUser(ctx context.Context, userId string) AccountIter
 	GetUserByEmail(ctx context.Context, email string) (User, error)

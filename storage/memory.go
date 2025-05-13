@@ -15,8 +15,8 @@ type MemoryStorage struct {
 	perms    map[UserPermissionId]UserPermission
 }
 
-func NewMemoryStorage() MemoryStorage {
-	return MemoryStorage{
+func NewMemoryStorage() *MemoryStorage {
+	return &MemoryStorage{
 		users:    map[string]User{},
 		accounts: map[string]Account{},
 		perms:    map[UserPermissionId]UserPermission{},
@@ -35,11 +35,22 @@ func NewMemoryStorageFromJson(reader io.Reader) (*MemoryStorage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &MemoryStorage{
+	m := &MemoryStorage{
 		users:    store.Users,
 		accounts: store.Accounts,
 		perms:    store.Perms,
-	}, nil
+	}
+	if m.users == nil {
+		m.users = map[string]User{}
+	}
+	if m.accounts == nil {
+		m.accounts = map[string]Account{}
+	}
+	if m.perms == nil {
+		m.perms = map[UserPermissionId]UserPermission{}
+	}
+	return m, nil
+
 }
 func SaveMemoryStorageFromJson(m *MemoryStorage, writer io.Writer) error {
 	store := jsonMemorystore{
@@ -64,10 +75,11 @@ func (m *MemoryStorage) ListUsers(ctx context.Context, filter string) UserIter {
 		}
 	}
 }
-func (m *MemoryStorage) ListUserPermissions(ctx context.Context, userId string) UserPermissionIter {
+
+func (m *MemoryStorage) ListUserPermissions(ctx context.Context, userId string, accountId string, scope string) UserPermissionIter {
 	return func(yield func(UserPermission, error) bool) {
 		for _, perm := range m.perms {
-			if !(userId == "" || perm.UserId == userId) {
+			if !(matchOrEmpty(perm.UserId, userId) && matchOrEmpty(perm.AccountId, accountId) && matchOrEmpty(perm.Scope, scope)) {
 				continue
 			}
 			if !yield(perm, nil) {
@@ -102,6 +114,9 @@ func (m *MemoryStorage) ListAccountsForUser(ctx context.Context, userId string) 
 	}
 }
 func (m *MemoryStorage) GetUserByEmail(ctx context.Context, email string) (User, error) {
+	if email == "" {
+		return User{}, ErrUserNotFound
+	}
 	for _, user := range m.users {
 		if user.Email == email {
 			return user, nil
@@ -145,4 +160,8 @@ func (m *MemoryStorage) DeleteUserBy(ctx context.Context, email string) error {
 func (m *MemoryStorage) DeleteUser(ctx context.Context, userId string) error {
 	delete(m.users, userId)
 	return nil
+}
+
+func matchOrEmpty(item string, check string) bool {
+	return item == check || check == ""
 }
