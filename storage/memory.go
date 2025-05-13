@@ -4,29 +4,31 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
 )
 
 type MemoryStorage struct {
-	users    map[string]User
-	accounts map[string]Account
-	perms    map[UserPermissionId]UserPermission
+	users    []User
+	accounts []Account
+	perms    []UserPermission
 }
 
 func NewMemoryStorage() *MemoryStorage {
 	return &MemoryStorage{
-		users:    map[string]User{},
-		accounts: map[string]Account{},
-		perms:    map[UserPermissionId]UserPermission{},
+		users:    []User{},
+		accounts: []Account{},
+		perms:    []UserPermission{},
 	}
 }
 
 type jsonMemorystore struct {
-	Users    map[string]User                     `json:"users,omitempty"`
-	Accounts map[string]Account                  `json:"accounts,omitempty"`
-	Perms    map[UserPermissionId]UserPermission `json:"perms,omitempty"`
+	Users    []User           `json:"users,omitempty"`
+	Accounts []Account        `json:"accounts,omitempty"`
+	Perms    []UserPermission `json:"perms,omitempty"`
 }
 
 func NewMemoryStorageFromJson(reader io.Reader) (*MemoryStorage, error) {
@@ -35,21 +37,7 @@ func NewMemoryStorageFromJson(reader io.Reader) (*MemoryStorage, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &MemoryStorage{
-		users:    store.Users,
-		accounts: store.Accounts,
-		perms:    store.Perms,
-	}
-	if m.users == nil {
-		m.users = map[string]User{}
-	}
-	if m.accounts == nil {
-		m.accounts = map[string]Account{}
-	}
-	if m.perms == nil {
-		m.perms = map[UserPermissionId]UserPermission{}
-	}
-	return m, nil
+	return &MemoryStorage{store.Users, store.Accounts, store.Perms}, nil
 
 }
 func SaveMemoryStorageFromJson(m *MemoryStorage, writer io.Writer) error {
@@ -63,55 +51,112 @@ func SaveMemoryStorageFromJson(m *MemoryStorage, writer io.Writer) error {
 	return enc.Encode(&store)
 }
 
-func (m *MemoryStorage) ListUsers(ctx context.Context, filter string) UserIter {
-	return func(yield func(User, error) bool) {
-		for _, user := range m.users {
-			if !(filter == "" || strings.HasPrefix(user.Label, filter)) {
-				continue
-			}
-			if !yield(user, nil) {
-				return
-			}
-		}
+const ListResultPageSize = 50
+
+func parseStartToken(token *string) (int, error) {
+	if token == nil {
+		return 0, nil
 	}
+	num, err := strconv.Atoi(*token)
+	if err != nil {
+		return 0, err
+	}
+	return num, nil
+}
+func generateStartToken(num int) *string {
+	k := strconv.Itoa(num)
+	return &k
 }
 
-func (m *MemoryStorage) ListUserPermissions(ctx context.Context, userId string, accountId string, scope string) UserPermissionIter {
-	return func(yield func(UserPermission, error) bool) {
-		for _, perm := range m.perms {
-			if !(matchOrEmpty(perm.UserId, userId) && matchOrEmpty(perm.AccountId, accountId) && matchOrEmpty(perm.Scope, scope)) {
-				continue
-			}
-			if !yield(perm, nil) {
-				return
-			}
-		}
+func (m *MemoryStorage) ListUsers(ctx context.Context, filter string, startToken *string) (ListUserResult, error) {
+	startIdx, err := parseStartToken(startToken)
+	if err != nil {
+		return ListUserResult{}, err
 	}
+	users := make([]User, 0, ListResultPageSize)
+	endIdx := startIdx + ListResultPageSize
+	startToken = generateStartToken(endIdx)
+	if endIdx > len(m.users) {
+		endIdx = len(m.users)
+		startToken = nil
+	}
+	for i := startIdx; i < endIdx; i++ {
+		if !(filter == "" || strings.HasPrefix(m.users[i].Label, filter)) {
+			continue
+		}
+		users = append(users, m.users[i])
+	}
+	return ListUserResult{Users: users, StartToken: startToken}, nil
 }
-func (m *MemoryStorage) ListAccounts(ctx context.Context) AccountIter {
-	return func(yield func(Account, error) bool) {
-		for _, acc := range m.accounts {
-			if !yield(acc, nil) {
-				return
-			}
-		}
+
+func (m *MemoryStorage) ListUserPermissions(ctx context.Context, userId string, accountId string, scope string, startToken *string) (ListUserPermissionResult, error) {
+	startIdx, err := parseStartToken(startToken)
+	if err != nil {
+		return ListUserPermissionResult{}, err
 	}
+	perms := make([]UserPermission, 0, ListResultPageSize)
+	endIdx := startIdx + ListResultPageSize
+	startToken = generateStartToken(endIdx)
+	if endIdx > len(m.perms) {
+		endIdx = len(m.perms)
+		startToken = nil
+	}
+	for i := startIdx; i < endIdx; i++ {
+		perm := m.perms[i]
+		if !(matchOrEmpty(perm.UserId, userId) && matchOrEmpty(perm.AccountId, accountId) && matchOrEmpty(perm.Scope, scope)) {
+			continue
+		}
+		perms = append(perms, perm)
+	}
+	return ListUserPermissionResult{UserPermissions: perms, StartToken: startToken}, nil
 }
-func (m *MemoryStorage) ListAccountsForUser(ctx context.Context, userId string) AccountIter {
-	return func(yield func(Account, error) bool) {
-		accounts := map[string]struct{}{}
+
+func (m *MemoryStorage) ListAccounts(ctx context.Context, startToken *string) (ListAccountResult, error) {
+	startIdx, err := parseStartToken(startToken)
+	if err != nil {
+		return ListAccountResult{}, err
+	}
+	accounts := make([]Account, 0, ListResultPageSize)
+	endIdx := startIdx + ListResultPageSize
+	startToken = generateStartToken(endIdx)
+	if endIdx > len(m.accounts) {
+		endIdx = len(m.accounts)
+		startToken = nil
+	}
+	for i := startIdx; i < endIdx; i++ {
+		accounts = append(accounts, m.accounts[i])
+	}
+	return ListAccountResult{Accounts: accounts, StartToken: startToken}, nil
+}
+func (m *MemoryStorage) ListAccountsForUser(ctx context.Context, userId string, startToken *string) (ListAccountResult, error) {
+	// this is somewhat slow
+	hasPermForAccount := func(accountId string) bool {
 		for _, perm := range m.perms {
-			if !(perm.UserId == userId) {
-				continue
+			if perm.UserId == userId && perm.AccountId == accountId {
+				return true
 			}
-			accounts[perm.AccountId] = struct{}{}
 		}
-		for acc := range accounts {
-			if !yield(m.accounts[acc], nil) {
-				return
-			}
+		return true
+	}
+
+	startIdx, err := parseStartToken(startToken)
+	if err != nil {
+		return ListAccountResult{}, err
+	}
+	accounts := make([]Account, 0, ListResultPageSize)
+	endIdx := startIdx + ListResultPageSize
+	startToken = generateStartToken(endIdx)
+	if endIdx > len(m.accounts) {
+		endIdx = len(m.accounts)
+		startToken = nil
+	}
+	for i := startIdx; i < endIdx; i++ {
+		account := m.accounts[i]
+		if hasPermForAccount(account.Id) {
+			accounts = append(accounts, account)
 		}
 	}
+	return ListAccountResult{Accounts: accounts, StartToken: startToken}, nil
 }
 func (m *MemoryStorage) GetUserByEmail(ctx context.Context, email string) (User, error) {
 	if email == "" {
@@ -126,16 +171,18 @@ func (m *MemoryStorage) GetUserByEmail(ctx context.Context, email string) (User,
 }
 
 func (m *MemoryStorage) PutAccount(ctx context.Context, account Account) (Account, error) {
-	for _, acc := range m.accounts {
+	for i, acc := range m.accounts {
 		if acc.AwsAccountId == acc.AwsAccountId {
 			account.Id = acc.Id
+			m.accounts[i] = account
+			// exists
 			break
 		}
 	}
 	if account.Id == "" {
 		account.Id = uuid.New().String()
 	}
-	m.accounts[account.Id] = account
+	m.accounts = append(m.accounts, account)
 	return account, nil
 }
 func (m *MemoryStorage) PutUser(ctx context.Context, usr User) (User, error) {
@@ -143,11 +190,19 @@ func (m *MemoryStorage) PutUser(ctx context.Context, usr User) (User, error) {
 	if err == ErrUserNotFound {
 		usr.Id = uuid.New().String()
 	}
-	m.users[usr.Id] = usr
+	m.users = append(m.users, usr)
 	return usr, nil
 }
-func (m *MemoryStorage) PutUserPermission(ctx context.Context, perm UserPermission) error {
-	m.perms[perm.UserPermissionId] = perm
+func (m *MemoryStorage) PutUserPermission(ctx context.Context, newPerm UserPermission) error {
+	for i, perm := range m.perms {
+		if perm.UserPermissionId == newPerm.UserPermissionId {
+			// exists
+			perm.Value = newPerm.Value
+			m.perms[i] = perm
+			break
+		}
+	}
+	m.perms = append(m.perms, newPerm)
 	return nil
 }
 func (m *MemoryStorage) DeleteUserBy(ctx context.Context, email string) error {
@@ -158,7 +213,9 @@ func (m *MemoryStorage) DeleteUserBy(ctx context.Context, email string) error {
 	return m.DeleteUser(ctx, usr.Id)
 }
 func (m *MemoryStorage) DeleteUser(ctx context.Context, userId string) error {
-	delete(m.users, userId)
+	slices.DeleteFunc(m.users, func(a User) bool {
+		return a.Id == userId
+	})
 	return nil
 }
 

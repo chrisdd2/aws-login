@@ -33,8 +33,9 @@ func TestSimple(t *testing.T) {
 	require.NoError(t, err)
 
 	accounts := []string{}
-	for acc, err := range m.ListAccountsForUser(ctx, usr.Id) {
-		require.NoError(t, err)
+	result, err := m.ListAccountsForUser(ctx, usr.Id, nil)
+	require.NoError(t, err)
+	for _, acc := range result.Accounts {
 		accounts = append(accounts, acc.Id)
 	}
 	require.Len(t, accounts, 1)

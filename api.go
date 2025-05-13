@@ -86,11 +86,12 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 
 	checkAccess := func(ctx context.Context, userId, role, account string, w http.ResponseWriter) bool {
 		ok := false
-		for perm, err := range router.store.ListUserPermissions(ctx, userId, account, storage.UserPermissionAssume) {
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return false
-			}
+		result, err := router.store.ListUserPermissions(ctx, userId, account, storage.UserPermissionAssume, nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return false
+		}
+		for _, perm := range result.UserPermissions {
 			if slices.Contains(perm.Value, role) {
 				ok = true
 				break

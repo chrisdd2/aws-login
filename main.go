@@ -95,8 +95,9 @@ func main() {
 		templates.ExecuteTemplate(w, "main", nil)
 	})
 
-	log.Printf("listening on port [%d]\n", 8080)
-	if err := http.ListenAndServe(":8080", loggerWrap(mux)); err != nil {
+	addr := "0.0.0.0:8080"
+	log.Printf("listening [http://%s]\n", addr)
+	if err := http.ListenAndServe(addr, loggerWrap(mux)); err != nil {
 		log.Fatalln(err)
 	}
 }

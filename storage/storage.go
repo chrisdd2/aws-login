@@ -35,17 +35,25 @@ type UserPermission struct {
 	UserPermissionId
 	Value []string `json:"value,omitempty"`
 }
-
-type AccountIter = func(yield func(Account, error) bool)
-type UserIter = func(yield func(User, error) bool)
-type UserPermissionIter = func(yield func(UserPermission, error) bool)
+type ListUserResult struct {
+	Users      []User
+	StartToken *string
+}
+type ListUserPermissionResult struct {
+	UserPermissions []UserPermission
+	StartToken      *string
+}
+type ListAccountResult struct {
+	Accounts   []Account
+	StartToken *string
+}
 
 type Storage interface {
 	// read
-	ListUsers(ctx context.Context, filter string) UserIter
-	ListUserPermissions(ctx context.Context, userId string, accountId string, scope string) UserPermissionIter
-	ListAccounts(ctx context.Context) AccountIter
-	ListAccountsForUser(ctx context.Context, userId string) AccountIter
+	ListUsers(ctx context.Context, filter string, startToken *string) (ListUserResult, error)
+	ListUserPermissions(ctx context.Context, userId string, accountId string, scope string, startToken *string) (ListUserPermissionResult, error)
+	ListAccounts(ctx context.Context, startToken *string) (ListAccountResult, error)
+	ListAccountsForUser(ctx context.Context, userId string, startToken *string) (ListAccountResult, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 
 	// write
