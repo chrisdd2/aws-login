@@ -1,13 +1,14 @@
 package main
 
 import (
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"text/template"
 
 	"github.com/chrisdd2/aws-login/auth"
+	"github.com/chrisdd2/aws-login/embed"
 	"github.com/chrisdd2/aws-login/storage"
 )
 
@@ -81,18 +82,14 @@ func main() {
 			Key: []byte("hello"),
 		},
 	)
-
-	templates, err := template.ParseFS(ui.UiFs, "*.tmpl")
+	assetsFS, err := fs.Sub(embed.AssetsFs, "assets")
 	if err != nil {
 		log.Fatalln(err)
 	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiRouter))
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Add("Content-Type", "text/html; charset=utf-8")
-		templates.ExecuteTemplate(w, "main", nil)
-	})
+	mux.Handle("/", http.FileServerFS(assetsFS))
 
 	addr := "0.0.0.0:8080"
 	log.Printf("listening [http://%s]\n", addr)
