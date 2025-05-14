@@ -170,6 +170,18 @@ func (m *MemoryStorage) GetUserByEmail(ctx context.Context, email string) (User,
 	return User{}, ErrUserNotFound
 }
 
+func (m *MemoryStorage) GetUserById(ctx context.Context, userId string) (User, error) {
+	if userId == "" {
+		return User{}, ErrUserNotFound
+	}
+	for _, user := range m.users {
+		if user.Id == userId {
+			return user, nil
+		}
+	}
+	return User{}, ErrUserNotFound
+}
+
 func (m *MemoryStorage) PutAccount(ctx context.Context, account Account) (Account, error) {
 	for i, acc := range m.accounts {
 		if acc.AwsAccountId == acc.AwsAccountId {
@@ -197,7 +209,7 @@ func (m *MemoryStorage) PutUserPermission(ctx context.Context, newPerm UserPermi
 	for i, perm := range m.perms {
 		if perm.UserPermissionId == newPerm.UserPermissionId {
 			// exists
-			perm.Value = newPerm.Value
+			perm.Value = append(perm.Value, newPerm.Value...)
 			m.perms[i] = perm
 			break
 		}
@@ -213,7 +225,7 @@ func (m *MemoryStorage) DeleteUserBy(ctx context.Context, email string) error {
 	return m.DeleteUser(ctx, usr.Id)
 }
 func (m *MemoryStorage) DeleteUser(ctx context.Context, userId string) error {
-	slices.DeleteFunc(m.users, func(a User) bool {
+	m.users = slices.DeleteFunc(m.users, func(a User) bool {
 		return a.Id == userId
 	})
 	return nil

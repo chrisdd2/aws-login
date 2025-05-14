@@ -6,10 +6,11 @@ import (
 )
 
 type User struct {
-	Id    string `json:"id,omitempty"`
-	Email string `json:"email,omitempty"`
-	Label string `json:"label,omitempty"`
-	Tags  string `json:"tags,omitempty"`
+	Id        string `json:"id,omitempty"`
+	Email     string `json:"email,omitempty"`
+	Label     string `json:"label,omitempty"`
+	Tags      string `json:"tags,omitempty"`
+	Superuser bool   `json:"superuser,omitempty"`
 }
 type Account struct {
 	Id                string            `json:"id,omitempty"`
@@ -55,6 +56,7 @@ type Storage interface {
 	ListAccounts(ctx context.Context, startToken *string) (ListAccountResult, error)
 	ListAccountsForUser(ctx context.Context, userId string, startToken *string) (ListAccountResult, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
+	GetUserById(ctx context.Context, userId string) (User, error)
 
 	// write
 	PutAccount(ctx context.Context, acc Account) (Account, error)
