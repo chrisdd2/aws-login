@@ -18,12 +18,14 @@ import (
 
 var cfnTemplates *template.Template
 
-func cfnRenderTemplate(name string, data any) (string, error) {
-	buf := bytes.Buffer{}
-	err := cfnTemplates.ExecuteTemplate(&buf, name, data)
-	return buf.String(), err
-
-}
+// some unique identifiers we might need
+const (
+	uniqueId      = "8db7bc11-acf5-4c7a-be46-967f44e33028"
+	StackName     = "aws-login-stack-" + uniqueId
+	OpsRole       = "ops-role-role-" + uniqueId
+	developerRole = "developer-role-" + uniqueId
+	readOnlyRole  = "read-only-role-" + uniqueId
+)
 
 func init() {
 	cfnTemplates = template.Must(template.ParseFS(embed.CloudFormationFs, "cfn/*.template.yml"))
@@ -54,13 +56,6 @@ func BootstrapTemplate(ctx context.Context, stsCl StsClient, w io.Writer) error 
 	}{OpsRole, PrincipalFromSts(*resp.Arn)})
 }
 
-// some unique identifiers we might need
-const uniqueId = "8db7bc11-acf5-4c7a-be46-967f44e33028"
-const StackName = "aws-login-stack-" + uniqueId
-const OpsRole = "ops-role-role-" + uniqueId
-const developerRole = "developer-role-" + uniqueId
-const readOnlyRole = "read-only-role-" + uniqueId
-
 type CfnClient interface {
 	CreateStack(ctx context.Context, params *cloudformation.CreateStackInput, optFns ...func(*cloudformation.Options)) (*cloudformation.CreateStackOutput, error)
 	UpdateStack(ctx context.Context, params *cloudformation.UpdateStackInput, optFns ...func(*cloudformation.Options)) (*cloudformation.UpdateStackOutput, error)
@@ -68,10 +63,12 @@ type CfnClient interface {
 }
 
 func DeployBaseStack(ctx context.Context, cfnCl CfnClient) error {
-	tmpl, err := cfnRenderTemplate("base.template.yml", nil)
+	buf := bytes.Buffer{}
+	err := cfnTemplates.ExecuteTemplate(&buf, "base.template.yml", nil)
 	if err != nil {
 		return err
 	}
+	tmpl := buf.String()
 	stackName := aws.String(StackName)
 	_, err = cfnCl.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: stackName})
 	update := true

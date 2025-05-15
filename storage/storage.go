@@ -8,8 +8,8 @@ import (
 
 type User struct {
 	Id        string `json:"id,omitempty"`
+	Username  string `json:"username,omitempty"`
 	Email     string `json:"email,omitempty"`
-	Label     string `json:"label,omitempty"`
 	Tags      string `json:"tags,omitempty"`
 	Superuser bool   `json:"superuser,omitempty"`
 }
@@ -59,7 +59,7 @@ type Storage interface {
 	ListUserPermissions(ctx context.Context, userId string, accountId string, scope string, startToken *string) (ListUserPermissionResult, error)
 	ListAccounts(ctx context.Context, startToken *string) (ListAccountResult, error)
 	ListAccountsForUser(ctx context.Context, userId string, startToken *string) (ListAccountResult, error)
-	GetUserByEmail(ctx context.Context, email string) (User, error)
+	GetUserByUsername(ctx context.Context, username string) (User, error)
 	GetUserById(ctx context.Context, userId string) (User, error)
 	GetAccountById(ctx context.Context, accountId string) (Account, error)
 
@@ -67,7 +67,6 @@ type Storage interface {
 	PutAccount(ctx context.Context, acc Account) (Account, error)
 	PutUser(ctx context.Context, usr User) (User, error)
 	PutUserPermission(ctx context.Context, perm UserPermission) error
-	DeleteUserBy(ctx context.Context, email string) error
 	DeleteUser(ctx context.Context, userId string) error
 }
 

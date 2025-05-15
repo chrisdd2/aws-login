@@ -40,10 +40,10 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		usr, err := store.GetUserByEmail(r.Context(), info.Email)
+		usr, err := store.GetUserByUsername(r.Context(), info.Username)
 		if err == storage.ErrUserNotFound {
 			usr.Email = info.Email
-			usr.Label = info.Username
+			usr.Username = info.Username
 			usr, err = store.PutUser(r.Context(), usr)
 			log.Println(usr)
 		}
@@ -140,7 +140,7 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 	userMux.HandleFunc("GET /list", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		info := ctx.Value(UserCtx).(*auth.UserInfo)
-		user, err := store.GetUserByEmail(ctx, info.Email)
+		user, err := store.GetUserByUsername(ctx, info.Username)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -164,7 +164,7 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 	accountMux.HandleFunc("GET /list", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		info := ctx.Value(UserCtx).(*auth.UserInfo)
-		user, err := store.GetUserByEmail(ctx, info.Email)
+		user, err := store.GetUserByUsername(ctx, info.Username)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}

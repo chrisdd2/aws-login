@@ -81,7 +81,7 @@ func (m *MemoryStorage) ListUsers(ctx context.Context, filter string, startToken
 		startToken = nil
 	}
 	for i := startIdx; i < endIdx; i++ {
-		if !(filter == "" || strings.HasPrefix(m.users[i].Label, filter)) {
+		if !(filter == "" || strings.HasPrefix(m.users[i].Username, filter)) {
 			continue
 		}
 		users = append(users, m.users[i])
@@ -158,12 +158,12 @@ func (m *MemoryStorage) ListAccountsForUser(ctx context.Context, userId string, 
 	}
 	return ListAccountResult{Accounts: accounts, StartToken: startToken}, nil
 }
-func (m *MemoryStorage) GetUserByEmail(ctx context.Context, email string) (User, error) {
-	if email == "" {
+func (m *MemoryStorage) GetUserByUsername(ctx context.Context, username string) (User, error) {
+	if username == "" {
 		return User{}, ErrUserNotFound
 	}
 	for _, user := range m.users {
-		if user.Email == email {
+		if user.Username == username {
 			return user, nil
 		}
 	}
@@ -209,7 +209,7 @@ func (m *MemoryStorage) PutAccount(ctx context.Context, account Account) (Accoun
 	return account, nil
 }
 func (m *MemoryStorage) PutUser(ctx context.Context, usr User) (User, error) {
-	_, err := m.GetUserByEmail(ctx, usr.Email)
+	_, err := m.GetUserByUsername(ctx, usr.Username)
 	if err == ErrUserNotFound {
 		usr.Id = uuid.New().String()
 	}
@@ -227,13 +227,6 @@ func (m *MemoryStorage) PutUserPermission(ctx context.Context, newPerm UserPermi
 	}
 	m.perms = append(m.perms, newPerm)
 	return nil
-}
-func (m *MemoryStorage) DeleteUserBy(ctx context.Context, email string) error {
-	usr, err := m.GetUserByEmail(ctx, email)
-	if err == ErrUserNotFound {
-		return nil
-	}
-	return m.DeleteUser(ctx, usr.Id)
 }
 func (m *MemoryStorage) DeleteUser(ctx context.Context, userId string) error {
 	m.users = slices.DeleteFunc(m.users, func(a User) bool {

@@ -12,8 +12,8 @@ func TestSimple(t *testing.T) {
 	ctx := context.Background()
 	m := storage.NewMemoryStorage()
 	usr, err := m.PutUser(ctx, storage.User{
-		Email: "me@me.com",
-		Label: "its me",
+		Email:    "me@me.com",
+		Username: "me@me.com",
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, usr.Id)
