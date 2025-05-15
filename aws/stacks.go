@@ -29,7 +29,7 @@ const (
 )
 
 func init() {
-	cfnTemplates = template.Must(template.ParseFS(embed.CloudFormationFs, "cfn/*.template.yml"))
+	cfnTemplates = template.Must(template.ParseFS(embed.CloudFormationFs, "cfn/*.template"))
 }
 
 func PrincipalFromSts(arn string) string {

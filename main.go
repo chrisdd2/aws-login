@@ -15,41 +15,6 @@ import (
 	"github.com/chrisdd2/aws-login/storage"
 )
 
-type captureStatusCodeWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-func (w *captureStatusCodeWriter) Write(data []byte) (int, error) {
-	if w.statusCode == 0 {
-		w.WriteHeader(http.StatusOK)
-	}
-	return w.ResponseWriter.Write(data)
-}
-
-func (w *captureStatusCodeWriter) WriteHeader(statusCode int) {
-	w.statusCode = statusCode
-	w.ResponseWriter.WriteHeader(statusCode)
-}
-
-func loadStorage(file string) (*storage.MemoryStorage, error) {
-	f, err := os.Open(file)
-	if err != nil {
-		log.Println(err)
-		return storage.NewMemoryStorage(), nil
-	}
-	defer f.Close()
-	return storage.NewMemoryStorageFromJson(f)
-}
-
-func loggerWrap(handler http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writer := captureStatusCodeWriter{ResponseWriter: w}
-		handler.ServeHTTP(&writer, r)
-		log.Printf("%s: %d %s %s\n", r.RemoteAddr, writer.statusCode, r.Method, r.URL.Path)
-	})
-}
-
 func main() {
 	filename := "store.json"
 
@@ -97,7 +62,18 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiRouter))
-	mux.Handle("/", http.FileServerFS(assetsFS))
+
+	assetsHandler := http.FileServerFS(assetsFS)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// try to serve the file
+		w2 := blockNotFoundWriter{ResponseWriter: w}
+		assetsHandler.ServeHTTP(&w2, r)
+		if w2.didBlock {
+			// just return index.html cause SPA
+			w.Header().Add("Content-Type", "text/html; charset=utf-8")
+			http.ServeFileFS(w, r, assetsFS, "index.html")
+		}
+	})
 
 	addr := envOrDefault("APP_LISTEN_ADDR", "0.0.0.0:8080")
 	log.Printf("listening [http://%s]\n", addr)

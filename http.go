@@ -1,0 +1,66 @@
+package main
+
+import (
+	"log"
+	"net/http"
+	"os"
+
+	"github.com/chrisdd2/aws-login/storage"
+)
+
+type captureStatusCodeWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (w *captureStatusCodeWriter) Write(data []byte) (int, error) {
+	if w.statusCode == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *captureStatusCodeWriter) WriteHeader(statusCode int) {
+	w.statusCode = statusCode
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func loadStorage(file string) (*storage.MemoryStorage, error) {
+	f, err := os.Open(file)
+	if err != nil {
+		log.Println(err)
+		return storage.NewMemoryStorage(), nil
+	}
+	defer f.Close()
+	return storage.NewMemoryStorageFromJson(f)
+}
+
+func loggerWrap(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writer := captureStatusCodeWriter{ResponseWriter: w}
+		// cors
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		handler.ServeHTTP(&writer, r)
+		log.Printf("%s: %d %s %s\n", r.RemoteAddr, writer.statusCode, r.Method, r.URL.Path)
+	})
+}
+
+type blockNotFoundWriter struct {
+	http.ResponseWriter
+	didBlock bool
+}
+
+func (b *blockNotFoundWriter) Write(data []byte) (int, error) {
+	if b.didBlock {
+		return len(data), nil
+	}
+	return b.ResponseWriter.Write(data)
+}
+
+func (b *blockNotFoundWriter) WriteHeader(statusCode int) {
+	if statusCode != http.StatusNotFound {
+		b.ResponseWriter.WriteHeader(statusCode)
+		return
+	}
+	b.didBlock = true
+}
