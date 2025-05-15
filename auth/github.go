@@ -28,8 +28,6 @@ func generateGithubAccessToken(clientId, clientSecret, sessionCode string) strin
 	return fmt.Sprintf("%s?%s", GithubAccessTokenUrl, values.Encode())
 }
 
-// ?scope=user:email&client_id=<%= client_id %
-
 type GithubAuth struct {
 	ClientSecret string
 	ClientId     string

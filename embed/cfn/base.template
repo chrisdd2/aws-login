@@ -16,17 +16,19 @@ Parameters:
   ReadOnlyRoleName:
     Type: String
     Description: name for read only role
+  PermissionBoundaryName:
+    Type: String
+    Description: name for the permission boundary on iam roles
 
 Resources:
 
   IAMPermissionsBoundary:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: PermissionsBoundary-StrictIAMControls
+      ManagedPolicyName: !Ref PermissionBoundaryName
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
-          # 1. Deny all IAM user creation/deletion, always
           - Sid: DenyAllIAMUserActions
             Effect: Deny
             Action:
@@ -34,7 +36,6 @@ Resources:
               - iam:DeleteUser
             Resource: "*"
 
-          # 2. Deny creation of IAM roles without the boundary attached
           - Sid: DenyCreateRoleWithoutBoundary
             Effect: Deny
             Action:
@@ -42,7 +43,17 @@ Resources:
             Resource: "*"
             Condition:
               StringNotEqualsIfExists:
-                iam:PermissionsBoundary: !Sub "arn:aws:iam::${AWS::AccountId}:policy/PermissionsBoundary-StrictIAMControls"
+                iam:PermissionsBoundary: !Sub "arn:aws:iam::${AWS::AccountId}:policy/${PermissionBoundaryName}"
+
+          - Sid: DenyUpdateRoleToRemoveBoundary
+            Effect: Deny
+            Action:
+              - iam:UpdateRole
+            Resource: "*"
+            Condition:
+              StringNotEqualsIfExists:
+                iam:PermissionsBoundary: !Sub "arn:aws:iam::${AWS::AccountId}:policy/${PermissionBoundaryName}"
+
 
 
   DeveloperRole:

@@ -38,7 +38,6 @@ func PrincipalFromSts(arn string) string {
 		//arn:aws:sts::123456789012:assumed-role/SomeRole/i-0abcdef1234567890//
 		//arn:aws:iam::123456789012:role/SomeRole
 		parts := strings.Split(arn, ":")
-		fmt.Println(parts)
 		roleNameParts := strings.Split(parts[5], "/")
 		return fmt.Sprintf("arn:aws:iam::%s:role/%s", parts[4], roleNameParts[1])
 	}
@@ -50,7 +49,7 @@ func BootstrapTemplate(ctx context.Context, stsCl StsClient, w io.Writer) error 
 	if err != nil {
 		return err
 	}
-	return cfnTemplates.ExecuteTemplate(w, "bootstrap.template.yml", struct {
+	return cfnTemplates.ExecuteTemplate(w, "bootstrap.template", struct {
 		OpsRoleName string
 		Principal   string
 	}{OpsRole, PrincipalFromSts(*resp.Arn)})
@@ -64,7 +63,7 @@ type CfnClient interface {
 
 func DeployBaseStack(ctx context.Context, cfnCl CfnClient) error {
 	buf := bytes.Buffer{}
-	err := cfnTemplates.ExecuteTemplate(&buf, "base.template.yml", nil)
+	err := cfnTemplates.ExecuteTemplate(&buf, "base.template", nil)
 	if err != nil {
 		return err
 	}
