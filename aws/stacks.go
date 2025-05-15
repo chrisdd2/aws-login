@@ -25,6 +25,7 @@ const (
 	OpsRole       = "ops-role-role-" + uniqueId
 	developerRole = "developer-role-" + uniqueId
 	readOnlyRole  = "read-only-role-" + uniqueId
+	boundaryName  = "iam-role-boundary-" + uniqueId
 )
 
 func init() {
@@ -83,6 +84,7 @@ func DeployBaseStack(ctx context.Context, cfnCl CfnClient) error {
 		{ParameterKey: aws.String("DeveloperRoleName"), ParameterValue: aws.String(developerRole)},
 		{ParameterKey: aws.String("ReadOnlyRoleName"), ParameterValue: aws.String(readOnlyRole)},
 		{ParameterKey: aws.String("ManagementRoleName"), ParameterValue: aws.String(OpsRole)},
+		{ParameterKey: aws.String("PermissionBoundaryName"), ParameterValue: aws.String(boundaryName)},
 	}
 	if update {
 		_, err = cfnCl.UpdateStack(ctx, &cloudformation.UpdateStackInput{StackName: stackName, TemplateBody: &tmpl, Parameters: cfnParams})

@@ -8,9 +8,12 @@ import (
 	"net/url"
 )
 
-const GithubAuthUrl = "https://github.com/login/oauth/authorize"
-const GithubAccessTokenUrl = "https://github.com/login/oauth/access_token"
-const GithubUserApiUrl = "https://api.github.com/user"
+const (
+	GithubAuthUrl         = "https://github.com/login/oauth/authorize"
+	GithubAccessTokenUrl  = "https://github.com/login/oauth/access_token"
+	GithubUserApiUrl      = "https://api.github.com/user"
+	GIthubUserEmailApiUrl = "https://api.github.com/user/emails"
+)
 
 func generateGithubAuthUrl(clientId string, scopes []string) string {
 	values := url.Values{}
@@ -37,6 +40,8 @@ func (g *GithubAuth) RedirectUrl() string {
 	return generateGithubAuthUrl(g.ClientId, []string{"user"})
 }
 
+var ErrCannotFindEmail error = errors.New("unable to determine github email")
+
 func (g *GithubAuth) HandleCallback(r *http.Request) (*UserInfo, error) {
 	code := r.URL.Query().Get("code")
 	url := generateGithubAccessToken(g.ClientId, g.ClientSecret, code)
@@ -61,7 +66,7 @@ func (g *GithubAuth) HandleCallback(r *http.Request) (*UserInfo, error) {
 	loginInfo := struct {
 		Login string `json:"login"`
 	}{}
-	err = fetchJsonAuthed("https://api.github.com/user", token.AccessToken, &loginInfo)
+	err = fetchJsonAuthed(GithubUserApiUrl, token.AccessToken, &loginInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +75,7 @@ func (g *GithubAuth) HandleCallback(r *http.Request) (*UserInfo, error) {
 		Verified bool   `json:"verified,omitempty"`
 		Primary  bool   `json:"primary,omitempty"`
 	}{}
-	err = fetchJsonAuthed("https://api.github.com/user/emails", token.AccessToken, &emails)
+	err = fetchJsonAuthed(GIthubUserEmailApiUrl, token.AccessToken, &emails)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +87,7 @@ func (g *GithubAuth) HandleCallback(r *http.Request) (*UserInfo, error) {
 		}
 	}
 	if userEmail == "" {
-		return nil, errors.New("unable to determine github email")
+		return nil, ErrCannotFindEmail
 	}
 	return &UserInfo{Username: loginInfo.Login, Email: userEmail}, err
 }
