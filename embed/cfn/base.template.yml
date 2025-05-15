@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  IAM setup with:
+    - Permissions boundary to prevent unrestricted IAM user creation
+    - Developer role (full access, restricted by boundary)
+    - Read-only role
+    - Roles assumeable only by specified principal
+
+Parameters:
+  ManagementRoleArn:
+    Type: String
+    Description: Management role arn
+  DeveloperRoleName:
+    Type: String
+    Description: name for developer role
+  ReadOnlyRoleName:
+    Type: String
+    Description: name for read only role
+
+Resources:
+
+  IAMPermissionsBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: PermissionsBoundary-StrictIAMControls
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # 1. Deny all IAM user creation/deletion, always
+          - Sid: DenyAllIAMUserActions
+            Effect: Deny
+            Action:
+              - iam:CreateUser
+              - iam:DeleteUser
+            Resource: "*"
+
+          # 2. Deny creation of IAM roles without the boundary attached
+          - Sid: DenyCreateRoleWithoutBoundary
+            Effect: Deny
+            Action:
+              - iam:CreateRole
+            Resource: "*"
+            Condition:
+              StringNotEqualsIfExists:
+                iam:PermissionsBoundary: !Sub "arn:aws:iam::${AWS::AccountId}:policy/PermissionsBoundary-StrictIAMControls"
+
+
+  DeveloperRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref DeveloperRoleName
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref ManagementRoleArn
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      PermissionsBoundary: !Ref IAMPermissionsBoundary
+
+
+  ReadOnlyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref ReadOnlyRoleName
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref ManagementRoleArn
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+
+Outputs:
+  DeveloperRoleArn:
+    Description: ARN of the Developer Role
+    Value: !GetAtt DeveloperRole.Arn
+
+  ReadOnlyRoleArn:
+    Description: ARN of the ReadOnly Role
+    Value: !GetAtt ReadOnlyRole.Arn

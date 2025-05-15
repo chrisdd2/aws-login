@@ -3,13 +3,18 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"slices"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/auth"
+	"github.com/chrisdd2/aws-login/aws"
 	"github.com/chrisdd2/aws-login/storage"
 )
 
@@ -20,16 +25,16 @@ type ApiRouter struct {
 	store storage.Storage
 	auth  auth.AuthMethod
 	token auth.LoginToken
-	sts   StsClient
+	sts   aws.StsClient
 }
 
 type userCtx struct{}
 
 var UserCtx userCtx
 
-func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.LoginToken) *ApiRouter {
+func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.LoginToken, stsCl aws.StsClient) *ApiRouter {
 	api := ApiRouter{store: store, auth: authMethod, token: token}
-	api.HandleFunc("/auth/callback", func(w http.ResponseWriter, r *http.Request) {
+	api.HandleFunc("GET /auth/callback", func(w http.ResponseWriter, r *http.Request) {
 		info, err := api.auth.HandleCallback(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -62,26 +67,21 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 			AccessToken: jwtToken,
 		})
 	})
-	api.HandleFunc("/auth/redirect_url", func(w http.ResponseWriter, r *http.Request) {
+	api.HandleFunc("GET /auth/redirect_url", func(w http.ResponseWriter, r *http.Request) {
+		log.Println(api.auth.RedirectUrl())
 		writeJson(w, struct {
 			RedirectUrl string `json:"redirect_url"`
 		}{RedirectUrl: api.auth.RedirectUrl()})
 	})
 
-	startToken := func(r *http.Request) *string {
-		tok := r.URL.Query().Get("startToken")
-		if tok == "" {
-			return nil
-		}
-		return &tok
-	}
+	userMux := http.ServeMux{}
 
-	api.get("/user", func(w http.ResponseWriter, r *http.Request) {
+	userMux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := ctx.Value(UserCtx).(*auth.UserInfo)
 		writeJson(w, &user)
 	})
-	api.get("/user/accounts", func(w http.ResponseWriter, r *http.Request) {
+	userMux.HandleFunc("GET /accounts", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := ctx.Value(UserCtx).(*auth.UserInfo)
 		resp, err := store.ListAccountsForUser(ctx, user.Id, startToken(r))
@@ -90,7 +90,7 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 		}
 		writeJson(w, &resp)
 	})
-	api.get("/user/perms", func(w http.ResponseWriter, r *http.Request) {
+	userMux.HandleFunc("GET /perm", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := ctx.Value(UserCtx).(*auth.UserInfo)
 		accountId := r.URL.Query().Get("accountId")
@@ -100,56 +100,7 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 		}
 		writeJson(w, &resp)
 	})
-
-	api.get("/user/list", func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		info := ctx.Value(UserCtx).(*auth.UserInfo)
-		user, err := store.GetUserByEmail(ctx, info.Email)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		if user.Superuser {
-			http.Error(w, "only admins can list users", http.StatusUnauthorized)
-		}
-		resp, err := store.ListUsers(ctx, "", startToken(r))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		writeJson(w, &resp)
-	})
-	api.get("/accounts", func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		info := ctx.Value(UserCtx).(*auth.UserInfo)
-		user, err := store.GetUserByEmail(ctx, info.Email)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		if user.Superuser {
-			http.Error(w, "only admins can list accounts", http.StatusUnauthorized)
-		}
-	})
-
-	checkAccess := func(ctx context.Context, userId, role, account, scope string, w http.ResponseWriter) bool {
-		ok := false
-		result, err := api.store.ListUserPermissions(ctx, userId, account, storage.UserPermissionAssume, nil)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return false
-		}
-		for _, perm := range result.UserPermissions {
-			if slices.Contains(perm.Value, role) {
-				ok = true
-				break
-			}
-		}
-		if !ok {
-			http.Error(w, "no access to assume", http.StatusForbidden)
-			return false
-		}
-		return true
-	}
-
-	api.post("/perm", func(w http.ResponseWriter, r *http.Request) {
+	userMux.HandleFunc("POST /perm", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		info := ctx.Value(UserCtx).(*auth.UserInfo)
 
@@ -158,13 +109,13 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 			http.Error(w, "unable to parse request "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		user, err := store.GetUserByEmail(ctx, info.Email)
+		user, err := store.GetUserById(ctx, info.Id)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		if (!user.Superuser) && !checkAccess(ctx, user.Id, req.Role, req.AccountId, storage.UserPermissionAdmin, w) {
+		if (!user.Superuser) && !checkAccess(ctx, store, user.Id, req.Role, req.AccountId, storage.UserPermissionAdmin, w) {
 			return
 		}
 		if !user.Superuser && req.Scope == storage.UserPermissionAdmin {
@@ -186,18 +137,57 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 		}
 		writeJson(w, req)
 	})
+	userMux.HandleFunc("GET /list", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		info := ctx.Value(UserCtx).(*auth.UserInfo)
+		user, err := store.GetUserByEmail(ctx, info.Email)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		if user.Superuser {
+			resp, err := store.ListUsers(ctx, "", startToken(r))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			writeJson(w, &resp)
+			return
+		}
+		resp, err := store.GetUserById(ctx, user.Id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		writeJson(w, storage.ListUserResult{Users: []storage.User{resp}})
+	})
 
-	api.get("/aws/credentials", func(w http.ResponseWriter, r *http.Request) {
+	accountMux := http.ServeMux{}
+
+	accountMux.HandleFunc("GET /list", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		info := ctx.Value(UserCtx).(*auth.UserInfo)
+		user, err := store.GetUserByEmail(ctx, info.Email)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		if !user.Superuser {
+			http.Error(w, "only admins can list accounts", http.StatusUnauthorized)
+		}
+		resp, err := store.ListAccounts(ctx, startToken(r))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		writeJson(w, &resp)
+	})
+	accountMux.HandleFunc("GET /{accountId}/role/{roleId}/credentials", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := ctx.Value(UserCtx).(*auth.UserInfo)
-		account := r.URL.Query().Get("account")
-		role := r.URL.Query().Get("role")
+		account := r.PathValue("accountId")
+		role := r.PathValue("roleId")
 
-		if !checkAccess(ctx, user.Id, role, account, storage.UserPermissionAssume, w) {
+		if !checkAccess(ctx, store, user.Id, role, account, storage.UserPermissionAssume, w) {
 			return
 		}
 
-		resp, err := api.sts.AssumeRole(ctx, &sts.AssumeRoleInput{RoleArn: &role, RoleSessionName: &user.Username, DurationSeconds: &sessionDuration})
+		resp, err := api.sts.AssumeRole(ctx, &sts.AssumeRoleInput{RoleArn: &role, RoleSessionName: &user.Username, DurationSeconds: &aws.SessionDuration})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
@@ -209,45 +199,113 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 		}{*resp.Credentials.AccessKeyId, *resp.Credentials.SecretAccessKey, *resp.Credentials.SessionToken}
 		writeJson(w, response)
 	})
-	api.get("/aws/login", func(w http.ResponseWriter, r *http.Request) {
+	accountMux.HandleFunc("GET /{accountId}/role/{roleId}/login", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := ctx.Value(UserCtx).(*auth.UserInfo)
-		account := r.URL.Query().Get("account")
-		role := r.URL.Query().Get("role")
+		account := r.PathValue("accountId")
+		role := r.PathValue("roleId")
 
-		if !checkAccess(ctx, user.Id, role, account, storage.UserPermissionAssume, w) {
+		if !checkAccess(ctx, store, user.Id, role, account, storage.UserPermissionAssume, w) {
 			return
 		}
 
-		url, err := generateSigninUrl(ctx, api.sts, role, user.Username, awsConsoleUrl)
+		url, err := aws.GenerateSigninUrl(ctx, api.sts, role, user.Username, awsConsoleUrl)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		w.Header().Add("Location", url)
-		http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+		writeJson(w, struct {
+			SigninUrl string `json:"signin_url"`
+		}{url})
 	})
+	accountMux.HandleFunc("GET /bootstrap_template", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		info := ctx.Value(UserCtx).(*auth.UserInfo)
+		user, err := store.GetUserById(ctx, info.Id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if !user.Superuser {
+			http.Error(w, "only superuser can access this endpoint", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Add("Content-Type", "application/yaml")
+		err = aws.BootstrapTemplate(ctx, stsCl, w)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	})
+	accountMux.HandleFunc("GET /{accountId}/ops", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		account := r.PathValue("accountId")
+		acc, err := store.GetAccountById(ctx, account)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// need to assume the management role
+		cfg, err := config.LoadDefaultConfig(ctx, config.WithCredentialsProvider(stscreds.NewAssumeRoleProvider(stsCl, acc.ArnForRole(aws.OpsRole))))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		cfnCl := cloudformation.NewFromConfig(cfg)
+		stackName := aws.StackName
+		resp, err := cfnCl.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: &stackName})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJson(w, struct {
+			Status string `json:"status"`
+		}{Status: string(resp.Stacks[0].StackStatus)})
+	})
+
+	accountMux.HandleFunc("POST /{accountId}/ops", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		info := ctx.Value(UserCtx).(*auth.UserInfo)
+		account := r.PathValue("accountId")
+		user, err := store.GetUserById(ctx, info.Id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if !user.Superuser {
+			http.Error(w, "only superuser can access this endpoint", http.StatusInternalServerError)
+			return
+		}
+		acc, err := store.GetAccountById(ctx, account)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		cfg, err := config.LoadDefaultConfig(ctx, config.WithCredentialsProvider(stscreds.NewAssumeRoleProvider(stsCl, acc.ArnForRole(aws.OpsRole))))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		cfnCl := cloudformation.NewFromConfig(cfg)
+		err = aws.DeployBaseStack(ctx, cfnCl)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJson(w, struct {
+			StackName string `json:"stackName"`
+		}{StackName: aws.StackName})
+	})
+
+	api.Handle("/user/", http.StripPrefix("/user", protectedEndpoint(token, &userMux)))
+	api.Handle("/account/", http.StripPrefix("/account", protectedEndpoint(token, &accountMux)))
 	return &api
 }
 
-func (router *ApiRouter) handle(method, pattern string, h http.HandlerFunc) {
-	router.HandleFunc(pattern, protectedEndpoint(router.token, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != method {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		h(w, r)
-	}))
-}
-func (router *ApiRouter) get(pattern string, h http.HandlerFunc) {
-	router.handle("GET", pattern, h)
-}
-func (router *ApiRouter) post(pattern string, h http.HandlerFunc) {
-	router.handle("POST", pattern, h)
-}
-
-func protectedEndpoint(token auth.LoginToken, h http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func protectedEndpoint(token auth.LoginToken, h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if authHeader == "" {
 			http.Error(w, "missing Authorization header", http.StatusUnauthorized)
@@ -260,7 +318,7 @@ func protectedEndpoint(token auth.LoginToken, h http.HandlerFunc) http.HandlerFu
 			return
 		}
 		h.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), UserCtx, &user)))
-	}
+	})
 }
 
 func writeJson(w http.ResponseWriter, v any) {
@@ -269,6 +327,34 @@ func writeJson(w http.ResponseWriter, v any) {
 	if err := enc.Encode(v); err != nil {
 		log.Println(err)
 	}
+}
+
+func startToken(r *http.Request) *string {
+	tok := r.URL.Query().Get("startToken")
+	if tok == "" {
+		return nil
+	}
+	return &tok
+}
+
+func checkAccess(ctx context.Context, store storage.Storage, userId, role, account, scope string, w http.ResponseWriter) bool {
+	ok := false
+	result, err := store.ListUserPermissions(ctx, userId, account, storage.UserPermissionAssume, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return false
+	}
+	for _, perm := range result.UserPermissions {
+		if slices.Contains(perm.Value, role) {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		http.Error(w, fmt.Sprintf("no access for [%s]", scope), http.StatusForbidden)
+		return false
+	}
+	return true
 }
 
 func parseRequest[V any](r *http.Request, v V) (V, error) {

@@ -1,0 +1,31 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  aws-login Bootstrap
+  Creates an IAM role with AdministratorAccess.
+  The role will be used to setup the account
+
+Parameters:
+  AwsLoginPrincipal:
+    Type: String
+    Description: ARN of the IAM user or role that can assume this admin role
+    Default: {{.Principal}}
+
+Resources:
+  OpsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: {{.OpsRoleName}}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref AwsLoginPrincipal
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+
+Outputs:
+  OpsRoleArn:
+    Description: ARN of the management role
+    Value: !GetAtt OpsRole.Arn

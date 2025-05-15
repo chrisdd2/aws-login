@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 type User struct {
@@ -12,13 +13,16 @@ type User struct {
 	Tags      string `json:"tags,omitempty"`
 	Superuser bool   `json:"superuser,omitempty"`
 }
+
 type Account struct {
-	Id                string            `json:"id,omitempty"`
-	AwsAccountId      int               `json:"aws_account_id,omitempty"`
-	ManagementRoleArn string            `json:"management_role_arn,omitempty"`
-	Roles             []string          `json:"roles,omitempty"`
-	FriendlyName      string            `json:"friendly_name,omitempty"`
-	Tags              map[string]string `json:"tags,omitempty"`
+	Id           string            `json:"id,omitempty"`
+	AwsAccountId int               `json:"aws_account_id,omitempty"`
+	FriendlyName string            `json:"friendly_name,omitempty"`
+	Tags         map[string]string `json:"tags,omitempty"`
+}
+
+func (acc Account) ArnForRole(roleName string) string {
+	return fmt.Sprintf("arn:aws:iam::%d:role/%s", acc.AwsAccountId, roleName)
 }
 
 type UserPermissionId struct {
@@ -37,16 +41,16 @@ type UserPermission struct {
 	Value []string `json:"value,omitempty"`
 }
 type ListUserResult struct {
-	Users      []User
-	StartToken *string
+	Users      []User  `json:"user"`
+	StartToken *string `json:"start_token,omitempty"`
 }
 type ListUserPermissionResult struct {
-	UserPermissions []UserPermission
-	StartToken      *string
+	UserPermissions []UserPermission `json:"user_permissions"`
+	StartToken      *string          `json:"start_token,omitempty"`
 }
 type ListAccountResult struct {
-	Accounts   []Account
-	StartToken *string
+	Accounts   []Account `json:"accounts"`
+	StartToken *string   `json:"start_token,omitempty"`
 }
 
 type Storage interface {
@@ -57,6 +61,7 @@ type Storage interface {
 	ListAccountsForUser(ctx context.Context, userId string, startToken *string) (ListAccountResult, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserById(ctx context.Context, userId string) (User, error)
+	GetAccountById(ctx context.Context, accountId string) (Account, error)
 
 	// write
 	PutAccount(ctx context.Context, acc Account) (Account, error)
@@ -66,4 +71,5 @@ type Storage interface {
 	DeleteUser(ctx context.Context, userId string) error
 }
 
-var ErrUserNotFound = errors.New("not found")
+var ErrUserNotFound = errors.New("user not found")
+var ErrAccountNotFound = errors.New("account not found")

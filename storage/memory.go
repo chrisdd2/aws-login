@@ -181,6 +181,17 @@ func (m *MemoryStorage) GetUserById(ctx context.Context, userId string) (User, e
 	}
 	return User{}, ErrUserNotFound
 }
+func (m *MemoryStorage) GetAccountById(ctx context.Context, accountId string) (Account, error) {
+	if accountId == "" {
+		return Account{}, ErrAccountNotFound
+	}
+	for _, acc := range m.accounts {
+		if acc.Id == accountId {
+			return acc, nil
+		}
+	}
+	return Account{}, ErrAccountNotFound
+}
 
 func (m *MemoryStorage) PutAccount(ctx context.Context, account Account) (Account, error) {
 	for i, acc := range m.accounts {

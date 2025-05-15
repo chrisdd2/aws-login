@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/auth"
 	"github.com/chrisdd2/aws-login/embed"
 	"github.com/chrisdd2/aws-login/storage"
@@ -74,13 +77,18 @@ func main() {
 		os.Exit(1)
 	}()
 
+	cfg, err := config.LoadDefaultConfig(context.Background())
+	if err != nil {
+		log.Fatalln(err)
+	}
+
 	apiRouter := NewApiRouter(store, &auth.GithubAuth{
 		ClientSecret: os.Getenv("CLIENT_SECRET"),
 		ClientId:     os.Getenv("CLIENT_ID"),
 	},
 		auth.LoginToken{
 			Key: []byte("hello"),
-		},
+		}, sts.NewFromConfig(cfg),
 	)
 	assetsFS, err := fs.Sub(embed.AssetsFs, "assets")
 	if err != nil {
@@ -91,9 +99,17 @@ func main() {
 	mux.Handle("/api/", http.StripPrefix("/api", apiRouter))
 	mux.Handle("/", http.FileServerFS(assetsFS))
 
-	addr := "0.0.0.0:8080"
+	addr := envOrDefault("APP_LISTEN_ADDR", "0.0.0.0:8080")
 	log.Printf("listening [http://%s]\n", addr)
 	if err := http.ListenAndServe(addr, loggerWrap(mux)); err != nil {
 		log.Fatalln(err)
 	}
+}
+
+func envOrDefault(name string, def string) string {
+	v := os.Getenv(name)
+	if v != "" {
+		return v
+	}
+	return def
 }

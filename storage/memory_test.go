@@ -18,7 +18,7 @@ func TestSimple(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, usr.Id)
 
-	acc, err := m.PutAccount(ctx, storage.Account{AwsAccountId: 123456789123, ManagementRoleArn: "arn:something", FriendlyName: "mine"})
+	acc, err := m.PutAccount(ctx, storage.Account{AwsAccountId: 123456789123, FriendlyName: "mine"})
 	require.NoError(t, err)
 	require.NotEmpty(t, acc.Id)
 
