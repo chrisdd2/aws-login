@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 )
@@ -103,5 +104,9 @@ func fetchJsonAuthed(url string, accessToken string, v any) error {
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		data, err := io.ReadAll(resp.Body)
+		return errors.Join(err, errors.New(string(data)))
+	}
 	return json.NewDecoder(resp.Body).Decode(v)
 }
