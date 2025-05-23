@@ -13,7 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cfnTypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
-	"github.com/chrisdd2/aws-login/embed"
+	"github.com/chrisdd2/aws-login/aws/cfn"
 )
 
 var cfnTemplates *template.Template
@@ -29,7 +29,7 @@ const (
 )
 
 func init() {
-	cfnTemplates = template.Must(template.ParseFS(embed.CloudFormationFs, "cfn/*.template"))
+	cfnTemplates = template.Must(template.ParseFS(cfn.CloudFormationFs, "*.template"))
 }
 
 func PrincipalFromSts(arn string) string {

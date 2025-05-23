@@ -321,13 +321,7 @@ func protectedEndpoint(token auth.LoginToken, h http.Handler) http.Handler {
 	})
 }
 
-func writeJson(w http.ResponseWriter, v any) {
-	w.Header().Add("Content-Type", "application/json")
-	enc := json.NewEncoder(w)
-	if err := enc.Encode(v); err != nil {
-		log.Println(err)
-	}
-}
+
 
 func startToken(r *http.Request) *string {
 	tok := r.URL.Query().Get("startToken")

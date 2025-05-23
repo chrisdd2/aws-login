@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
@@ -67,4 +68,22 @@ func (b *blockNotFoundWriter) WriteHeader(statusCode int) {
 		return
 	}
 	b.didBlock = true
+}
+func contentTypeHtml(w http.ResponseWriter) {
+	w.Header().Add("Content-Type", "text/html; charset=utf-8")
+}
+func contentTypeJson(w http.ResponseWriter) {
+	w.Header().Add("Content-Type", "application/json")
+}
+func writeHtml(w http.ResponseWriter, v []byte) (int, error) {
+	contentTypeHtml(w)
+	return w.Write(v)
+}
+
+func writeJson(w http.ResponseWriter, v any) {
+	contentTypeJson(w)
+	enc := json.NewEncoder(w)
+	if err := enc.Encode(v); err != nil {
+		log.Println(err)
+	}
 }
