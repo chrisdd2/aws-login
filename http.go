@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -11,12 +13,14 @@ import (
 type captureStatusCodeWriter struct {
 	http.ResponseWriter
 	statusCode int
+	buf        io.Writer
 }
 
 func (w *captureStatusCodeWriter) Write(data []byte) (int, error) {
 	if w.statusCode == 0 {
 		w.WriteHeader(http.StatusOK)
 	}
+	w.buf.Write(data)
 	return w.ResponseWriter.Write(data)
 }
 
@@ -37,11 +41,11 @@ func loadStorage(file string) (*storage.MemoryStorage, error) {
 
 func loggerWrap(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writer := captureStatusCodeWriter{ResponseWriter: w}
+		writer := captureStatusCodeWriter{ResponseWriter: w, buf: &bytes.Buffer{}}
 		// cors
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		handler.ServeHTTP(&writer, r)
-		log.Printf("%s: %d %s %s\n", r.RemoteAddr, writer.statusCode, r.Method, r.URL.Path)
+		log.Printf("%s: %d %s %s data: %s\n", r.RemoteAddr, writer.statusCode, r.Method, r.URL.Path, writer.buf)
 	})
 }
 

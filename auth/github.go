@@ -106,7 +106,7 @@ func fetchJsonAuthed(url string, accessToken string, v any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		data, err := io.ReadAll(resp.Body)
-		return errors.Join(err, errors.New(string(data)))
+		return errors.Join(err, fmt.Errorf("fetchJsonAuthed [%s]", string(data)))
 	}
 	return json.NewDecoder(resp.Body).Decode(v)
 }
