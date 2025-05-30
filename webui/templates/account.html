@@ -1,0 +1,61 @@
+{{ define "content" }}
+<div class="max-w-3xl mx-auto bg-white dark:bg-gray-800 shadow-md rounded-lg p-6">
+    <h1 class="text-2xl font-bold text-gray-800 dark:text-white mb-4">
+        {{ .Account.FriendlyName }}
+    </h1>
+
+    <div class="space-y-4 text-sm text-gray-700 dark:text-gray-200">
+        <div class="flex justify-between">
+            <span class="font-medium">AWS Account ID:</span>
+            <span>{{ .Account.AwsAccountId }}</span>
+        </div>
+        <div class="flex justify-between">
+            <span class="font-medium">Enabled:</span>
+            {{ if .Account.Enabled }}
+            <span class="text-green-600 dark:text-green-400 font-semibold">Yes</span>
+            {{ else }}
+            <span class="text-red-600 dark:text-red-400 font-semibold">No</span>
+            {{ end }}
+        </div>
+        <div>
+            <span class="font-medium">Tags:</span>
+            <ul class="ml-4 list-disc mt-1 space-y-1">
+                {{ range $key, $value := .Account.Tags }}
+                <li><span class="text-gray-600 dark:text-gray-300">{{ $key }}:</span> {{ $value }}</li>
+                {{ else }}
+                <li class="italic text-gray-400">No tags</li>
+                {{ end }}
+            </ul>
+        </div>
+    </div>
+
+    <div class="mt-6 flex flex-wrap gap-4">
+        {{ if .Account.Enabled }}
+        <form method="POST" action="/accounts/{{ .Account.Id }}/disable">
+            <button class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition">
+                Disable Account
+            </button>
+        </form>
+        {{ else }}
+        <form method="POST" action="/accounts/{{ .Account.Id }}/enable">
+            <button class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition">
+                Enable Account
+            </button>
+        </form>
+        {{ end }}
+
+
+        {{ if .User.Superuser }}
+        <a href="/accounts/{{ .Account.Id }}/cloudformation" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition" download="template.yml"> Export CloudFormation Template </a>
+        <form method="POST" action="/accounts/{{ .Account.Id }}/bootstrap">
+            <button class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition">
+                Bootstrap Account
+            </button>
+        </form>
+        {{ end }}
+    </div>
+</div>
+{{ end }}
+
+
+{{template "layout" .}}

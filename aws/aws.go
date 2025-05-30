@@ -3,7 +3,9 @@ package aws
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -52,6 +54,10 @@ func GenerateSigninUrl(ctx context.Context, cl StsClient, roleArn string, sessio
 		return "", err
 	}
 	defer awsResp.Body.Close()
+	if awsResp.StatusCode != http.StatusOK {
+		data, err := io.ReadAll(awsResp.Body)
+		return "", errors.Join(err, errors.New(string(data)))
+	}
 
 	signinToken := struct {
 		SigninToken string `json:"SigninToken"`
@@ -69,4 +75,27 @@ func GenerateSigninUrl(ctx context.Context, cl StsClient, roleArn string, sessio
 		"SigninToken": []string{signinToken.SigninToken},
 	}
 	return fmt.Sprintf("%s?%s", signInUrl, values.Encode()), nil
+}
+
+type AwsRole string
+
+func (d AwsRole) String() string {
+	if d == DeveloperRole {
+		return "developer"
+	}
+	if d == ReadOnlyRole {
+		return "read-only"
+	}
+	return string(d)
+}
+
+func (d AwsRole) RealName() string {
+	if d == "developer" {
+		return DeveloperRole
+	}
+	if d == "read-only" {
+		return ReadOnlyRole
+	}
+	return string(d)
+
 }

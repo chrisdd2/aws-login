@@ -1,0 +1,37 @@
+{{ define "content" }}
+<div class="w-full">
+  <div class="overflow-x-auto">
+    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+      <thead class="bg-gray-100 dark:bg-gray-700">
+        <tr>
+          <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Role Name</th>
+          <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Arn</th>
+          <th class="px-4 py-2 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
+        {{ range .Roles }}
+        <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
+          <td class="px-4 py-2 text-sm text-gray-900 dark:text-gray-100 text-nowrap">{{ .Name }}</td>
+          <td class="px-4 py-2 text-sm text-gray-900 dark:text-gray-100 text-ellipsis overflow-hidden ">{{ .Arn }}</td>
+          <td class="px-4 py-2 text-sm space-x-2 flex flex-row justify-items-center items-center">
+            {{ if .CanAssume}}
+            <a href="/accounts/{{ .AccountId }}/console?roleName={{.Name}}"
+              class="text-indigo-600 hover:underline dark:text-indigo-400">Console</a>
+            <a href="/accounts/{{ .AccountId }}/credentials?roleName={{.Name}}"
+              class="text-blue-600 hover:underline dark:text-blue-400" download>Credentials</a>
+            {{end}}
+            {{ if .CanGrant}}
+            <a href="/accounts/{{ .AccountId }}/grant?roleName={{.Name}}"
+              class="text-blue-600 hover:underline dark:text-blue-400">Grant</a>
+            {{end}}
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+</div>
+{{ end }}
+
+{{template "layout" . }}

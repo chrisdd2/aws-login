@@ -18,6 +18,7 @@ type Account struct {
 	Id           string            `json:"id,omitempty"`
 	AwsAccountId int               `json:"aws_account_id,omitempty"`
 	FriendlyName string            `json:"friendly_name,omitempty"`
+	Enabled      bool              `json:"enabled,omitempty"`
 	Tags         map[string]string `json:"tags,omitempty"`
 }
 
@@ -64,10 +65,9 @@ type Storage interface {
 	GetAccountById(ctx context.Context, accountId string) (Account, error)
 
 	// write
-	PutAccount(ctx context.Context, acc Account) (Account, error)
-	PutUser(ctx context.Context, usr User) (User, error)
-	PutUserPermission(ctx context.Context, perm UserPermission) error
-	DeleteUser(ctx context.Context, userId string) error
+	PutAccount(ctx context.Context, acc Account, delete bool) (Account, error)
+	PutUser(ctx context.Context, usr User, delete bool) (User, error)
+	PutUserPermission(ctx context.Context, perm UserPermission, delete bool) error
 }
 
 var ErrUserNotFound = errors.New("user not found")

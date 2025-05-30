@@ -19,6 +19,9 @@ Parameters:
   PermissionBoundaryName:
     Type: String
     Description: name for the permission boundary on iam roles
+  MaxSessionDuration:
+    Type: Number
+    Description: session duration for roles
 
 Resources:
 
@@ -53,7 +56,16 @@ Resources:
             Condition:
               StringNotEqualsIfExists:
                 iam:PermissionsBoundary: !Sub "arn:aws:iam::${AWS::AccountId}:policy/${PermissionBoundaryName}"
-
+          - Sid: DenyBoundaryActions
+            Effect: Deny
+            Action:
+              - iam:*Boundary
+            Resource: "*"
+          - Sid: AllowEverythingElse
+            Effect: Allow
+            Action:
+              - "*"
+            Resource: "*"
 
 
   DeveloperRole:
@@ -70,6 +82,7 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AdministratorAccess
       PermissionsBoundary: !Ref IAMPermissionsBoundary
+      MaxSessionDuration: !Ref MaxSessionDuration
 
 
   ReadOnlyRole:
@@ -85,6 +98,8 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/ReadOnlyAccess
+      PermissionsBoundary: !Ref IAMPermissionsBoundary
+      MaxSessionDuration: !Ref MaxSessionDuration
 
 Outputs:
   DeveloperRoleArn:

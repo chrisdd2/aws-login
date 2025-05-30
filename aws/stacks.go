@@ -6,14 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cfnTypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
-	"github.com/chrisdd2/aws-login/embed"
+	"github.com/aws/smithy-go"
+	"github.com/chrisdd2/aws-login/aws/cfn"
 )
 
 var cfnTemplates *template.Template
@@ -23,13 +26,13 @@ const (
 	uniqueId      = "8db7bc11-acf5-4c7a-be46-967f44e33028"
 	StackName     = "aws-login-stack-" + uniqueId
 	OpsRole       = "ops-role-role-" + uniqueId
-	developerRole = "developer-role-" + uniqueId
-	readOnlyRole  = "read-only-role-" + uniqueId
+	DeveloperRole = "developer-role-" + uniqueId
+	ReadOnlyRole  = "read-only-role-" + uniqueId
 	boundaryName  = "iam-role-boundary-" + uniqueId
 )
 
 func init() {
-	cfnTemplates = template.Must(template.ParseFS(embed.CloudFormationFs, "cfn/*.template"))
+	cfnTemplates = template.Must(template.ParseFS(cfn.CloudFormationFs, "*.template"))
 }
 
 func PrincipalFromSts(arn string) string {
@@ -62,7 +65,7 @@ type CfnClient interface {
 	DescribeStacks(ctx context.Context, params *cloudformation.DescribeStacksInput, optFns ...func(*cloudformation.Options)) (*cloudformation.DescribeStacksOutput, error)
 }
 
-func DeployBaseStack(ctx context.Context, cfnCl CfnClient) error {
+func DeployBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn string) error {
 	buf := bytes.Buffer{}
 	err := cfnTemplates.ExecuteTemplate(&buf, "base.template", nil)
 	if err != nil {
@@ -73,23 +76,26 @@ func DeployBaseStack(ctx context.Context, cfnCl CfnClient) error {
 	_, err = cfnCl.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: stackName})
 	update := true
 	if err != nil {
-		var error *cfnTypes.StackNotFoundException
-		if !errors.As(err, &error) {
+		var apiErr smithy.APIError
+		if !errors.As(err, &apiErr) {
 			return err
 		}
-		// stack doesn't exist
+		if !(apiErr.ErrorCode() == "ValidationError" && strings.Contains(apiErr.ErrorMessage(), "does not exist")) {
+			return err
+		}
 		update = false
 	}
 	cfnParams := []cfnTypes.Parameter{
-		{ParameterKey: aws.String("DeveloperRoleName"), ParameterValue: aws.String(developerRole)},
-		{ParameterKey: aws.String("ReadOnlyRoleName"), ParameterValue: aws.String(readOnlyRole)},
-		{ParameterKey: aws.String("ManagementRoleName"), ParameterValue: aws.String(OpsRole)},
+		{ParameterKey: aws.String("DeveloperRoleName"), ParameterValue: aws.String(DeveloperRole)},
+		{ParameterKey: aws.String("ReadOnlyRoleName"), ParameterValue: aws.String(ReadOnlyRole)},
+		{ParameterKey: aws.String("ManagementRoleArn"), ParameterValue: &managementRoleArn},
 		{ParameterKey: aws.String("PermissionBoundaryName"), ParameterValue: aws.String(boundaryName)},
+		{ParameterKey: aws.String("MaxSessionDuration"), ParameterValue: aws.String(strconv.Itoa(int((time.Hour * 8) / time.Second)))},
 	}
 	if update {
-		_, err = cfnCl.UpdateStack(ctx, &cloudformation.UpdateStackInput{StackName: stackName, TemplateBody: &tmpl, Parameters: cfnParams})
+		_, err = cfnCl.UpdateStack(ctx, &cloudformation.UpdateStackInput{StackName: stackName, TemplateBody: &tmpl, Parameters: cfnParams, Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam}})
 		return err
 	}
-	_, err = cfnCl.CreateStack(ctx, &cloudformation.CreateStackInput{StackName: stackName, TemplateBody: &tmpl, Parameters: cfnParams})
+	_, err = cfnCl.CreateStack(ctx, &cloudformation.CreateStackInput{StackName: stackName, TemplateBody: &tmpl, Parameters: cfnParams, Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam}})
 	return err
 }
