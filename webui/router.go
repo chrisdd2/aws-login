@@ -1,12 +1,13 @@
 package webui
 
 import (
-	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"slices"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/auth"
 	"github.com/chrisdd2/aws-login/aws"
 	"github.com/chrisdd2/aws-login/storage"
@@ -14,6 +15,7 @@ import (
 )
 
 const cookieName = "AwsLoginAuthCookie"
+const tokenExpirationTime = time.Hour * 8
 
 type WebUi struct {
 	http.ServeMux
@@ -28,11 +30,11 @@ func NewWebUi(token auth.LoginToken, store storage.Storage, idp auth.AuthMethod,
 	guard := authGuard{token: token, idp: idp}
 	ui.Handle("GET /accounts/{accountId}/roles", guard.guard(ui.handleRoles))
 	ui.Handle("GET /accounts/{accountId}/console", guard.guard(ui.handleConsoleLogin))
-	ui.Handle("GET /accounts/{accountId}/credentials", guard.guard(ui.handleRoles))
+	ui.Handle("GET /accounts/{accountId}/credentials", guard.guard(ui.handleCredentials))
 	ui.Handle("GET /accounts/", guard.guard(ui.handleAccounts))
 	ui.Handle("GET /login/", guard.optional(ui.handleLogin))
 	ui.Handle("GET /expired/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		renderTemplate(w, "expired.html", templates.TemplateData("Expired"))
+		renderTemplate(w, "expired.html", templates.TemplateData(nil, "Expired"))
 	}))
 	ui.Handle("GET /logout/", guard.optional(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, ok := userFromRequest(r)
@@ -76,13 +78,14 @@ func (ui *WebUi) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info.Id = usr.Id
+	info.Superuser = usr.Superuser
 
 	access_token, err := ui.token.SignToken(*info)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	expiredTime := time.Now().Add(time.Hour * 8)
+	expiredTime := time.Now().Add(tokenExpirationTime)
 	cookie := http.Cookie{
 		Name:     cookieName,
 		Value:    access_token,
@@ -90,7 +93,7 @@ func (ui *WebUi) handleCallback(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		Expires:  expiredTime,
-		MaxAge:   int((time.Hour * 8) / time.Second),
+		MaxAge:   int((tokenExpirationTime) / time.Second),
 	}
 	http.SetCookie(w, &cookie)
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
@@ -104,7 +107,7 @@ func (ui *WebUi) handleAccounts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	data := templates.TemplateData("Accounts")
+	data := templates.TemplateData(user, "Accounts")
 	data.Logged = true
 	data.User = user
 	data.Accounts = listAccounts.Accounts
@@ -150,6 +153,48 @@ func (ui *WebUi) handleConsoleLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
+func (ui *WebUi) handleCredentials(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	accountId := r.PathValue("accountId")
+	roleName := aws.AwsRole(r.URL.Query().Get("roleName")).RealName()
+	user, _ := userFromRequest(r)
+
+	acc, err := ui.store.GetAccountById(ctx, accountId)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	listPerms, err := ui.store.ListUserPermissions(ctx, user.Id, accountId, storage.UserPermissionAssume, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// it should be only one perm
+	if len(listPerms.UserPermissions) != 1 {
+		http.Error(w, "no permission in this account", http.StatusUnauthorized)
+		return
+	}
+
+	if !slices.Contains(listPerms.UserPermissions[0].Value, roleName) {
+		http.Error(w, "cannot assume this role", http.StatusUnauthorized)
+		return
+	}
+
+	arn := acc.ArnForRole(roleName)
+	resp, err := ui.sts.AssumeRole(ctx, &sts.AssumeRoleInput{RoleArn: &arn, RoleSessionName: &user.Username})
+	if err != nil {
+		http.Error(w, "unable to assume role "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Add("Content-Type", "text/plain")
+	fmt.Fprintf(w, `export AWS_ACCESS_KEY_ID=%s\nexport AWS_SECRET_ACCESS_KEY=%s\nexport AWS_SESSION_TOKEN=%s`,
+		*resp.Credentials.AccessKeyId,
+		*resp.Credentials.SecretAccessKey,
+		*resp.Credentials.SessionToken,
+	)
+}
+
 func (ui *WebUi) handleRoles(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	accountId := r.PathValue("accountId")
@@ -176,9 +221,8 @@ func (ui *WebUi) handleRoles(w http.ResponseWriter, r *http.Request) {
 	for _, role := range listPerms.UserPermissions[0].Value {
 		roles = append(roles, templates.Role{Arn: acc.ArnForRole(role), Name: aws.AwsRole(role).String(), AccountId: acc.Id})
 	}
-	data := templates.TemplateData("Roles")
+	data := templates.TemplateData(user, "Roles")
 	data.Logged = true
-	data.User = user
 	data.Roles = roles
 	renderTemplate(w, "roles.html", data)
 }
@@ -188,74 +232,9 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	user, ok := userFromRequest(r)
-	data := templates.TemplateData("Home")
-	data.Logged = ok
-	data.User = user
+	user, _ := userFromRequest(r)
+	data := templates.TemplateData(user, "Home")
 	renderTemplate(w, "index.html", data)
-}
-
-type userContext struct{}
-
-var UserContext userContext
-
-func userFromRequest(r *http.Request) (*auth.UserInfo, bool) {
-	usr, ok := r.Context().Value(UserContext).(*auth.UserClaims)
-	if ok {
-		return &usr.UserInfo, true
-	}
-	return &auth.UserInfo{}, false
-}
-
-type authGuard struct {
-	token auth.LoginToken
-	idp   auth.AuthMethod
-}
-
-func (g *authGuard) optional(h http.HandlerFunc) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie(cookieName)
-		if err == http.ErrNoCookie {
-			h.ServeHTTP(w, r)
-			return
-		}
-		if err != nil {
-			http.Error(w, "error while extracting cookies", http.StatusInternalServerError)
-			log.Println(err)
-			return
-		}
-		user, err := g.token.Validate(cookie.Value)
-		if err != nil {
-			http.Error(w, "unable to validate authentication cookie", http.StatusUnauthorized)
-			log.Println(err)
-			return
-		}
-		h.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), UserContext, user)))
-	})
-}
-
-func (g *authGuard) guard(h http.HandlerFunc) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie(cookieName)
-		if err != nil {
-			renderTemplate(w, "login.html", templates.TemplateData("Login"))
-			return
-		}
-		user, err := g.token.Validate(cookie.Value)
-		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if user.ExpiresAt.Before(time.Now().UTC()) {
-			// expired
-			cookie.MaxAge = -1
-			cookie.Path = "/"
-			http.SetCookie(w, cookie)
-			http.Redirect(w, r, "/expired", http.StatusOK)
-			return
-		}
-		h.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), UserContext, user)))
-	})
 }
 
 func renderTemplate(w http.ResponseWriter, name string, data any) {

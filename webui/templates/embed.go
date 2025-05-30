@@ -73,8 +73,8 @@ type MenuItem struct {
 	Path  string
 }
 
-func TemplateData(title string) *templateData {
-	return &templateData{
+func TemplateData(user *auth.UserInfo, title string) *templateData {
+	d := templateData{
 		Title:       title,
 		LoginPath:   "/login",
 		LogoutPath:  "/logout",
@@ -82,5 +82,13 @@ func TemplateData(title string) *templateData {
 		Menu: []MenuItem{
 			{Label: "Accounts", Path: "/accounts"},
 		},
+		User: user,
 	}
+	if d.User != nil && d.User.Superuser {
+		d.Menu = append(d.Menu, MenuItem{
+			Label: "Admin", Path: "/admin",
+		})
+		d.Logged = true
+	}
+	return &d
 }
