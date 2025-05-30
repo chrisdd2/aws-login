@@ -15,10 +15,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/auth"
 	"github.com/chrisdd2/aws-login/aws"
+	"github.com/chrisdd2/aws-login/internal"
 	"github.com/chrisdd2/aws-login/storage"
 )
 
 const awsConsoleUrl = "https://console.aws.amazon.com/console/home"
+const cookieName = "aws-login-cookie"
 
 type ApiRouter struct {
 	http.ServeMux
@@ -44,8 +46,8 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 		if err == storage.ErrUserNotFound {
 			usr.Email = info.Email
 			usr.Username = info.Username
-			usr, err = store.PutUser(r.Context(), usr)
-			log.Println(usr)
+			usr, err = store.PutUser(r.Context(), usr, false)
+			log.Printf("created user [%s]\n", usr.Username)
 		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -57,7 +59,7 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJson(w, struct {
+		internal.WriteJson(w, struct {
 			Label       string `json:"label"`
 			Email       string `json:"email"`
 			AccessToken string `json:"access_token"`
@@ -69,7 +71,7 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 	})
 	api.HandleFunc("GET /auth/redirect_url", func(w http.ResponseWriter, r *http.Request) {
 		log.Println(api.auth.RedirectUrl())
-		writeJson(w, struct {
+		internal.WriteJson(w, struct {
 			RedirectUrl string `json:"redirect_url"`
 		}{RedirectUrl: api.auth.RedirectUrl()})
 	})
@@ -79,7 +81,7 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 	userMux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := ctx.Value(UserCtx).(*auth.UserInfo)
-		writeJson(w, &user)
+		internal.WriteJson(w, &user)
 	})
 	userMux.HandleFunc("GET /accounts", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -88,7 +90,7 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		writeJson(w, &resp)
+		internal.WriteJson(w, &resp)
 	})
 	userMux.HandleFunc("GET /perm", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -98,7 +100,7 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		writeJson(w, &resp)
+		internal.WriteJson(w, &resp)
 	})
 	userMux.HandleFunc("POST /perm", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -130,12 +132,12 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 				Scope:     req.Scope,
 			},
 			Value: []string{req.Role},
-		})
+		}, false)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJson(w, req)
+		internal.WriteJson(w, req)
 	})
 	userMux.HandleFunc("GET /list", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -149,14 +151,14 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
-			writeJson(w, &resp)
+			internal.WriteJson(w, &resp)
 			return
 		}
 		resp, err := store.GetUserById(ctx, user.Id)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		writeJson(w, storage.ListUserResult{Users: []storage.User{resp}})
+		internal.WriteJson(w, storage.ListUserResult{Users: []storage.User{resp}})
 	})
 
 	accountMux := http.ServeMux{}
@@ -175,7 +177,7 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		writeJson(w, &resp)
+		internal.WriteJson(w, &resp)
 	})
 	accountMux.HandleFunc("GET /{accountId}/role/{roleId}/credentials", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -197,7 +199,7 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 			SecretAccessKey string `json:"secret_access_key,omitempty"`
 			SessionToken    string `json:"session_token,omitempty"`
 		}{*resp.Credentials.AccessKeyId, *resp.Credentials.SecretAccessKey, *resp.Credentials.SessionToken}
-		writeJson(w, response)
+		internal.WriteJson(w, response)
 	})
 	accountMux.HandleFunc("GET /{accountId}/role/{roleId}/login", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -214,7 +216,7 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJson(w, struct {
+		internal.WriteJson(w, struct {
 			SigninUrl string `json:"signin_url"`
 		}{url})
 	})
@@ -259,7 +261,7 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJson(w, struct {
+		internal.WriteJson(w, struct {
 			Status string `json:"status"`
 		}{Status: string(resp.Stacks[0].StackStatus)})
 	})
@@ -294,7 +296,7 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJson(w, struct {
+		internal.WriteJson(w, struct {
 			StackName string `json:"stackName"`
 		}{StackName: aws.StackName})
 	})
@@ -320,8 +322,6 @@ func protectedEndpoint(token auth.LoginToken, h http.Handler) http.Handler {
 		h.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), UserCtx, &user)))
 	})
 }
-
-
 
 func startToken(r *http.Request) *string {
 	tok := r.URL.Query().Get("startToken")

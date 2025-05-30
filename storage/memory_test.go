@@ -14,11 +14,11 @@ func TestSimple(t *testing.T) {
 	usr, err := m.PutUser(ctx, storage.User{
 		Email:    "me@me.com",
 		Username: "me@me.com",
-	})
+	}, false)
 	require.NoError(t, err)
 	require.NotEmpty(t, usr.Id)
 
-	acc, err := m.PutAccount(ctx, storage.Account{AwsAccountId: 123456789123, FriendlyName: "mine"})
+	acc, err := m.PutAccount(ctx, storage.Account{AwsAccountId: 123456789123, FriendlyName: "mine"}, false)
 	require.NoError(t, err)
 	require.NotEmpty(t, acc.Id)
 
@@ -29,7 +29,7 @@ func TestSimple(t *testing.T) {
 			Scope:     "ASSUME",
 		},
 		Value: []string{"*"},
-	})
+	}, false)
 	require.NoError(t, err)
 
 	accounts := []string{}

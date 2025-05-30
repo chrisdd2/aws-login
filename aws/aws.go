@@ -3,7 +3,9 @@ package aws
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -52,6 +54,10 @@ func GenerateSigninUrl(ctx context.Context, cl StsClient, roleArn string, sessio
 		return "", err
 	}
 	defer awsResp.Body.Close()
+	if awsResp.StatusCode != http.StatusOK {
+		data, err := io.ReadAll(awsResp.Body)
+		return "", errors.Join(err, errors.New(string(data)))
+	}
 
 	signinToken := struct {
 		SigninToken string `json:"SigninToken"`

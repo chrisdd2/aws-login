@@ -11,12 +11,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/auth"
+	"github.com/chrisdd2/aws-login/internal"
 	"github.com/chrisdd2/aws-login/storage"
 	"github.com/chrisdd2/aws-login/webui"
 )
 
 func initStorage(filename string) (storage.Storage, func(), error) {
-	store, err := loadStorage(filename)
+	store, err := internal.LoadStorage(filename)
 	if err != nil {
 		return nil, nil, fmt.Errorf("loadStorage [%w]", err)
 	}
@@ -56,20 +57,37 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	apiRouter := NewApiRouter(store, &auth.GithubAuth{
+	token := auth.LoginToken{
+		Key: []byte("hello"),
+	}
+
+	authMethod := &auth.GithubAuth{
 		ClientSecret: envOrDie("CLIENT_SECRET"),
 		ClientId:     envOrDie("CLIENT_ID"),
-	},
-		auth.LoginToken{
-			Key: []byte("hello"),
-		}, sts.NewFromConfig(cfg),
-	)
+	}
+	apiRouter := NewApiRouter(store, authMethod, token, sts.NewFromConfig(cfg))
+	// for range 10 {
+	// 	acc, _ := store.PutAccount(context.Background(), storage.Account{
+	// 		AwsAccountId: rand.Int(),
+	// 		FriendlyName: fmt.Sprintf("mine-%d", rand.Int()),
+	// 		Enabled:      true,
+	// 	}, false)
+	// 	store.PutUserPermission(context.Background(), storage.UserPermission{
+	// 		UserPermissionId: storage.UserPermissionId{
+	// 			UserId:    "42f669d4074b49ef9d9ed72191c1a216",
+	// 			AccountId: acc.Id,
+	// 			Scope:     storage.UserPermissionAssume,
+	// 		},
+	// 		Value: []string{aws.DeveloperRole, aws.ReadOnlyRole},
+	// 	}, false)
+	// }
+	stsCient := sts.NewFromConfig(cfg)
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiRouter))
-	mux.Handle("/", &webui.WebUi{})
+	mux.Handle("/", webui.NewWebUi(token, store, authMethod, stsCient))
 	log.Printf("listening [http://%s]\n", addr)
-	if err := http.ListenAndServe(addr, loggerWrap(mux)); err != nil {
+	if err := http.ListenAndServe(addr, internal.LoggerWrap(mux)); err != nil {
 		log.Fatalln(err)
 	}
 }

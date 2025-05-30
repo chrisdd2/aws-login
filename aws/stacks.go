@@ -23,8 +23,8 @@ const (
 	uniqueId      = "8db7bc11-acf5-4c7a-be46-967f44e33028"
 	StackName     = "aws-login-stack-" + uniqueId
 	OpsRole       = "ops-role-role-" + uniqueId
-	developerRole = "developer-role-" + uniqueId
-	readOnlyRole  = "read-only-role-" + uniqueId
+	DeveloperRole = "developer-role-" + uniqueId
+	ReadOnlyRole  = "read-only-role-" + uniqueId
 	boundaryName  = "iam-role-boundary-" + uniqueId
 )
 
@@ -81,8 +81,8 @@ func DeployBaseStack(ctx context.Context, cfnCl CfnClient) error {
 		update = false
 	}
 	cfnParams := []cfnTypes.Parameter{
-		{ParameterKey: aws.String("DeveloperRoleName"), ParameterValue: aws.String(developerRole)},
-		{ParameterKey: aws.String("ReadOnlyRoleName"), ParameterValue: aws.String(readOnlyRole)},
+		{ParameterKey: aws.String("DeveloperRoleName"), ParameterValue: aws.String(DeveloperRole)},
+		{ParameterKey: aws.String("ReadOnlyRoleName"), ParameterValue: aws.String(ReadOnlyRole)},
 		{ParameterKey: aws.String("ManagementRoleName"), ParameterValue: aws.String(OpsRole)},
 		{ParameterKey: aws.String("PermissionBoundaryName"), ParameterValue: aws.String(boundaryName)},
 	}

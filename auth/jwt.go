@@ -14,6 +14,7 @@ type LoginToken struct {
 type UserClaims struct {
 	jwt.RegisteredClaims
 	UserInfo
+	Tags map[string]string
 }
 
 func (t *LoginToken) SignToken(usr UserInfo) (string, error) {
@@ -27,16 +28,16 @@ func (t *LoginToken) SignToken(usr UserInfo) (string, error) {
 	return token.SignedString(t.Key)
 }
 
-func (t *LoginToken) Validate(tokenStr string) (UserInfo, error) {
+func (t *LoginToken) Validate(tokenStr string) (*UserClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &UserClaims{}, func(token *jwt.Token) (interface{}, error) {
 		return t.Key, nil
 	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 	if err != nil {
-		return UserInfo{}, err
+		return nil, err
 	}
 	claims, ok := token.Claims.(*UserClaims)
 	if !ok {
-		return UserInfo{}, errors.New("unable to parse claims")
+		return nil, errors.New("unable to parse claims")
 	}
-	return claims.UserInfo, nil
+	return claims, nil
 }
