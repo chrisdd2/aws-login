@@ -76,3 +76,26 @@ func GenerateSigninUrl(ctx context.Context, cl StsClient, roleArn string, sessio
 	}
 	return fmt.Sprintf("%s?%s", signInUrl, values.Encode()), nil
 }
+
+type AwsRole string
+
+func (d AwsRole) String() string {
+	if d == DeveloperRole {
+		return "developer"
+	}
+	if d == ReadOnlyRole {
+		return "read-only"
+	}
+	return string(d)
+}
+
+func (d AwsRole) RealName() string {
+	if d == "developer" {
+		return DeveloperRole
+	}
+	if d == "read-only" {
+		return ReadOnlyRole
+	}
+	return string(d)
+
+}

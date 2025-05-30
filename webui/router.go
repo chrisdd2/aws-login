@@ -115,7 +115,7 @@ func (ui *WebUi) handleAccounts(w http.ResponseWriter, r *http.Request) {
 func (ui *WebUi) handleConsoleLogin(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	accountId := r.PathValue("accountId")
-	roleName := r.URL.Query().Get("roleName")
+	roleName := aws.AwsRole(r.URL.Query().Get("roleName")).RealName()
 	user, _ := userFromRequest(r)
 
 	acc, err := ui.store.GetAccountById(ctx, accountId)
@@ -174,7 +174,7 @@ func (ui *WebUi) handleRoles(w http.ResponseWriter, r *http.Request) {
 	}
 	roles := []templates.Role{}
 	for _, role := range listPerms.UserPermissions[0].Value {
-		roles = append(roles, templates.Role{Arn: acc.ArnForRole(role), Name: role, AccountId: acc.Id})
+		roles = append(roles, templates.Role{Arn: acc.ArnForRole(role), Name: aws.AwsRole(role).String(), AccountId: acc.Id})
 	}
 	data := templates.TemplateData("Roles")
 	data.Logged = true
