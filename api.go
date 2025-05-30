@@ -291,7 +291,7 @@ func NewApiRouter(store storage.Storage, authMethod auth.AuthMethod, token auth.
 			return
 		}
 		cfnCl := cloudformation.NewFromConfig(cfg)
-		err = aws.DeployBaseStack(ctx, cfnCl)
+		err = aws.DeployBaseStack(ctx, cfnCl, acc.ArnForRole(aws.OpsRole))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

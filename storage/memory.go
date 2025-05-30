@@ -208,13 +208,13 @@ func (m *MemoryStorage) PutAccount(ctx context.Context, account Account, delete 
 			account.Id = acc.Id
 			m.accounts[i] = account
 			// exists
-			break
+			return account, nil
 		}
 	}
 	if account.Id == "" {
 		account.Id = newUuid()
+		m.accounts = append(m.accounts, account)
 	}
-	m.accounts = append(m.accounts, account)
 	return account, nil
 }
 func (m *MemoryStorage) PutUser(ctx context.Context, usr User, delete bool) (User, error) {
@@ -227,8 +227,8 @@ func (m *MemoryStorage) PutUser(ctx context.Context, usr User, delete bool) (Use
 	_, err := m.GetUserByUsername(ctx, usr.Username)
 	if err == ErrUserNotFound {
 		usr.Id = newUuid()
+		m.users = append(m.users, usr)
 	}
-	m.users = append(m.users, usr)
 	return usr, nil
 }
 func (m *MemoryStorage) PutUserPermission(ctx context.Context, newPerm UserPermission, delete bool) error {
@@ -243,7 +243,7 @@ func (m *MemoryStorage) PutUserPermission(ctx context.Context, newPerm UserPermi
 			// exists
 			perm.Value = append(perm.Value, newPerm.Value...)
 			m.perms[i] = perm
-			break
+			return nil
 		}
 	}
 	m.perms = append(m.perms, newPerm)

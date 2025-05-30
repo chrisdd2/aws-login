@@ -50,6 +50,8 @@ type Role struct {
 	Arn       string
 	AccountId string
 	Name      string
+	CanGrant  bool
+	CanAssume bool
 }
 
 type templateData struct {
@@ -66,6 +68,10 @@ type templateData struct {
 	Roles       []Role
 
 	Menu []MenuItem
+}
+
+func (t *templateData) Account() storage.Account {
+	return t.Accounts[0]
 }
 
 type MenuItem struct {
