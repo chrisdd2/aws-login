@@ -244,10 +244,56 @@ func accountsRouter(e *echo.Echo, token auth.LoginToken, store storage.Storage, 
 		data.Accounts = []storage.Account{acc}
 		return c.Render(http.StatusOK, "bootstrap-status.html", data)
 	})
+
+	g.GET("/:accountId/revoke/", func(c echo.Context) error {
+		ctx := c.Request().Context()
+		user, _ := userFromRequest(c)
+		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
+
+		acc, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+		perms, err := store.ListPermissions(ctx, "", acc.Id, storage.RolePermission, roleName, nil)
+		if err != nil {
+			return err
+		}
+
+		data := templates.TemplateData(user, "Revoke Role permission")
+		data.Roles = []templates.Role{templates.Role{Arn: acc.ArnForRole(roleName), Name: roleName}}
+		data.Permissions = perms.Permissions
+		data.Accounts = []storage.Account{acc}
+		return c.Render(http.StatusOK, "revoke.html", data)
+	})
+
+	g.POST("/:accountId/revoke/", func(c echo.Context) error {
+		ctx := c.Request().Context()
+		user, _ := userFromRequest(c)
+		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
+		userId := c.QueryParam("userId")
+
+		acc, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+
+		// check if current user has access to grant
+		if !user.Superuser {
+			err := hasPermission(ctx, store, acc.Id, user.Id, storage.RolePermission, roleName, storage.RolePermissionGrant)
+			if err != nil {
+				return err
+			}
+		}
+
+		if err := store.PutRolePermission(ctx, storage.Permission{PermissionId: storage.PermissionId{UserId: userId, AccountId: acc.Id, Type: storage.RolePermission, Scope: roleName}}, true); err != nil {
+			return err
+		}
+		return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/revoke/", acc.Id))
+	})
 	g.GET("/:accountId/grant/", func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
-		roleName := c.QueryParam("roleName")
+		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
 		acc, err := accountFromRequest(c, store)
 		if err != nil {
 			return err
@@ -332,7 +378,7 @@ func accountsRouter(e *echo.Echo, token auth.LoginToken, store storage.Storage, 
 				return err
 			}
 		}
-		return redirectoAccount(c, acc.Id)
+		return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/roles/", acc.Id))
 	})
 	g.GET("/:accountId/", handleAccount(store))
 }

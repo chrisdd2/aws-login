@@ -274,7 +274,7 @@ func (m *MemoryStorage) PutRolePermission(ctx context.Context, newPerm Permissio
 	for i, perm := range m.perms {
 		if perm.PermissionId == newPerm.PermissionId {
 			// exists
-			m.perms[i] = perm
+			m.perms[i] = newPerm
 			return nil
 		}
 	}

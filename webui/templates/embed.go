@@ -55,6 +55,7 @@ type templateData struct {
 	Users       []storage.User
 	User        *auth.UserInfo
 	Accounts    []storage.Account
+	Permissions []storage.Permission
 	HasNext     bool
 	StartToken  string
 	HasPrevious bool

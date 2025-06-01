@@ -24,6 +24,8 @@
             {{ if .CanGrant}}
             <a href="/accounts/{{ .AccountId }}/grant?roleName={{.Name}}"
               class="text-blue-600 hover:underline dark:text-blue-400">Grant</a>
+            <a href="/accounts/{{ .AccountId }}/revoke?roleName={{.Name}}"
+              class="text-blue-600 hover:underline dark:text-blue-400">Revoke</a>
             {{end}}
           </td>
         </tr>
