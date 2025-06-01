@@ -1,11 +1,15 @@
 package webui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"slices"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/auth"
@@ -13,6 +17,8 @@ import (
 	"github.com/chrisdd2/aws-login/storage"
 	"github.com/chrisdd2/aws-login/webui/templates"
 	"github.com/labstack/echo/v4"
+
+	awsSdk "github.com/aws/aws-sdk-go-v2/aws"
 )
 
 var ErrAccountDisabled = errors.New("account is disabled")
@@ -38,7 +44,7 @@ func accountsRouter(e *echo.Echo, token auth.LoginToken, store storage.Storage, 
 		c.Response().Header().Set("Content-Type", "text/yaml")
 		return aws.BootstrapTemplate(ctx, stsCl, c.Response())
 	})
-	g.GET("/:accountId/bootstrap/", func(c echo.Context) error {
+	g.POST("/:accountId/bootstrap/", func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
 		if !user.Superuser {
@@ -266,4 +272,16 @@ func handleCredentialsLogin(store storage.Storage, stsCl aws.StsClient) echo.Han
 			*resp.Credentials.SessionToken,
 		))
 	}
+}
+
+func assumeOpRole(ctx context.Context, stsCl aws.StsClient, acc storage.Account) (awsSdk.Config, error) {
+	arn := acc.ArnForRole(aws.OpsRole)
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithCredentialsProvider(stscreds.NewAssumeRoleProvider(stsCl, arn, func(aro *stscreds.AssumeRoleOptions) {
+		aro.RoleSessionName = "aws-login"
+		aro.Duration = time.Minute * 15 // minimum
+	})))
+	if err != nil {
+		return awsSdk.Config{}, err
+	}
+	return cfg, nil
 }

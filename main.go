@@ -61,6 +61,7 @@ func initStorage(filename string) (storage.Storage, func(), error) {
 func main() {
 	addr := envOrDefault("APP_LISTEN_ADDR", "0.0.0.0:8080")
 	filename := envOrDefault("APP_STORE_FILE", "store.json")
+	generateAdminToken := os.Getenv("APP_GENERATE_TOKEN") != ""
 
 	store, saveStorage, err := initStorage(filename)
 	if err != nil {
@@ -81,21 +82,6 @@ func main() {
 		ClientSecret: envOrDie("CLIENT_SECRET"),
 		ClientId:     envOrDie("CLIENT_ID"),
 	}
-	// for range 10 {
-	// 	acc, _ := store.PutAccount(context.Background(), storage.Account{
-	// 		AwsAccountId: rand.Int(),
-	// 		FriendlyName: fmt.Sprintf("mine-%d", rand.Int()),
-	// 		Enabled:      true,
-	// 	}, false)
-	// 	store.PutUserPermission(context.Background(), storage.UserPermission{
-	// 		UserPermissionId: storage.UserPermissionId{
-	// 			UserId:    "42f669d4074b49ef9d9ed72191c1a216",
-	// 			AccountId: acc.Id,
-	// 			Scope:     storage.UserPermissionAssume,
-	// 		},
-	// 		Value: []string{aws.DeveloperRole, aws.ReadOnlyRole},
-	// 	}, false)
-	// }
 
 	e := echo.New()
 	e.Renderer = &templates.EchoRenderer{}
@@ -123,6 +109,20 @@ func main() {
 	webui.Router(e, authMethod, store, token, stsCient)
 
 	log.Printf("listening [http://%s]\n", addr)
+
+	if generateAdminToken {
+		accessToken, err := token.SignToken(auth.UserInfo{
+			Username:  "root",
+			Email:     "root@root",
+			Superuser: true,
+		})
+		if err != nil {
+			e.StdLogger.Fatalf("failed to generate root token [%s]\n", err)
+		}
+		e.StdLogger.Printf("ROOT access token: %s\n", accessToken)
+		e.StdLogger.Printf("login with http://%s/login?token=%s\n", addr, accessToken)
+	}
+
 	if err := e.Start(addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("failed to start server", "error", err)
 	}

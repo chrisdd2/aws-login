@@ -94,7 +94,16 @@ func DeployBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn str
 	}
 	if update {
 		_, err = cfnCl.UpdateStack(ctx, &cloudformation.UpdateStackInput{StackName: stackName, TemplateBody: &tmpl, Parameters: cfnParams, Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam}})
-		return err
+		if err != nil {
+			var apiErr smithy.APIError
+			if !errors.As(err, &apiErr) {
+				return err
+			}
+			if apiErr.ErrorMessage() != "No updates are to be performed." {
+				return err
+			}
+		}
+		return nil
 	}
 	_, err = cfnCl.CreateStack(ctx, &cloudformation.CreateStackInput{StackName: stackName, TemplateBody: &tmpl, Parameters: cfnParams, Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam}})
 	return err
