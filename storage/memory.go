@@ -13,23 +13,26 @@ import (
 )
 
 type MemoryStorage struct {
-	users    []User
-	accounts []Account
-	perms    []UserPermission
+	users     []User
+	accounts  []Account
+	perms     []Permission
+	flushFunc FlushFunc
 }
+
+type FlushFunc func(*MemoryStorage)
 
 func NewMemoryStorage() *MemoryStorage {
 	return &MemoryStorage{
 		users:    []User{},
 		accounts: []Account{},
-		perms:    []UserPermission{},
+		perms:    []Permission{},
 	}
 }
 
 type jsonMemorystore struct {
-	Users    []User           `json:"users,omitempty"`
-	Accounts []Account        `json:"accounts,omitempty"`
-	Perms    []UserPermission `json:"perms,omitempty"`
+	Users    []User       `json:"users,omitempty"`
+	Accounts []Account    `json:"accounts,omitempty"`
+	Perms    []Permission `json:"perms,omitempty"`
 }
 
 func NewMemoryStorageFromJson(reader io.Reader) (*MemoryStorage, error) {
@@ -38,7 +41,7 @@ func NewMemoryStorageFromJson(reader io.Reader) (*MemoryStorage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &MemoryStorage{store.Users, store.Accounts, store.Perms}, nil
+	return &MemoryStorage{users: store.Users, accounts: store.Accounts, perms: store.Perms}, nil
 
 }
 func SaveMemoryStorageFromJson(m *MemoryStorage, writer io.Writer) error {
@@ -69,6 +72,16 @@ func generateStartToken(num int) *string {
 	return &k
 }
 
+func (m *MemoryStorage) SetFlush(f FlushFunc) {
+	m.flushFunc = f
+}
+
+func (m *MemoryStorage) Flush() {
+	if m.flushFunc != nil {
+		m.flushFunc(m)
+	}
+}
+
 func (m *MemoryStorage) ListUsers(ctx context.Context, filter string, startToken *string) (ListUserResult, error) {
 	startIdx, err := parseStartToken(startToken)
 	if err != nil {
@@ -91,12 +104,12 @@ func (m *MemoryStorage) ListUsers(ctx context.Context, filter string, startToken
 	return ListUserResult{Users: users, StartToken: startToken}, nil
 }
 
-func (m *MemoryStorage) ListUserPermissions(ctx context.Context, userId string, accountId string, scope string, startToken *string) (ListUserPermissionResult, error) {
+func (m *MemoryStorage) ListPermissions(ctx context.Context, userId string, accountId string, permissionType string, scope string, startToken *string) (ListPermissionResult, error) {
 	startIdx, err := parseStartToken(startToken)
 	if err != nil {
-		return ListUserPermissionResult{}, err
+		return ListPermissionResult{}, err
 	}
-	perms := make([]UserPermission, 0, ListResultPageSize)
+	perms := make([]Permission, 0, ListResultPageSize)
 	endIdx := startIdx + ListResultPageSize
 	startToken = generateStartToken(endIdx)
 	if endIdx > len(m.perms) {
@@ -105,12 +118,12 @@ func (m *MemoryStorage) ListUserPermissions(ctx context.Context, userId string, 
 	}
 	for i := startIdx; i < endIdx; i++ {
 		perm := m.perms[i]
-		if !(matchOrEmpty(perm.UserId, userId) && matchOrEmpty(perm.AccountId, accountId) && matchOrEmpty(perm.Scope, scope)) {
+		if !(matchOrEmpty(perm.UserId, userId) && matchOrEmpty(perm.AccountId, accountId) && matchOrEmpty(perm.Scope, scope) && matchOrEmpty(perm.Type, permissionType)) {
 			continue
 		}
 		perms = append(perms, perm)
 	}
-	return ListUserPermissionResult{UserPermissions: perms, StartToken: startToken}, nil
+	return ListPermissionResult{Permissions: perms, StartToken: startToken}, nil
 }
 
 func (m *MemoryStorage) ListAccounts(ctx context.Context, startToken *string) (ListAccountResult, error) {
@@ -197,6 +210,7 @@ func (m *MemoryStorage) GetAccountById(ctx context.Context, accountId string) (A
 }
 
 func (m *MemoryStorage) PutAccount(ctx context.Context, account Account, delete bool) (Account, error) {
+	defer m.Flush()
 	if delete {
 		m.accounts = slices.DeleteFunc(m.accounts, func(a Account) bool {
 			return a.Id == account.Id
@@ -218,6 +232,7 @@ func (m *MemoryStorage) PutAccount(ctx context.Context, account Account, delete 
 	return account, nil
 }
 func (m *MemoryStorage) PutUser(ctx context.Context, usr User, delete bool) (User, error) {
+	defer m.Flush()
 	if delete {
 		m.users = slices.DeleteFunc(m.users, func(a User) bool {
 			return a.Id == usr.Id
@@ -231,17 +246,17 @@ func (m *MemoryStorage) PutUser(ctx context.Context, usr User, delete bool) (Use
 	}
 	return usr, nil
 }
-func (m *MemoryStorage) PutUserPermission(ctx context.Context, newPerm UserPermission, delete bool) error {
+func (m *MemoryStorage) PutRolePermission(ctx context.Context, newPerm Permission, delete bool) error {
+	defer m.Flush()
 	if delete {
-		m.perms = slices.DeleteFunc(m.perms, func(a UserPermission) bool {
-			return a.UserPermissionId == newPerm.UserPermissionId
+		m.perms = slices.DeleteFunc(m.perms, func(a Permission) bool {
+			return a.PermissionId == newPerm.PermissionId
 		})
 		return nil
 	}
 	for i, perm := range m.perms {
-		if perm.UserPermissionId == newPerm.UserPermissionId {
+		if perm.PermissionId == newPerm.PermissionId {
 			// exists
-			perm.Value = append(perm.Value, newPerm.Value...)
 			m.perms[i] = perm
 			return nil
 		}

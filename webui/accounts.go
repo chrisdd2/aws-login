@@ -81,53 +81,34 @@ func handleRoles(store storage.Storage) echo.HandlerFunc {
 
 		roles := []templates.Role{}
 		if user.Superuser {
-			roles = append(roles, templates.Role{
-				Arn:       acc.ArnForRole(aws.DeveloperRole),
-				Name:      aws.AwsRole(aws.DeveloperRole).String(),
-				AccountId: acc.Id,
-				CanGrant:  true,
-				CanAssume: true,
-			})
-			roles = append(roles, templates.Role{
-				Arn:       acc.ArnForRole(aws.ReadOnlyRole),
-				Name:      aws.AwsRole(aws.ReadOnlyRole).String(),
-				AccountId: acc.Id,
-				CanGrant:  true,
-				CanAssume: true,
-			})
+			for _, role := range acc.Roles() {
+				roles = append(roles, templates.Role{
+					Arn:       acc.ArnForRole(role),
+					Name:      aws.AwsRole(role).String(),
+					AccountId: acc.Id,
+					CanGrant:  true,
+					CanAssume: true,
+				})
+
+			}
 		} else {
-
-			permissionMap := map[string]templates.Role{}
-
 			// get all permissions for user
-			listPerms, err := store.ListUserPermissions(ctx, user.Id, acc.Id, "", nil)
+			listPerms, err := store.ListPermissions(ctx, user.Id, acc.Id, storage.RolePermission, "", nil)
 			if err != nil {
 				return err
 			}
 			// it should be at least one perm
-			if len(listPerms.UserPermissions) < 1 {
+			if len(listPerms.Permissions) < 1 {
 				return ErrNoPermissionInAccount
 			}
-			for _, perm := range listPerms.UserPermissions {
-				for _, role := range perm.Value {
-					rolePerm, ok := permissionMap[role]
-					if !ok {
-						permissionMap[role] = templates.Role{
-							Arn:       acc.ArnForRole(role),
-							Name:      aws.AwsRole(role).String(),
-							AccountId: acc.Id,
-							CanGrant:  perm.Scope == storage.UserPermissionAdmin,
-							CanAssume: perm.Scope == storage.UserPermissionAssume,
-						}
-						continue
-					}
-					rolePerm.CanGrant = rolePerm.CanGrant || perm.Scope == storage.UserPermissionAdmin
-					rolePerm.CanAssume = rolePerm.CanAssume || perm.Scope == storage.UserPermissionAssume
-					permissionMap[role] = rolePerm
-				}
-			}
-			for _, v := range permissionMap {
-				roles = append(roles, v)
+			for _, role := range listPerms.Permissions {
+				roles = append(roles, templates.Role{
+					Arn:       acc.ArnForRole(role.Scope),
+					Name:      aws.AwsRole(role.Scope).String(),
+					AccountId: acc.Id,
+					CanGrant:  slices.Contains(role.Value, storage.RolePermissionGrant),
+					CanAssume: slices.Contains(role.Value, storage.RolePermissionAssume),
+				})
 			}
 		}
 		data := templates.TemplateData(user, "Roles")
@@ -157,12 +138,18 @@ func handleAccountEnableToggle(store storage.Storage, value bool) echo.HandlerFu
 		if err != nil {
 			return err
 		}
-		res, err := store.ListUserPermissions(ctx, user.Id, acc.Id, storage.UserPermissionAdmin, nil)
-		if err != nil {
-			return err
-		}
-		if len(res.UserPermissions) < 1 {
-			return ErrNoPermissionAction
+		if !user.Superuser {
+			// check if admin permission is present
+			perm, err := store.ListPermissions(ctx, user.Id, acc.Id, storage.AccountAdminPermission, storage.AccountAdminScopeAccount, nil)
+			if err != nil {
+				return err
+			}
+			if len(perm.Permissions) != 1 {
+				return ErrNoPermissionAction
+			}
+			if !slices.Contains(perm.Permissions[0].Value, storage.AccountAdminPermissionEnabled) {
+				return ErrNoPermissionAction
+			}
 		}
 		acc.Enabled = value
 		_, err = store.PutAccount(ctx, acc, false)
@@ -219,17 +206,17 @@ func canAssume(c echo.Context, store storage.Storage, user *auth.UserInfo, roleN
 		return
 	}
 
-	listPerms, err := store.ListUserPermissions(ctx, user.Id, acc.Id, storage.UserPermissionAssume, nil)
+	listPerms, err := store.ListPermissions(ctx, user.Id, acc.Id, storage.RolePermission, roleName, nil)
 	if err != nil {
 		return
 	}
 	// it should be only one perm
-	if len(listPerms.UserPermissions) != 1 {
+	if len(listPerms.Permissions) != 1 {
 		err = ErrNoPermissionInAccount
 		return
 	}
 
-	if !slices.Contains(listPerms.UserPermissions[0].Value, roleName) {
+	if !slices.Contains(listPerms.Permissions[0].Value, storage.RolePermissionAssume) {
 		err = ErrNoPermissionAction
 		return
 	}

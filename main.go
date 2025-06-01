@@ -36,25 +36,26 @@ func initStorage(filename string) (storage.Storage, func(), error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("loadStorage [%w]", err)
 	}
-	saveStorage := func() {
+	flushFunc := func(s *storage.MemoryStorage) {
 		log.Printf("saving storage to [%s]\n", filename)
 		f, err := os.Create(filename)
 		if err != nil {
 			log.Fatalln(err)
 		}
-		err = storage.SaveMemoryStorageFromJson(store, f)
+		err = storage.SaveMemoryStorageFromJson(s, f)
 		if err != nil {
 			log.Fatalln(err)
 		}
 	}
+	store.SetFlush(flushFunc)
 	exitSignal := make(chan os.Signal, 10)
 	signal.Notify(exitSignal, os.Interrupt, os.Kill)
 	go func() {
 		<-exitSignal
-		saveStorage()
+		store.Flush()
 		os.Exit(1)
 	}()
-	return store, saveStorage, nil
+	return store, store.Flush, nil
 }
 
 func main() {
