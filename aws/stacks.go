@@ -63,13 +63,14 @@ type CfnClient interface {
 	CreateStack(ctx context.Context, params *cloudformation.CreateStackInput, optFns ...func(*cloudformation.Options)) (*cloudformation.CreateStackOutput, error)
 	UpdateStack(ctx context.Context, params *cloudformation.UpdateStackInput, optFns ...func(*cloudformation.Options)) (*cloudformation.UpdateStackOutput, error)
 	DescribeStacks(ctx context.Context, params *cloudformation.DescribeStacksInput, optFns ...func(*cloudformation.Options)) (*cloudformation.DescribeStacksOutput, error)
+	DeleteStack(ctx context.Context, params *cloudformation.DeleteStackInput, optFns ...func(*cloudformation.Options)) (*cloudformation.DeleteStackOutput, error)
 }
 
-func DeployBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn string) error {
+func DeployBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn string) (string, error) {
 	buf := bytes.Buffer{}
 	err := cfnTemplates.ExecuteTemplate(&buf, "base.template", nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	tmpl := buf.String()
 	stackName := aws.String(StackName)
@@ -78,10 +79,10 @@ func DeployBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn str
 	if err != nil {
 		var apiErr smithy.APIError
 		if !errors.As(err, &apiErr) {
-			return err
+			return "", err
 		}
 		if !(apiErr.ErrorCode() == "ValidationError" && strings.Contains(apiErr.ErrorMessage(), "does not exist")) {
-			return err
+			return "", err
 		}
 		update = false
 	}
@@ -97,14 +98,30 @@ func DeployBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn str
 		if err != nil {
 			var apiErr smithy.APIError
 			if !errors.As(err, &apiErr) {
-				return err
+				return "", err
 			}
 			if apiErr.ErrorMessage() != "No updates are to be performed." {
-				return err
+				return "", err
 			}
 		}
-		return nil
+		return StackName, nil
 	}
 	_, err = cfnCl.CreateStack(ctx, &cloudformation.CreateStackInput{StackName: stackName, TemplateBody: &tmpl, Parameters: cfnParams, Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam}})
-	return err
+	return StackName, err
+}
+func DestroyBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn string) (string, error) {
+	stackName := aws.String(StackName)
+	resp, err := cfnCl.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: stackName})
+	if err != nil {
+		var apiErr smithy.APIError
+		if !errors.As(err, &apiErr) {
+			return "", err
+		}
+		if !(apiErr.ErrorCode() == "ValidationError" && strings.Contains(apiErr.ErrorMessage(), "does not exist")) {
+			return "", err
+		}
+		return "", err
+	}
+	_, err = cfnCl.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: stackName})
+	return *resp.Stacks[0].StackId, nil
 }

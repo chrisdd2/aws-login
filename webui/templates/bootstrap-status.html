@@ -1,0 +1,29 @@
+{{ define "script"}}
+<script>
+    const logContainer = document.getElementById('log-container');
+    const eventSource = new EventSource("/accounts/{{.Account.Id}}/bootstrap/status?stream=bootstrap&stackId={{.StackId}}");
+
+    eventSource.onmessage = function(event) {
+      const message = document.createElement('div');
+      message.textContent = event.data;
+      logContainer.appendChild(message);
+      logContainer.scrollTop = logContainer.scrollHeight;
+    };
+
+    eventSource.onerror = function(error) {
+      const errorMsg = document.createElement('div');
+      errorMsg.textContent = '[Error receiving log events]';
+      errorMsg.classList.add('text-red-400');
+      logContainer.appendChild(errorMsg);
+      eventSource.close()
+    };
+</script>
+{{ end }}
+{{ define "content"}}
+<div class="w-full bg-gray shadow-xl rounded-2xl p-3">
+<h1 class="text-2xl font-semibold text-white mb-4">Stack status</h1>
+<div id="log-container" class="h-96 overflow-y-auto bg-gray-900 text-green-400 font-mono text-sm p-4 rounded-xl border border-gray-700">
+</div>
+</div>
+{{ end }}
+{{ template "layout" .}}

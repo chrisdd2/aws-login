@@ -29,7 +29,7 @@
         </div>
     </div>
 
-    <div class="mt-6 flex flex-wrap gap-4">
+    <div class="mt-6 flex flex-wrap gap-2">
         {{ if .Account.Enabled }}
         <form method="POST" action="/accounts/{{ .Account.Id }}/disable">
             <button class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition">
@@ -46,12 +46,17 @@
 
 
         {{ if .User.Superuser }}
-        <a href="/accounts/{{ .Account.Id }}/cloudformation" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition" download="template.yml"> Export CloudFormation Template </a>
         <form method="POST" action="/accounts/{{ .Account.Id }}/bootstrap">
             <button class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition">
                 Bootstrap Account
             </button>
         </form>
+        <form method="POST" action="/accounts/{{ .Account.Id }}/bootstrap/destroy">
+            <button class="px-4 py-2 bg-red-600 text-white rounded hover:bg-green-700 transition">
+                Destroy Bootstrap
+            </button>
+        </form>
+        <a href="/accounts/{{ .Account.Id }}/cloudformation" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition" download="template.yml"> Export CloudFormation Template </a>
         {{ end }}
     </div>
 </div>

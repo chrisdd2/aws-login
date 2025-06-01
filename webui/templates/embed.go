@@ -58,6 +58,7 @@ type templateData struct {
 	StartToken  string
 	HasPrevious bool
 	Roles       []Role
+	StackId     string
 
 	Menu []MenuItem
 }

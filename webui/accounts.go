@@ -4,19 +4,23 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
+	"net/url"
 	"slices"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
+	"github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/auth"
 	"github.com/chrisdd2/aws-login/aws"
 	"github.com/chrisdd2/aws-login/storage"
 	"github.com/chrisdd2/aws-login/webui/templates"
 	"github.com/labstack/echo/v4"
+	"github.com/r3labs/sse/v2"
 
 	awsSdk "github.com/aws/aws-sdk-go-v2/aws"
 )
@@ -25,6 +29,17 @@ var ErrAccountDisabled = errors.New("account is disabled")
 var ErrNoPermissionInAccount = errors.New("no permission in this account")
 var ErrNoPermissionAction = errors.New("no permission to perform this action")
 var ErrOnlySuperAllowed = errors.New("only superusers are allowed to perform this action")
+
+var inProgressStatus []string = []string{
+	string(types.StackStatusCreateInProgress),
+	string(types.StackStatusRollbackInProgress),
+	string(types.StackStatusUpdateInProgress),
+	string(types.StackStatusUpdateCompleteCleanupInProgress),
+	string(types.StackStatusUpdateRollbackInProgress),
+	string(types.StackStatusUpdateRollbackCompleteCleanupInProgress),
+	string(types.StackStatusReviewInProgress),
+	string(types.StackStatusDeleteInProgress),
+}
 
 func accountsRouter(e *echo.Echo, token auth.LoginToken, store storage.Storage, stsCl aws.StsClient) {
 	g := e.Group("/accounts")
@@ -43,6 +58,97 @@ func accountsRouter(e *echo.Echo, token auth.LoginToken, store storage.Storage, 
 		}
 		c.Response().Header().Set("Content-Type", "text/yaml")
 		return aws.BootstrapTemplate(ctx, stsCl, c.Response())
+	})
+	g.GET("/:accountId/bootstrap/status/", func(c echo.Context) error {
+
+		ctx := c.Request().Context()
+		stackId := c.QueryParam("stackId")
+		user, _ := userFromRequest(c)
+		if !user.Superuser {
+			return ErrOnlySuperAllowed
+		}
+
+		acc, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+		// assume ops role
+		cfg, err := assumeOpRole(ctx, stsCl, acc)
+		if err != nil {
+			return err
+		}
+		cfn := cloudformation.NewFromConfig(cfg)
+
+		srv := sse.New()
+		srv.CreateStream("bootstrap")
+
+		go func() {
+			ticker := time.NewTicker(time.Second * 3)
+			timeoutCtx, cancel := context.WithTimeout(ctx, time.Minute*15)
+			defer srv.Close()
+			defer cancel()
+			defer ticker.Stop()
+			for {
+				select {
+				case <-c.Request().Context().Done():
+					log.Printf("SSE client disconnected, ip: %v", c.RealIP())
+					return
+				case <-ticker.C:
+					resp, err := cfn.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: &stackId})
+					if err != nil {
+						srv.Publish("bootstrap", &sse.Event{
+							Data: []byte(fmt.Sprintf("error describing stack %s\n", err)),
+						})
+						log.Println(err)
+						return
+					}
+					status := string(resp.Stacks[0].StackStatus)
+					srv.Publish("bootstrap", &sse.Event{
+						Data: []byte(fmt.Sprintf("%s: %s", time.Now().UTC(), status)),
+					})
+					if !slices.Contains(inProgressStatus, status) {
+						return
+					}
+				case <-timeoutCtx.Done():
+					srv.Publish("bootstrap", &sse.Event{
+						Data: []byte("timed out"),
+					})
+					return
+				}
+			}
+		}()
+		srv.ServeHTTP(c.Response().Writer, c.Request())
+		return nil
+	})
+	g.POST("/:accountId/bootstrap/destroy/", func(c echo.Context) error {
+		ctx := c.Request().Context()
+		user, _ := userFromRequest(c)
+		if !user.Superuser {
+			return ErrOnlySuperAllowed
+		}
+		acc, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+
+		// assume ops role
+		resp, _ := stsCl.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+		selfArn := aws.PrincipalFromSts(*resp.Arn)
+		cfg, err := assumeOpRole(ctx, stsCl, acc)
+		if err != nil {
+			return err
+		}
+		cfn := cloudformation.NewFromConfig(cfg)
+
+		stackId, err := aws.DestroyBaseStack(ctx, cfn, selfArn)
+		if err != nil {
+			return err
+		}
+		// render template with status support
+		data := templates.TemplateData(user, "Bootstrap status")
+		data.StackId = url.QueryEscape(stackId)
+		data.Accounts = []storage.Account{acc}
+		return c.Render(http.StatusOK, "bootstrap-status.html", data)
 	})
 	g.POST("/:accountId/bootstrap/", func(c echo.Context) error {
 		ctx := c.Request().Context()
@@ -64,13 +170,15 @@ func accountsRouter(e *echo.Echo, token auth.LoginToken, store storage.Storage, 
 		}
 		cfn := cloudformation.NewFromConfig(cfg)
 
-		err = aws.DeployBaseStack(ctx, cfn, selfArn)
+		stackId, err := aws.DeployBaseStack(ctx, cfn, selfArn)
 		if err != nil {
 			return err
 		}
-		data := templates.TemplateData(user, "Accounts")
+		// render template with status support
+		data := templates.TemplateData(user, "Bootstrap status")
+		data.StackId = url.QueryEscape(stackId)
 		data.Accounts = []storage.Account{acc}
-		return c.Render(http.StatusOK, "account.html", data)
+		return c.Render(http.StatusOK, "bootstrap-status.html", data)
 	})
 	g.GET("/:accountId/", handleAccount(store))
 }
@@ -162,7 +270,7 @@ func handleAccountEnableToggle(store storage.Storage, value bool) echo.HandlerFu
 		if err != nil {
 			return err
 		}
-		return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/", acc.Id))
+		return redirectoAccount(c, acc.Id)
 	}
 }
 
@@ -209,6 +317,10 @@ func canAssume(c echo.Context, store storage.Storage, user *auth.UserInfo, roleN
 	ctx := c.Request().Context()
 	acc, err = accountFromRequest(c, store)
 	if err != nil {
+		return
+	}
+
+	if user.Superuser {
 		return
 	}
 
@@ -284,4 +396,8 @@ func assumeOpRole(ctx context.Context, stsCl aws.StsClient, acc storage.Account)
 		return awsSdk.Config{}, err
 	}
 	return cfg, nil
+}
+
+func redirectoAccount(c echo.Context, accountId string) error {
+	return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/", accountId))
 }
