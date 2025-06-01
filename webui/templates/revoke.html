@@ -6,21 +6,30 @@
     <thead>
       <tr class="bg-gray-100 dark:bg-gray-700 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">
         <th class="px-4 py-2">Username</th>
+        <th class="px-4 py-2">Rights</th>
         <th class="px-4 py-2 text-right">Actions</th>
       </tr>
     </thead>
     <tbody class="divide-y divide-gray-200 dark:divide-gray-700 text-sm text-gray-800 dark:text-gray-100">
-      {{ range .Permissions }}
+      {{ range .UserPermissions }}
+      {{ $perm := .}}
+      {{ range .Permission.Value }}
+
       <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
-        <td class="px-4 py-2">{{ .UserId }}</td>
+        <td class="px-4 py-2">{{ $perm.User.Username }}</td>
+        <td class="px-4 py-2">{{ . }}</td>
         <td class="px-4 py-2 text-right space-x-2">
-          <form method="POST" action="/accounts/{{.AccountId}}/revoke?roleName={{.Scope}}&userId={{.UserId}}" class="inline">
+          <form method="POST" action="/accounts/{{$perm.Permission.AccountId}}/revoke" class="inline">
+            <input type="hidden" name="roleName" value="{{$perm.Permission.Scope}}" />
+            <input type="hidden" name="userId" value="{{$perm.Permission.UserId}}" />
+            <input type="hidden" name="value" value="{{.}}" />
             <button class="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition">
               Revoke
             </button>
           </form>
         </td>
       </tr>
+      {{end}}
       {{ else }}
       <tr>
         <td colspan="3" class="px-4 py-4 text-center text-gray-500">No users found</td>
@@ -28,6 +37,16 @@
       {{ end }}
     </tbody>
   </table>
+  <div class="mt-6 text-right">
+    {{ if .StartToken }}
+    <form method="GET" action="/accounts/{{.Account.Id}}/revoke?roleName={{.Role.Name}}" class="inline-block">
+      <input type="hidden" name="page" value="{{.StartToken}}" />
+      <button class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">
+        Next →
+      </button>
+    </form>
+    {{ end }}
+  </div>
 </div>
 {{ end }}
 {{ template "layout" . }}

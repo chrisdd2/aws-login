@@ -47,15 +47,19 @@ type Role struct {
 }
 
 type templateData struct {
-	Title       string
-	LogoutPath  string
-	ProfilePath string
-	LoginPath   string
-	Logged      bool
-	Users       []storage.User
-	User        *auth.UserInfo
-	Accounts    []storage.Account
-	Permissions []storage.Permission
+	Title           string
+	LogoutPath      string
+	ProfilePath     string
+	LoginPath       string
+	Logged          bool
+	Users           []storage.User
+	User            *auth.UserInfo
+	Accounts        []storage.Account
+	Permissions     []storage.Permission
+	UserPermissions []struct {
+		Permission storage.Permission
+		User       storage.User
+	}
 	HasNext     bool
 	StartToken  string
 	HasPrevious bool

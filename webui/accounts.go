@@ -248,29 +248,69 @@ func accountsRouter(e *echo.Echo, token auth.LoginToken, store storage.Storage, 
 	g.GET("/:accountId/revoke/", func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
+
 		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
 
 		acc, err := accountFromRequest(c, store)
 		if err != nil {
 			return err
 		}
-		perms, err := store.ListPermissions(ctx, "", acc.Id, storage.RolePermission, roleName, nil)
+		perms, err := store.ListPermissions(ctx, "", acc.Id, storage.RolePermission, roleName, pointerString(c.QueryParam("page")))
+		if err != nil {
+			return err
+		}
+		userIds := []string{}
+		for _, perm := range perms.Permissions {
+			if perm.UserId == user.Id {
+				// skip self
+				continue
+			}
+			userIds = append(userIds, perm.UserId)
+		}
+		users, err := store.BatchGetUserById(ctx, userIds...)
 		if err != nil {
 			return err
 		}
 
 		data := templates.TemplateData(user, "Revoke Role permission")
 		data.Roles = []templates.Role{templates.Role{Arn: acc.ArnForRole(roleName), Name: roleName}}
-		data.Permissions = perms.Permissions
 		data.Accounts = []storage.Account{acc}
+		data.StartToken = toString(perms.StartToken)
+
+		// this is somewhat slow, but we are doing page wise so, its fine
+		for _, user := range users {
+			for _, perm := range perms.Permissions {
+				if perm.UserId == user.Id {
+					data.UserPermissions = append(data.UserPermissions, struct {
+						Permission storage.Permission
+						User       storage.User
+					}{
+						Permission: perm,
+						User:       user,
+					})
+					break
+				}
+			}
+		}
+
 		return c.Render(http.StatusOK, "revoke.html", data)
 	})
 
 	g.POST("/:accountId/revoke/", func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
-		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
-		userId := c.QueryParam("userId")
+
+		type RevokeAction struct {
+			RoleName string `form:"roleName"`
+			UserId   string `form:"userId"`
+			Value    string `form:"value"`
+		}
+
+		action := RevokeAction{}
+		if err := c.Bind(&action); err != nil {
+			return err
+		}
+		roleName := aws.AwsRole(action.RoleName).RealName()
 
 		acc, err := accountFromRequest(c, store)
 		if err != nil {
@@ -284,8 +324,21 @@ func accountsRouter(e *echo.Echo, token auth.LoginToken, store storage.Storage, 
 				return err
 			}
 		}
-
-		if err := store.PutRolePermission(ctx, storage.Permission{PermissionId: storage.PermissionId{UserId: userId, AccountId: acc.Id, Type: storage.RolePermission, Scope: roleName}}, true); err != nil {
+		// get permission
+		perms, err := store.ListPermissions(ctx, action.UserId, acc.Id, storage.RolePermission, roleName, nil)
+		if err != nil {
+			return err
+		}
+		if len(perms.Permissions) == 0 {
+			// nothing to do i guess
+			return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/revoke/", acc.Id))
+		}
+		perm := perms.Permissions[0]
+		perm.Value = slices.DeleteFunc(perm.Value, func(a string) bool {
+			return a == action.Value
+		})
+		deletePerm := len(perm.Value) == 0
+		if err := store.PutRolePermission(ctx, perm, deletePerm); err != nil {
 			return err
 		}
 		return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/revoke/", acc.Id))

@@ -198,6 +198,15 @@ func (m *MemoryStorage) GetUserById(ctx context.Context, userId string) (User, e
 	}
 	return User{}, ErrUserNotFound
 }
+func (m *MemoryStorage) BatchGetUserById(ctx context.Context, userId ...string) ([]User, error) {
+	users := []User{}
+	for _, user := range m.users {
+		if slices.Contains(userId, user.Id) {
+			users = append(users, user)
+		}
+	}
+	return users, nil
+}
 func (m *MemoryStorage) GetAccountById(ctx context.Context, accountId string) (Account, error) {
 	if accountId == "" {
 		return Account{}, ErrAccountNotFound

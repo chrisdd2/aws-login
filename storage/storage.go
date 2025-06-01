@@ -74,6 +74,7 @@ type Storage interface {
 	ListAccountsForUser(ctx context.Context, userId string, startToken *string) (ListAccountResult, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	GetUserById(ctx context.Context, userId string) (User, error)
+	BatchGetUserById(ctx context.Context, userId ...string) ([]User, error)
 	GetAccountById(ctx context.Context, accountId string) (Account, error)
 	GetAccountByAwsAccountId(ctx context.Context, awsAccountId int) (Account, error)
 
