@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -29,6 +31,9 @@ var ErrAccountDisabled = errors.New("account is disabled")
 var ErrNoPermissionInAccount = errors.New("no permission in this account")
 var ErrNoPermissionAction = errors.New("no permission to perform this action")
 var ErrOnlySuperAllowed = errors.New("only superusers are allowed to perform this action")
+var ErrInvalidCreateAccount = errors.New("invalid create account form")
+var ErrInvalidGrant = errors.New("invalid grant from")
+var ErrAccountAlreadyExists = errors.New("account already exists")
 
 var inProgressStatus []string = []string{
 	string(types.StackStatusCreateInProgress),
@@ -45,6 +50,65 @@ func accountsRouter(e *echo.Echo, token auth.LoginToken, store storage.Storage, 
 	g := e.Group("/accounts")
 	g.Use(guard(token))
 	g.GET("/", handleAccounts(store))
+	g.GET("/create/", func(c echo.Context) error {
+		user, _ := userFromRequest(c)
+		if !user.Superuser {
+			return ErrOnlySuperAllowed
+		}
+		return c.Render(http.StatusOK, "account-create.html", templates.TemplateData(user, "Create Account"))
+	})
+	g.POST("/create/", func(c echo.Context) error {
+		ctx := c.Request().Context()
+		user, _ := userFromRequest(c)
+		if !user.Superuser {
+			return ErrOnlySuperAllowed
+		}
+		type CreateAccount struct {
+			FriendlyName string `form:"friendly_name"`
+			AwsAccountId string `form:"aws_account_id"`
+			Enabled      string `form:"enabled"`
+			Tags         string `form:"tags"`
+		}
+		createAccount := CreateAccount{}
+		if err := c.Bind(&createAccount); err != nil {
+			return err
+		}
+		if !aws.ValidateAWSAccountID(createAccount.AwsAccountId) || createAccount.FriendlyName == "" {
+			return ErrInvalidCreateAccount
+		}
+		awsAccountId, err := strconv.ParseInt(createAccount.AwsAccountId, 10, 64)
+		if err != nil {
+			// this should never happen because of the above regex
+			return ErrInvalidCreateAccount
+		}
+		_, err = store.GetAccountByAwsAccountId(ctx, int(awsAccountId))
+		if err != storage.ErrAccountNotFound {
+			return ErrAccountAlreadyExists
+		}
+		acc := storage.Account{
+			AwsAccountId: int(awsAccountId),
+			FriendlyName: createAccount.FriendlyName,
+			Enabled:      createAccount.Enabled == "on",
+			Tags:         parseTags(createAccount.Tags),
+		}
+		acc, err = store.PutAccount(ctx, acc, false)
+		if err != nil {
+			return err
+		}
+		return redirectoAccount(c, acc.Id)
+	})
+	g.POST("/:accountId/delete/", func(c echo.Context) error {
+		ctx := c.Request().Context()
+		acc, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+		_, err = store.PutAccount(ctx, acc, true)
+		if err != nil {
+			return err
+		}
+		return c.Redirect(http.StatusFound, "/accounts/")
+	})
 	g.POST("/:accountId/disable/", handleAccountEnableToggle(store, false))
 	g.POST("/:accountId/enable/", handleAccountEnableToggle(store, true))
 	g.GET("/:accountId/roles/", handleRoles(store))
@@ -179,6 +243,96 @@ func accountsRouter(e *echo.Echo, token auth.LoginToken, store storage.Storage, 
 		data.StackId = url.QueryEscape(stackId)
 		data.Accounts = []storage.Account{acc}
 		return c.Render(http.StatusOK, "bootstrap-status.html", data)
+	})
+	g.GET("/:accountId/grant/", func(c echo.Context) error {
+		ctx := c.Request().Context()
+		user, _ := userFromRequest(c)
+		roleName := c.QueryParam("roleName")
+		acc, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+		if !user.Superuser {
+			err := hasPermission(ctx, store, acc.Id, user.Id, storage.RolePermission, roleName, storage.RolePermissionGrant)
+			if err != nil {
+				return err
+			}
+		}
+		users, _ := store.ListUsers(ctx, "", nil)
+		data := templates.TemplateData(user, "Grant Role permission")
+		data.Roles = []templates.Role{templates.Role{Arn: acc.ArnForRole(roleName), Name: roleName}}
+		data.Users = users.Users
+		data.Accounts = []storage.Account{acc}
+		return c.Render(http.StatusOK, "grant.html", data)
+	})
+
+	g.POST("/:accountId/grant/", func(c echo.Context) error {
+		type GrantForm struct {
+			Username   string `form:"username"`
+			Permission string `form:"permission"`
+		}
+		ctx := c.Request().Context()
+		user, _ := userFromRequest(c)
+		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
+
+		acc, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+
+		// check form
+		form := GrantForm{}
+		if err := c.Bind(&form); err != nil {
+			return err
+		}
+		log.Println(form)
+		if form.Username == "" {
+			return ErrInvalidGrant
+		}
+		if form.Permission != storage.RolePermissionAssume && form.Permission != storage.RolePermissionGrant && form.Permission != "BOTH" {
+			return ErrInvalidGrant
+		}
+
+		permToAdd := []string{form.Permission}
+		if form.Permission == "BOTH" {
+			permToAdd = []string{storage.RolePermissionAssume, storage.RolePermissionGrant}
+		}
+
+		// check if current user has access to grant
+		if !user.Superuser {
+			err := hasPermission(ctx, store, acc.Id, user.Id, storage.RolePermission, roleName, storage.RolePermissionGrant)
+			if err != nil {
+				return err
+			}
+		}
+
+		// check if the request user exists
+		usr, err := store.GetUserByUsername(ctx, form.Username)
+		if err != nil {
+			return err
+		}
+		// check existing permission if any
+		perms, err := store.ListPermissions(ctx, usr.Id, acc.Id, storage.RolePermission, roleName, nil)
+		perm := storage.Permission{
+			PermissionId: storage.PermissionId{UserId: usr.Id, AccountId: acc.Id, Type: storage.RolePermission, Scope: roleName},
+		}
+		if len(perms.Permissions) > 0 {
+			perm = perms.Permissions[0]
+		}
+		added := false
+		for _, v := range permToAdd {
+			if !slices.Contains(perm.Value, v) {
+				perm.Value = append(perm.Value, v)
+				added = true
+			}
+		}
+		// add if something changed
+		if added {
+			if err = store.PutRolePermission(ctx, perm, false); err != nil {
+				return err
+			}
+		}
+		return redirectoAccount(c, acc.Id)
 	})
 	g.GET("/:accountId/", handleAccount(store))
 }
@@ -400,4 +554,18 @@ func assumeOpRole(ctx context.Context, stsCl aws.StsClient, acc storage.Account)
 
 func redirectoAccount(c echo.Context, accountId string) error {
 	return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/", accountId))
+}
+
+func parseTags(tagString string) map[string]string {
+	tags := map[string]string{}
+	lines := strings.Split(tagString, "\n")
+	for _, line := range lines {
+		key, value, _ := strings.Cut(line, "=")
+		value = strings.TrimSpace(value)
+		if value == "" {
+			value = "-"
+		}
+		tags[strings.TrimSpace(key)] = value
+	}
+	return tags
 }

@@ -191,6 +191,7 @@ func (m *MemoryStorage) GetUserById(ctx context.Context, userId string) (User, e
 		return User{}, ErrUserNotFound
 	}
 	for _, user := range m.users {
+
 		if user.Id == userId {
 			return user, nil
 		}
@@ -203,6 +204,18 @@ func (m *MemoryStorage) GetAccountById(ctx context.Context, accountId string) (A
 	}
 	for _, acc := range m.accounts {
 		if acc.Id == accountId {
+			return acc, nil
+		}
+	}
+	return Account{}, ErrAccountNotFound
+}
+
+func (m *MemoryStorage) GetAccountByAwsAccountId(ctx context.Context, awsAccountId int) (Account, error) {
+	if awsAccountId == 0 {
+		return Account{}, ErrAccountNotFound
+	}
+	for _, acc := range m.accounts {
+		if acc.AwsAccountId == awsAccountId {
 			return acc, nil
 		}
 	}
@@ -239,11 +252,15 @@ func (m *MemoryStorage) PutUser(ctx context.Context, usr User, delete bool) (Use
 		})
 		return usr, nil
 	}
-	_, err := m.GetUserByUsername(ctx, usr.Username)
-	if err == ErrUserNotFound {
-		usr.Id = newUuid()
-		m.users = append(m.users, usr)
+	for i, user := range m.users {
+		if user.Id == usr.Id {
+			user.Superuser = usr.Superuser
+			m.users[i] = user
+			return user, nil
+		}
 	}
+	usr.Id = newUuid()
+	m.users = append(m.users, usr)
 	return usr, nil
 }
 func (m *MemoryStorage) PutRolePermission(ctx context.Context, newPerm Permission, delete bool) error {

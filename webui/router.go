@@ -1,7 +1,10 @@
 package webui
 
 import (
+	"context"
+	"log"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/chrisdd2/aws-login/auth"
@@ -17,6 +20,7 @@ const tokenExpirationTime = time.Hour * 8
 func Router(e *echo.Echo, auth auth.AuthMethod, store storage.Storage, token auth.LoginToken, stsCl aws.StsClient) {
 
 	accountsRouter(e, token, store, stsCl)
+	usersRouter(e, store, token)
 	e.GET("/login/", func(c echo.Context) error {
 		t := c.QueryParam("token")
 		// login with a token i guess?
@@ -37,12 +41,13 @@ func Router(e *echo.Echo, auth auth.AuthMethod, store storage.Storage, token aut
 		_, ok := userFromRequest(c)
 		if ok {
 			cookie, _ := c.Cookie(cookieName)
+			log.Println(cookie)
 			cookie.MaxAge = -1
 			cookie.Path = "/"
 			c.SetCookie(cookie)
 		}
 		return c.Redirect(http.StatusTemporaryRedirect, "/")
-	})
+	}, guard(token))
 	e.GET("/expired/", func(c echo.Context) error {
 		data := templates.TemplateData(nil, "Expired")
 		return c.Render(http.StatusOK, "expired.html", data)
@@ -54,6 +59,13 @@ func Router(e *echo.Echo, auth auth.AuthMethod, store storage.Storage, token aut
 		}
 		return logUserIn(c, store, info, token)
 	})
+	e.GET("/admin/", func(c echo.Context) error {
+		user, _ := userFromRequest(c)
+		if !user.Superuser {
+			return ErrOnlySuperAllowed
+		}
+		return c.Render(http.StatusOK, "admin.html", templates.TemplateData(user, "Admin"))
+	}, guard(token))
 
 	e.GET("/", func(c echo.Context) error {
 		user, _ := userFromRequest(c)
@@ -108,4 +120,18 @@ func logUserIn(c echo.Context, store storage.Storage, info *auth.UserInfo, token
 	}
 	c.SetCookie(cookie)
 	return c.Redirect(http.StatusTemporaryRedirect, "/")
+}
+
+func hasPermission(ctx context.Context, store storage.Storage, accountId string, userId string, permissionType string, scope string, value string) error {
+	res, err := store.ListPermissions(ctx, userId, accountId, permissionType, scope, nil)
+	if err != nil {
+		return err
+	}
+	if len(res.Permissions) != 1 {
+		return ErrNoPermissionAction
+	}
+	if slices.Contains(res.Permissions[0].Value, value) {
+		return nil
+	}
+	return ErrNoPermissionAction
 }

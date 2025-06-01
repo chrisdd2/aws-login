@@ -52,6 +52,7 @@ type templateData struct {
 	ProfilePath string
 	LoginPath   string
 	Logged      bool
+	Users       []storage.User
 	User        *auth.UserInfo
 	Accounts    []storage.Account
 	HasNext     bool
@@ -65,6 +66,9 @@ type templateData struct {
 
 func (t *templateData) Account() storage.Account {
 	return t.Accounts[0]
+}
+func (t *templateData) Role() Role {
+	return t.Roles[0]
 }
 
 type MenuItem struct {
@@ -88,7 +92,7 @@ func TemplateData(user *auth.UserInfo, title string) *templateData {
 		if d.User.Superuser {
 			d.Menu = append(d.Menu, MenuItem{
 				Label: "Admin", Path: "/admin",
-			})
+			}, MenuItem{Label: "Users", Path: "/users"})
 		}
 	}
 	return &d

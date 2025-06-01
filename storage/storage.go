@@ -75,6 +75,7 @@ type Storage interface {
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	GetUserById(ctx context.Context, userId string) (User, error)
 	GetAccountById(ctx context.Context, accountId string) (Account, error)
+	GetAccountByAwsAccountId(ctx context.Context, awsAccountId int) (Account, error)
 
 	// write
 	PutAccount(ctx context.Context, acc Account, delete bool) (Account, error)

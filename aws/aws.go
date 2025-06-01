@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -98,4 +99,10 @@ func (d AwsRole) RealName() string {
 	}
 	return string(d)
 
+}
+
+// Validate the account number for AWS it must be a 12 digit number
+func ValidateAWSAccountID(accountID string) bool {
+	re := regexp.MustCompile(`^\d{12}$`)
+	return re.MatchString(accountID)
 }

@@ -1,0 +1,55 @@
+{{ define "content" }}
+<div class="max-w-4xl mx-auto bg-white dark:bg-gray-800 shadow-md rounded-lg p-6">
+  <h1 class="text-2xl font-bold text-gray-800 dark:text-white mb-6">User Management</h1>
+
+  <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+    <thead>
+      <tr class="bg-gray-100 dark:bg-gray-700 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">
+        <th class="px-4 py-2">Username</th>
+        <th class="px-4 py-2">Superuser</th>
+        <th class="px-4 py-2 text-right">Actions</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-200 dark:divide-gray-700 text-sm text-gray-800 dark:text-gray-100">
+      {{ range .Users }}
+      <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
+        <td class="px-4 py-2">{{ .Username }}</td>
+        <td class="px-4 py-2">
+          {{ if .Superuser }}
+            <span class="text-green-600 dark:text-green-400 font-medium">Yes</span>
+          {{ else }}
+            <span class="text-gray-500">No</span>
+          {{ end }}
+        </td>
+        <td class="px-4 py-2 text-right space-x-2">
+          {{ if not .Superuser }}
+          <form method="POST" action="/users/{{.Id}}/promote" class="inline">
+            <button class="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition">
+              Promote
+            </button>
+          </form>
+          {{ else }}
+          <form method="POST" action="/users/{{.Id}}/demote" class="inline">
+            <button class="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition">
+              Demote
+            </button>
+          </form>
+          {{ end }}
+
+          <form method="POST" action="/users/{{.Id}}/delete" class="inline" onsubmit="return confirm('Delete user {{ .Username }}?')">
+            <button class="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition">
+              Delete
+            </button>
+          </form>
+        </td>
+      </tr>
+      {{ else }}
+      <tr>
+        <td colspan="3" class="px-4 py-4 text-center text-gray-500">No users found</td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+{{ end }}
+{{ template "layout" . }}

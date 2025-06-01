@@ -56,6 +56,11 @@
                 Destroy Bootstrap
             </button>
         </form>
+        <form method="POST" action="/accounts/{{ .Account.Id }}/delete">
+            <button class="px-4 py-2 bg-red-600 text-white rounded hover:bg-green-700 transition">
+                Delete Account
+            </button>
+        </form>
         <a href="/accounts/{{ .Account.Id }}/cloudformation" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition" download="template.yml"> Export CloudFormation Template </a>
         {{ end }}
     </div>
