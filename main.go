@@ -2,44 +2,60 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
+
+	"log/slog"
+	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/auth"
-	"github.com/chrisdd2/aws-login/internal"
 	"github.com/chrisdd2/aws-login/storage"
 	"github.com/chrisdd2/aws-login/webui"
+	"github.com/chrisdd2/aws-login/webui/templates"
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
+func loadStorage(file string) (*storage.MemoryStorage, error) {
+	f, err := os.Open(file)
+	if err != nil {
+		log.Println(err)
+		return storage.NewMemoryStorage(), nil
+	}
+	defer f.Close()
+	return storage.NewMemoryStorageFromJson(f)
+}
+
 func initStorage(filename string) (storage.Storage, func(), error) {
-	store, err := internal.LoadStorage(filename)
+	store, err := loadStorage(filename)
 	if err != nil {
 		return nil, nil, fmt.Errorf("loadStorage [%w]", err)
 	}
-	saveStorage := func() {
+	flushFunc := func(s *storage.MemoryStorage) {
 		log.Printf("saving storage to [%s]\n", filename)
 		f, err := os.Create(filename)
 		if err != nil {
 			log.Fatalln(err)
 		}
-		err = storage.SaveMemoryStorageFromJson(store, f)
+		err = storage.SaveMemoryStorageFromJson(s, f)
 		if err != nil {
 			log.Fatalln(err)
 		}
 	}
+	store.SetFlush(flushFunc)
 	exitSignal := make(chan os.Signal, 10)
 	signal.Notify(exitSignal, os.Interrupt, os.Kill)
 	go func() {
 		<-exitSignal
-		saveStorage()
+		store.Flush()
 		os.Exit(1)
 	}()
-	return store, saveStorage, nil
+	return store, store.Flush, nil
 }
 
 func main() {
@@ -65,7 +81,6 @@ func main() {
 		ClientSecret: envOrDie("CLIENT_SECRET"),
 		ClientId:     envOrDie("CLIENT_ID"),
 	}
-	apiRouter := NewApiRouter(store, authMethod, token, sts.NewFromConfig(cfg))
 	// for range 10 {
 	// 	acc, _ := store.PutAccount(context.Background(), storage.Account{
 	// 		AwsAccountId: rand.Int(),
@@ -81,14 +96,35 @@ func main() {
 	// 		Value: []string{aws.DeveloperRole, aws.ReadOnlyRole},
 	// 	}, false)
 	// }
-	stsCient := sts.NewFromConfig(cfg)
 
-	mux := http.NewServeMux()
-	mux.Handle("/api/", http.StripPrefix("/api", apiRouter))
-	mux.Handle("/", webui.NewWebUi(token, store, authMethod, stsCient))
+	e := echo.New()
+	e.Renderer = &templates.EchoRenderer{}
+
+	// Middleware
+	e.Pre(middleware.AddTrailingSlash())
+	e.Use(middleware.Logger())
+	e.Use(middleware.Recover())
+	e.Use(middleware.RequestID())
+
+	e.HTTPErrorHandler = func(err error, c echo.Context) {
+		switch v := err.(type) {
+		case *echo.HTTPError:
+			c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": fmt.Sprint(v.Message),
+			})
+		default:
+			c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": v.Error(),
+			})
+		}
+	}
+
+	stsCient := sts.NewFromConfig(cfg)
+	webui.Router(e, authMethod, store, token, stsCient)
+
 	log.Printf("listening [http://%s]\n", addr)
-	if err := http.ListenAndServe(addr, internal.LoggerWrap(mux)); err != nil {
-		log.Fatalln(err)
+	if err := e.Start(addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		slog.Error("failed to start server", "error", err)
 	}
 }
 

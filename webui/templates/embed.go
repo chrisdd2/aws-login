@@ -4,12 +4,13 @@ import (
 	"embed"
 	"errors"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
-	"net/http"
 
 	"github.com/chrisdd2/aws-login/auth"
 	"github.com/chrisdd2/aws-login/storage"
+	"github.com/labstack/echo/v4"
 )
 
 const layoutFile = "layout.html"
@@ -35,15 +36,6 @@ func init() {
 		t := template.Must(template.ParseFS(embeddedFiles, layoutFile))
 		templates[file] = template.Must(t.ParseFS(embeddedFiles, file))
 	}
-}
-
-func RenderPage(w http.ResponseWriter, name string, data any) error {
-	w.Header().Add("Content-Type", "text/html; charset=utf-8")
-	tmpl, ok := templates[name]
-	if !ok {
-		return ErrTemplateNotExist
-	}
-	return tmpl.ExecuteTemplate(w, name, data)
 }
 
 type Role struct {
@@ -82,19 +74,32 @@ type MenuItem struct {
 func TemplateData(user *auth.UserInfo, title string) *templateData {
 	d := templateData{
 		Title:       title,
-		LoginPath:   "/login",
-		LogoutPath:  "/logout",
-		ProfilePath: "/profile",
+		LoginPath:   "/login/",
+		LogoutPath:  "/logout/",
+		ProfilePath: "/profile/",
 		Menu: []MenuItem{
-			{Label: "Accounts", Path: "/accounts"},
+			{Label: "Accounts", Path: "/accounts/"},
 		},
 		User: user,
 	}
-	if d.User != nil && d.User.Superuser {
-		d.Menu = append(d.Menu, MenuItem{
-			Label: "Admin", Path: "/admin",
-		})
+	if d.User != nil {
 		d.Logged = true
+		if d.User.Superuser {
+			d.Menu = append(d.Menu, MenuItem{
+				Label: "Admin", Path: "/admin",
+			})
+		}
 	}
 	return &d
+}
+
+type EchoRenderer struct{}
+
+func (t *EchoRenderer) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+	c.Response().Header().Add("Content-Type", "text/html; charset=utf-8")
+	tmpl, ok := templates[name]
+	if !ok {
+		return ErrTemplateNotExist
+	}
+	return tmpl.ExecuteTemplate(w, name, data)
 }

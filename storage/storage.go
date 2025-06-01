@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"github.com/chrisdd2/aws-login/aws"
 )
 
 type User struct {
@@ -22,32 +24,42 @@ type Account struct {
 	Tags         map[string]string `json:"tags,omitempty"`
 }
 
+func (acc Account) Roles() []string {
+	return []string{aws.ReadOnlyRole, aws.DeveloperRole}
+}
+
 func (acc Account) ArnForRole(roleName string) string {
 	return fmt.Sprintf("arn:aws:iam::%d:role/%s", acc.AwsAccountId, roleName)
 }
 
-type UserPermissionId struct {
+type PermissionId struct {
 	UserId    string `json:"user_id,omitempty"`
 	AccountId string `json:"account_id,omitempty"`
+	Type      string `json:"type,omitempty"`
 	Scope     string `json:"scope,omitempty"`
 }
 
 const (
-	UserPermissionAssume = "ASSUME"
-	UserPermissionAdmin  = "ADMIN"
+	AccountAdminPermission        = "ADMIN"
+	AccountAdminScopeAccount      = "ACCOUNT"
+	AccountAdminPermissionEnabled = "ENABLED"
+
+	RolePermission       = "ROLE"
+	RolePermissionAssume = "ASSUME"
+	RolePermissionGrant  = "GRANT"
 )
 
-type UserPermission struct {
-	UserPermissionId
+type Permission struct {
+	PermissionId
 	Value []string `json:"value,omitempty"`
 }
 type ListUserResult struct {
 	Users      []User  `json:"user"`
 	StartToken *string `json:"start_token,omitempty"`
 }
-type ListUserPermissionResult struct {
-	UserPermissions []UserPermission `json:"user_permissions"`
-	StartToken      *string          `json:"start_token,omitempty"`
+type ListPermissionResult struct {
+	Permissions []Permission `json:"permissions"`
+	StartToken  *string      `json:"start_token,omitempty"`
 }
 type ListAccountResult struct {
 	Accounts   []Account `json:"accounts"`
@@ -57,7 +69,7 @@ type ListAccountResult struct {
 type Storage interface {
 	// read
 	ListUsers(ctx context.Context, filter string, startToken *string) (ListUserResult, error)
-	ListUserPermissions(ctx context.Context, userId string, accountId string, scope string, startToken *string) (ListUserPermissionResult, error)
+	ListPermissions(ctx context.Context, userId string, accountId string, permissionType string, scope string, startToken *string) (ListPermissionResult, error)
 	ListAccounts(ctx context.Context, startToken *string) (ListAccountResult, error)
 	ListAccountsForUser(ctx context.Context, userId string, startToken *string) (ListAccountResult, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
@@ -67,7 +79,7 @@ type Storage interface {
 	// write
 	PutAccount(ctx context.Context, acc Account, delete bool) (Account, error)
 	PutUser(ctx context.Context, usr User, delete bool) (User, error)
-	PutUserPermission(ctx context.Context, perm UserPermission, delete bool) error
+	PutRolePermission(ctx context.Context, perm Permission, delete bool) error
 }
 
 var ErrUserNotFound = errors.New("user not found")

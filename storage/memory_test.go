@@ -22,11 +22,12 @@ func TestSimple(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, acc.Id)
 
-	err = m.PutUserPermission(ctx, storage.UserPermission{
-		UserPermissionId: storage.UserPermissionId{
+	err = m.PutRolePermission(ctx, storage.Permission{
+		PermissionId: storage.PermissionId{
 			UserId:    usr.Id,
 			AccountId: acc.Id,
-			Scope:     "ASSUME",
+			Type:      storage.RolePermission,
+			Scope:     "somerole",
 		},
 		Value: []string{"*"},
 	}, false)
