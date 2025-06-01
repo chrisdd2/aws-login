@@ -36,14 +36,28 @@ A modern web application to simplify AWS account access management through GitHu
 
 ## Demo
 
-> **Note:** No screenshots are included in this repository. The UI is built with Tailwind CSS and features:
->
-> - **Login Page**: GitHub OAuth login.
-> - **Dashboard**: Overview of AWS accounts and roles.
-> - **Account Management**: Add, enable/disable, or delete AWS accounts.
-> - **Role Selection**: Assume roles and access AWS Console or download credentials.
-> - **User Management**: Promote/demote users, grant/revoke permissions.
-> - **Admin Panel**: Manage all users and accounts.
+Below are screenshots showcasing the main features and UI of AWS Login:
+
+### Login Page
+![Login Page](screenshots/login.png)
+
+### Dashboard
+![Dashboard](screenshots/dashboard.png)
+
+### Account Management
+![Account Management](screenshots/account-management.png)
+
+### Account Info
+![Account Info](screenshots/account-info.png)
+
+### Role Selection
+![Role Selection](screenshots/role-selection.png)
+
+### User Management
+![User Management](screenshots/user-management.png)
+
+### Setup Account (CloudFormation)
+![Setup Account](screenshots/setup-account.png)
 
 ---
 
@@ -53,6 +67,7 @@ The project provides two CloudFormation templates in `aws/cfn/`:
 
 - **`bootstrap.template`**: Creates an IAM role with `AdministratorAccess` for initial account setup. Used to bootstrap a new AWS account for use with AWS Login.
 - **`base.template`**: Sets up IAM roles (Developer, ReadOnly) and a permissions boundary to restrict IAM actions. Used to manage roles and permissions for ongoing access control.
+- **`iam-user-policy.template`**: Provides an AWS IAM user policy for the application to assume roles and get caller identity.
 
 You can export and deploy these templates directly from the web UI or via the AWS Console/CLI.
 
@@ -63,6 +78,40 @@ You can export and deploy these templates directly from the web UI or via the AW
 - Go 1.24+
 - A GitHub OAuth application (Client ID and Secret)
 - AWS credentials configured locally (for the server to assume roles)
+- **An AWS IAM user with the following policy attached:**
+
+  The application requires an AWS user with permission to assume roles and get caller identity. Attach this policy to the user:
+
+  ```json
+  {
+      "Version": "2012-10-17",
+      "Statement": [
+          {
+              "Sid": "VisualEditor0",
+              "Effect": "Allow",
+              "Action": [
+                  "sts:AssumeRole",
+                  "sts:GetCallerIdentity"
+              ],
+              "Resource": "*"
+          }
+      ]
+  }
+  ```
+
+  You can deploy this policy using the provided CloudFormation template (`aws/cfn/iam-user-policy.template`).
+
+  **To deploy with AWS CLI:**
+
+  ```sh
+  aws cloudformation deploy \
+    --template-file aws/cfn/iam-user-policy.template \
+    --stack-name aws-login-iam-policy \
+    --parameter-overrides UserName=YOUR_IAM_USERNAME \
+    --capabilities CAPABILITY_NAMED_IAM
+  ```
+
+  Replace `YOUR_IAM_USERNAME` with the name of your IAM user.
 
 ---
 
