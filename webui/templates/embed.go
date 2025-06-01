@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"time"
 
 	"github.com/chrisdd2/aws-login/auth"
 	"github.com/chrisdd2/aws-login/storage"
@@ -28,12 +29,18 @@ func init() {
 	if err != nil {
 		panic(err.Error())
 	}
+	// extra func
+	funcMap := template.FuncMap{
+		"now": func() time.Time {
+			return time.Now().UTC()
+		},
+	}
 	for _, file := range files {
 		log.Println(file)
 		if file == layoutFile {
 			continue
 		}
-		t := template.Must(template.ParseFS(embeddedFiles, layoutFile))
+		t := template.Must(template.New(file).Funcs(funcMap).ParseFS(embeddedFiles, layoutFile))
 		templates[file] = template.Must(t.ParseFS(embeddedFiles, file))
 	}
 }

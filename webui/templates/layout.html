@@ -16,26 +16,30 @@
   </script>
 </head>
 
-<body class="bg-white text-gray-900 dark:bg-gray-900 dark:text-white">
-  <nav class="bg-white dark:bg-gray-800 shadow-md">
+<body class="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-indigo-100 dark:from-gray-900 dark:via-gray-950 dark:to-gray-900 text-gray-900 dark:text-white flex flex-col">
+  <nav class="bg-white/80 dark:bg-gray-800/80 shadow-lg rounded-b-2xl backdrop-blur-md sticky top-0 z-30">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex justify-between h-16 items-center">
         <div class="flex items-center space-x-8">
-          <a href="/" class="text-xl font-bold text-indigo-600 dark:text-indigo-400 flex items-center">Aws-Login</a>
+          <a href="/" class="text-2xl font-extrabold text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
+            <!-- Heroicon: Lock Closed -->
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m0 0a2 2 0 01-2-2v-2a2 2 0 012-2h0a2 2 0 012 2v2a2 2 0 01-2 2zm6-6V7a6 6 0 10-12 0v2" /></svg>
+            Aws-Login
+          </a>
           <div class="hidden md:flex space-x-6 items-center text-base">
             {{ range .Menu }}
             <a href="{{.Path }}"
-              class="hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center">{{.Label}}</a>
+              class="hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center font-medium transition">{{.Label}}</a>
             {{ end }}
           </div>
         </div>
 
         <div class="hidden md:flex items-center space-x-4">
           {{ if .Logged }}
-          <span class="text-sm text-gray-700 dark:text-gray-200">{{ .User.Username }}</span>
-          <a href="/logout" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600">Logout</a>
+          <span class="text-sm text-gray-700 dark:text-gray-200 flex items-center gap-1"><svg xmlns='http://www.w3.org/2000/svg' class='h-5 w-5 text-indigo-500' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M5.121 17.804A13.937 13.937 0 0112 15c2.5 0 4.847.655 6.879 1.804M15 11a3 3 0 11-6 0 3 3 0 016 0z' /></svg>{{ .User.Username }}</span>
+          <a href="/logout" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 shadow transition flex items-center gap-1"><svg xmlns='http://www.w3.org/2000/svg' class='h-4 w-4' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v1' /></svg>Logout</a>
           {{ else }}
-          <a href="/login" class="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600">Login with Github</a>
+          <a href="/login" class="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 shadow transition flex items-center gap-1"><svg xmlns='http://www.w3.org/2000/svg' class='h-4 w-4' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M5 12h14M12 5l7 7-7 7' /></svg>Login with Github</a>
           {{ end }}
         </div>
 
@@ -49,26 +53,29 @@
       </div>
     </div>
 
-    <div id="mobile-menu" class="md:hidden hidden px-4 pb-4 space-y-2 bg-white dark:bg-gray-800">
+    <div id="mobile-menu" class="md:hidden hidden px-4 pb-4 space-y-2 bg-white/90 dark:bg-gray-800/90 rounded-b-xl shadow-lg">
       {{ range .Menu }}
-      <a href="{{ .Path }}" class="block hover:text-indigo-600 dark:hover:text-indigo-400">{{.Label}}</a>
+      <a href="{{ .Path }}" class="block hover:text-indigo-600 dark:hover:text-indigo-400 font-medium">{{.Label}}</a>
       {{ end }}
       {{ if .Logged }}
       <div class="flex justify-between items-center">
-        <span class="text-sm">{{ .User.Username }}</span>
-        <a href="/logout" class="text-red-500 hover:underline">Logout</a>
+        <span class="text-sm flex items-center gap-1"><svg xmlns='http://www.w3.org/2000/svg' class='h-5 w-5 text-indigo-500' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M5.121 17.804A13.937 13.937 0 0112 15c2.5 0 4.847.655 6.879 1.804M15 11a3 3 0 11-6 0 3 3 0 016 0z' /></svg>{{ .User.Username }}</span>
+        <a href="/logout" class="text-red-500 hover:underline flex items-center gap-1"><svg xmlns='http://www.w3.org/2000/svg' class='h-4 w-4' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2h4a2 2 0 012 2v1' /></svg>Logout</a>
       </div>
       {{ else }}
-      <a href="/login" class="block text-indigo-600 hover:underline">Login</a>
+      <a href="/login" class="block text-indigo-600 hover:underline flex items-center gap-1"><svg xmlns='http://www.w3.org/2000/svg' class='h-4 w-4' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M5 12h14M12 5l7 7-7 7' /></svg>Login</a>
       {{ end }}
     </div>
   </nav>
 
-<main class="px-4 py-8">
+<main class="flex-1 px-4 py-8">
   <div class="max-w-6xl mx-auto w-full">
     {{ block "content" . }} {{end}}
   </div>
 </main>
+  <footer class="bg-white/80 dark:bg-gray-800/80 shadow-inner rounded-t-2xl py-4 mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
+    <span>{{ now.Year }} AWS Login UI &mdash; <a href="https://github.com/chrisdd2/aws-login" class="text-indigo-600 dark:text-indigo-400 hover:underline">GitHub</a></span>
+  </footer>
   <script>
     const btn = document.getElementById('menu-btn');
     const menu = document.getElementById('mobile-menu');

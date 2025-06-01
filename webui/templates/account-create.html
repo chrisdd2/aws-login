@@ -1,7 +1,9 @@
 {{ define "content" }}
-<div class="max-w-2xl mx-auto bg-white dark:bg-gray-800 shadow-md rounded-lg p-6">
-  <h1 class="text-2xl font-bold text-gray-800 dark:text-white mb-6">Create New Account</h1>
-
+<div class="max-w-2xl mx-auto bg-white/90 dark:bg-gray-800/90 shadow-xl rounded-2xl p-6 mt-6">
+  <h1 class="text-2xl font-extrabold text-indigo-700 dark:text-indigo-300 mb-6 flex items-center gap-2">
+    <svg xmlns='http://www.w3.org/2000/svg' class='h-7 w-7 text-indigo-400' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M9 12h6m-3-3v6' /></svg>
+    Create New Account
+  </h1>
   <form method="POST" action="/accounts/create" class="space-y-6">
     <!-- Friendly Name -->
     <div>
@@ -11,7 +13,6 @@
       <input type="text" id="friendly_name" name="friendly_name" required
              class="w-full px-4 py-2 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
     </div>
-
     <!-- AWS Account ID -->
     <div>
       <label for="aws_account_id" class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
@@ -20,7 +21,6 @@
       <input type="number" id="aws_account_id" name="aws_account_id" required
              class="w-full px-4 py-2 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
     </div>
-
     <!-- Enabled Checkbox -->
     <div class="flex items-center">
       <input type="checkbox" id="enabled" name="enabled"
@@ -29,7 +29,6 @@
         Enabled
       </label>
     </div>
-
     <!-- Tags (key=value lines) -->
     <div>
       <label for="tags" class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
@@ -39,11 +38,11 @@
                 class="w-full px-4 py-2 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 placeholder="env=prod&#10;team=devops"></textarea>
     </div>
-
     <!-- Submit Button -->
-    <div>
+    <div class="pt-2">
       <button type="submit"
-              class="px-6 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition">
+              class="px-6 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 shadow transition flex items-center gap-2 font-semibold">
+        <svg xmlns='http://www.w3.org/2000/svg' class='h-5 w-5' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M9 12h6m-3-3v6' /></svg>
         Create Account
       </button>
     </div>

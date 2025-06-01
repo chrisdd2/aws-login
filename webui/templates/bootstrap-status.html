@@ -20,10 +20,13 @@
 </script>
 {{ end }}
 {{ define "content"}}
-<div class="w-full bg-gray shadow-xl rounded-2xl p-3">
-<h1 class="text-2xl font-semibold text-white mb-4">Stack status</h1>
-<div id="log-container" class="h-96 overflow-y-auto bg-gray-900 text-green-400 font-mono text-sm p-4 rounded-xl border border-gray-700">
-</div>
+<div class="w-full max-w-3xl mx-auto bg-white/90 dark:bg-gray-800/90 shadow-xl rounded-2xl p-6 mt-6">
+  <h1 class="text-2xl font-extrabold text-indigo-700 dark:text-indigo-300 mb-4 flex items-center gap-2">
+    <svg xmlns='http://www.w3.org/2000/svg' class='h-7 w-7 text-green-400' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M13 16h-1v-4h-1m1-4h.01' /></svg>
+    Stack status
+  </h1>
+  <div id="log-container" class="h-96 overflow-y-auto bg-gray-900 text-green-400 font-mono text-sm p-4 rounded-xl border border-gray-700">
+  </div>
 </div>
 {{ end }}
 {{ template "layout" .}}

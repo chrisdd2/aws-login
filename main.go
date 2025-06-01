@@ -88,7 +88,13 @@ func main() {
 
 	// Middleware
 	e.Pre(middleware.AddTrailingSlash())
-	e.Use(middleware.Logger())
+	if envOrDefault("APP_DEVELOPMENT_MODE", "") != ""{
+		e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+			Format: "method=${method}, uri=${uri}, status=${status}\n",
+		  }))
+	} else {
+		e.Use(middleware.Logger())
+	}
 	e.Use(middleware.Recover())
 	e.Use(middleware.RequestID())
 
