@@ -151,6 +151,7 @@ You can export and deploy these templates directly from the web UI or via the AW
    ```sh
    export CLIENT_ID=your_github_client_id
    export CLIENT_SECRET=your_github_client_secret
+   # the callback url should point to /oauth2/idpresponse e.g http://localhost:8080/oauth2/idpresponse
    # Optionally set AWS credentials and other variables
    ```
 2. **Run the application:**
