@@ -122,6 +122,7 @@ You can export and deploy these templates directly from the web UI or via the AW
 | `APP_LISTEN_ADDR`    | Address and port to listen on            | `0.0.0.0:8080`    |
 | `APP_STORE_FILE`     | Path to the storage file                 | `store.json`      |
 | `APP_GENERATE_TOKEN` | Set to any value to generate admin token | -                 |
+| `APP_SIGN_KEY`       | Key to use for signing tokens            | **Required**      |
 | `CLIENT_ID`          | GitHub OAuth client ID                   | **Required**      |
 | `CLIENT_SECRET`      | GitHub OAuth client secret               | **Required**      |
 

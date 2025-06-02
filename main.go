@@ -61,6 +61,7 @@ func initStorage(filename string) (storage.Storage, func(), error) {
 func main() {
 	addr := envOrDefault("APP_LISTEN_ADDR", "0.0.0.0:8080")
 	filename := envOrDefault("APP_STORE_FILE", "store.json")
+	signKey := envOrDie("APP_SIGN_KEY")
 	generateAdminToken := os.Getenv("APP_GENERATE_TOKEN") != ""
 
 	store, saveStorage, err := initStorage(filename)
@@ -75,7 +76,7 @@ func main() {
 	}
 
 	token := auth.LoginToken{
-		Key: []byte("hello"),
+		Key: []byte(signKey),
 	}
 
 	authMethod := &auth.GithubAuth{
@@ -88,10 +89,10 @@ func main() {
 
 	// Middleware
 	e.Pre(middleware.AddTrailingSlash())
-	if envOrDefault("APP_DEVELOPMENT_MODE", "") != ""{
+	if envOrDefault("APP_DEVELOPMENT_MODE", "") != "" {
 		e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 			Format: "method=${method}, uri=${uri}, status=${status}\n",
-		  }))
+		}))
 	} else {
 		e.Use(middleware.Logger())
 	}
