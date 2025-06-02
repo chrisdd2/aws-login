@@ -13,4 +13,4 @@ export APP_GENERATE_TOKEN=1
 export APP_DEVELOPMENT_MODE=1
 
 aws sts get-caller-identity
-gow -e=go,mod,html,template run .
+gow -e=go,mod,html,template,css run .

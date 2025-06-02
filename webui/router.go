@@ -11,6 +11,7 @@ import (
 	"github.com/chrisdd2/aws-login/aws"
 	"github.com/chrisdd2/aws-login/storage"
 	"github.com/chrisdd2/aws-login/webui/templates"
+	"github.com/chrisdd2/aws-login/webui/templates/css"
 	"github.com/labstack/echo/v4"
 )
 
@@ -66,7 +67,7 @@ func Router(e *echo.Echo, auth auth.AuthMethod, store storage.Storage, token aut
 		}
 		return c.Render(http.StatusOK, "admin.html", templates.TemplateData(user, "Admin"))
 	}, guard(token))
-
+	e.FileFS("/css/layout.css/", "layout.css", css.CssFiles)
 	e.GET("/", func(c echo.Context) error {
 		user, _ := userFromRequest(c)
 		data := templates.TemplateData(user, "Home")
