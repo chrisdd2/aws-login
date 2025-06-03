@@ -4,26 +4,19 @@
     <svg xmlns='http://www.w3.org/2000/svg' class='h-7 w-7 text-indigo-400' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M5.121 17.804A13.937 13.937 0 0112 15c2.5 0 4.847.655 6.879 1.804M15 11a3 3 0 11-6 0 3 3 0 016 0z' /></svg>
     User Management
   </h1>
-  <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-    <thead>
-      <tr class="bg-gray-100 dark:bg-gray-700 text-left text-sm font-semibold text-gray-700 dark:text-gray-200">
-        <th class="px-4 py-2">Username</th>
-        <th class="px-4 py-2">Superuser</th>
-        <th class="px-4 py-2 text-right">Actions</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-gray-100 dark:divide-gray-800 text-sm text-gray-800 dark:text-gray-100">
+  <div class="space-y-4">
+    {{ if .Users }}
       {{ range .Users }}
-      <tr class="hover:bg-indigo-50 dark:hover:bg-gray-700 transition">
-        <td class="px-4 py-2 font-medium">{{ .Username }}</td>
-        <td class="px-4 py-2">
-          {{ if .Superuser }}
-            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">Yes</span>
-          {{ else }}
-            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400">No</span>
-          {{ end }}
-        </td>
-        <td class="px-4 py-2 text-right space-x-2 flex flex-row justify-end items-center">
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-indigo-50 dark:hover:bg-gray-700 transition">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-lg font-semibold text-gray-900 dark:text-gray-100">{{ .Username }}</span>
+            {{ if .Superuser }}
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300 ml-2">Superuser</span>
+            {{ end }}
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2 items-center justify-end">
           {{ if not .Superuser }}
           <form method="POST" action="/users/{{.Id}}/promote" class="inline">
             <button class="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 shadow transition flex items-center gap-1">
@@ -45,15 +38,17 @@
               Delete
             </button>
           </form>
-        </td>
-      </tr>
-      {{ else }}
-      <tr>
-        <td colspan="3" class="px-4 py-4 text-center text-gray-500">No users found</td>
-      </tr>
+        </div>
+      </div>
       {{ end }}
-    </tbody>
-  </table>
+    {{ else }}
+      <div class="text-center text-gray-500 dark:text-gray-400 py-8">
+        <svg xmlns='http://www.w3.org/2000/svg' class='h-12 w-12 mx-auto mb-2 text-indigo-200 dark:text-indigo-700' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M5.121 17.804A13.937 13.937 0 0112 15c2.5 0 4.847.655 6.879 1.804M15 11a3 3 0 11-6 0 3 3 0 016 0z' /></svg>
+        <div class="text-lg font-semibold">No users found</div>
+        <div class="text-sm">Users you have access to will appear here.</div>
+      </div>
+    {{ end }}
+  </div>
 </div>
 {{ end }}
 {{ template "layout" . }}

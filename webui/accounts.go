@@ -64,6 +64,7 @@ func accountsRouter(e *echo.Echo, token auth.LoginToken, store *storage.StorageS
 	g.POST("/:accountId/revoke/", handleRevoke(store))
 	g.GET("/:accountId/grant/", handleGrantForm(store))
 	g.POST("/:accountId/grant/", handleGrant(store))
+	g.GET("/:accountId/", handleAccount(store))
 }
 
 func handleRoles(store storage.Storage) echo.HandlerFunc {

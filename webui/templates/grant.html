@@ -4,31 +4,23 @@
     <svg xmlns='http://www.w3.org/2000/svg' class='h-7 w-7 text-indigo-400' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M9 12h6m-3-3v6' /></svg>
     Grant Role Permission
   </h1>
-  <!-- Role Info -->
-  <div class="mb-6">
-    <p class="text-sm text-gray-600 dark:text-gray-300">
-      Granting access to role:
-    </p>
-    <p class="font-semibold text-gray-900 dark:text-white">
-      {{ .Role.Name }}<br>
-      <span class="text-sm text-gray-500 dark:text-gray-400">{{ .Role.Arn }}</span>
-    </p>
+  <div class="bg-white dark:bg-gray-900 rounded-xl shadow-inner p-4 mb-6">
+    <div class="text-sm text-gray-600 dark:text-gray-300 mb-1">Granting access to role:</div>
+    <div class="font-semibold text-gray-900 dark:text-white text-lg">{{ .Role.Name }}</div>
+    <div class="text-xs text-gray-500 dark:text-gray-400 truncate" title="{{ .Role.Arn }}">{{ .Role.Arn }}</div>
   </div>
-  <!-- Grant Form -->
   <form method="POST" action="/accounts/{{.Account.Id}}/grant?roleName={{.Role.Name}}" class="space-y-6">
-    <!-- Select User -->
     <div>
       <label for="username" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
         Select User
       </label>
-      <input type="text" name="username" id="username" list="users" required class="w-full px-4 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Type or select a user...">
+      <input type="text" name="username" id="username" list="users" required autocomplete="username" class="w-full px-4 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Type or select a user...">
       <datalist id="users">
         {{ range .Users }}
         <option value="{{ .Username }}">{{ .Username }}</option>
         {{ end }}
       </datalist>
     </div>
-    <!-- Permission Type (optional, extendable) -->
     <div>
       <label for="permission" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
         Permission Type
@@ -40,10 +32,9 @@
         <option value="BOTH">Both</option>
       </select>
     </div>
-    <!-- Submit -->
     <div class="pt-2">
       <button type="submit"
-              class="px-6 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 shadow transition flex items-center gap-2 font-semibold">
+              class="w-full px-6 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 shadow transition flex items-center justify-center gap-2 font-semibold text-base">
         <svg xmlns='http://www.w3.org/2000/svg' class='h-5 w-5' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M9 12h6m-3-3v6' /></svg>
         Grant Permission
       </button>
