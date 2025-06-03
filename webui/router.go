@@ -22,9 +22,18 @@ func Router(e *echo.Echo, auth auth.AuthMethod, store *storage.StorageService, t
 
 	accountsRouter(e, token, store, stsCl)
 	usersRouter(e, store, token)
-	e.GET("/login/", func(c echo.Context) error {
+	e.GET("/login/", handleLogin(token, store, auth))
+	e.GET("/logout/", handleLogout(token), guard(token))
+	e.GET("/expired/", handleExpired())
+	e.GET("/oauth2/idpresponse/", handleOAuth2IdpResponse(auth, store, token))
+	e.GET("/admin/", handleAdmin(token), guard(token))
+	e.FileFS("/css/layout.css/", "layout.css", css.CssFiles)
+	e.GET("/", handleHome(token), optionalGuard(token))
+}
+
+func handleLogin(token auth.LoginToken, store *storage.StorageService, auth auth.AuthMethod) echo.HandlerFunc {
+	return func(c echo.Context) error {
 		t := c.QueryParam("token")
-		// login with a token i guess?
 		if t != "" {
 			info, err := token.Validate(t)
 			if err != nil {
@@ -37,8 +46,11 @@ func Router(e *echo.Echo, auth auth.AuthMethod, store *storage.StorageService, t
 			return c.Redirect(http.StatusTemporaryRedirect, "/")
 		}
 		return c.Redirect(http.StatusTemporaryRedirect, auth.RedirectUrl())
-	})
-	e.GET("/logout/", func(c echo.Context) error {
+	}
+}
+
+func handleLogout(token auth.LoginToken) echo.HandlerFunc {
+	return func(c echo.Context) error {
 		_, ok := userFromRequest(c)
 		if ok {
 			cookie, _ := c.Cookie(cookieName)
@@ -48,31 +60,42 @@ func Router(e *echo.Echo, auth auth.AuthMethod, store *storage.StorageService, t
 			c.SetCookie(cookie)
 		}
 		return c.Redirect(http.StatusTemporaryRedirect, "/")
-	}, guard(token))
-	e.GET("/expired/", func(c echo.Context) error {
+	}
+}
+
+func handleExpired() echo.HandlerFunc {
+	return func(c echo.Context) error {
 		data := templates.TemplateData(nil, "Expired")
 		return c.Render(http.StatusOK, "expired.html", data)
-	})
-	e.GET("/oauth2/idpresponse/", func(c echo.Context) error {
+	}
+}
+
+func handleOAuth2IdpResponse(auth auth.AuthMethod, store *storage.StorageService, token auth.LoginToken) echo.HandlerFunc {
+	return func(c echo.Context) error {
 		info, err := auth.HandleCallback(c.Request())
 		if err != nil {
 			return err
 		}
 		return logUserIn(c, store, info, token)
-	})
-	e.GET("/admin/", func(c echo.Context) error {
+	}
+}
+
+func handleAdmin(token auth.LoginToken) echo.HandlerFunc {
+	return func(c echo.Context) error {
 		user, _ := userFromRequest(c)
 		if !user.Superuser {
 			return ErrOnlySuperAllowed
 		}
 		return c.Render(http.StatusOK, "admin.html", templates.TemplateData(user, "Admin"))
-	}, guard(token))
-	e.FileFS("/css/layout.css/", "layout.css", css.CssFiles)
-	e.GET("/", func(c echo.Context) error {
+	}
+}
+
+func handleHome(token auth.LoginToken) echo.HandlerFunc {
+	return func(c echo.Context) error {
 		user, _ := userFromRequest(c)
 		data := templates.TemplateData(user, "Home")
 		return c.Render(http.StatusOK, "index.html", data)
-	}, optionalGuard(token))
+	}
 }
 
 func toString(v *string) string {

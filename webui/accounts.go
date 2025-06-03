@@ -48,383 +48,22 @@ func accountsRouter(e *echo.Echo, token auth.LoginToken, store *storage.StorageS
 	g := e.Group("/accounts")
 	g.Use(guard(token))
 	g.GET("/", handleAccounts(store))
-	g.GET("/create/", func(c echo.Context) error {
-		user, _ := userFromRequest(c)
-		if !user.Superuser {
-			return ErrOnlySuperAllowed
-		}
-		return c.Render(http.StatusOK, "account-create.html", templates.TemplateData(user, "Create Account"))
-	})
-	g.POST("/create/", func(c echo.Context) error {
-		ctx := c.Request().Context()
-		user, _ := userFromRequest(c)
-		if !user.Superuser {
-			return ErrOnlySuperAllowed
-		}
-		type CreateAccount struct {
-			FriendlyName string `form:"friendly_name"`
-			AwsAccountId string `form:"aws_account_id"`
-			Enabled      string `form:"enabled"`
-			Tags         string `form:"tags"`
-		}
-		createAccount := CreateAccount{}
-		if err := c.Bind(&createAccount); err != nil {
-			return err
-		}
-		awsAccountId, err := strconv.ParseInt(createAccount.AwsAccountId, 10, 64)
-		if err != nil {
-			// this should never happen because of the above regex
-			return storage.ErrInvalidAccountDetails
-		}
-		acc, err := store.CreateAccount(ctx, storage.Account{
-			AwsAccountId: int(awsAccountId),
-			FriendlyName: createAccount.FriendlyName,
-			Enabled:      createAccount.Enabled == "on",
-			Tags:         parseTags(createAccount.Tags),
-		})
-		if err != nil {
-			return err
-		}
-
-		return redirectoAccount(c, acc.Id)
-	})
-	g.POST("/:accountId/delete/", func(c echo.Context) error {
-		ctx := c.Request().Context()
-		acc, err := accountFromRequest(c, store)
-		if err != nil {
-			return err
-		}
-		_, err = store.PutAccount(ctx, acc, true)
-		if err != nil {
-			return err
-		}
-		return c.Redirect(http.StatusFound, "/accounts/")
-	})
+	g.GET("/create/", handleAccountCreateForm(store))
+	g.POST("/create/", handleAccountCreate(store))
+	g.POST("/:accountId/delete/", handleAccountDelete(store))
 	g.POST("/:accountId/disable/", handleAccountEnableToggle(store, false))
 	g.POST("/:accountId/enable/", handleAccountEnableToggle(store, true))
 	g.GET("/:accountId/roles/", handleRoles(store))
 	g.GET("/:accountId/credentials/", handleCredentialsLogin(store, stsCl))
 	g.GET("/:accountId/console/", handleConsoleLogin(store, stsCl))
-	g.GET("/:accountId/cloudformation/", func(c echo.Context) error {
-		ctx := c.Request().Context()
-		_, err := accountFromRequest(c, store)
-		if err != nil {
-			return err
-		}
-		c.Response().Header().Set("Content-Type", "text/yaml")
-		return aws.BootstrapTemplate(ctx, stsCl, c.Response())
-	})
-	g.GET("/:accountId/bootstrap/status/", func(c echo.Context) error {
-
-		ctx := c.Request().Context()
-		stackId := c.QueryParam("stackId")
-		user, _ := userFromRequest(c)
-		if !user.Superuser {
-			return ErrOnlySuperAllowed
-		}
-
-		acc, err := accountFromRequest(c, store)
-		if err != nil {
-			return err
-		}
-		// assume ops role
-		cfg, err := assumeOpRole(ctx, stsCl, acc)
-		if err != nil {
-			return err
-		}
-		cfn := cloudformation.NewFromConfig(cfg)
-
-		srv := sse.New()
-		srv.CreateStream("bootstrap")
-
-		go func() {
-			ticker := time.NewTicker(time.Second * 3)
-			timeoutCtx, cancel := context.WithTimeout(ctx, time.Minute*15)
-			defer srv.Close()
-			defer cancel()
-			defer ticker.Stop()
-			for {
-				select {
-				case <-c.Request().Context().Done():
-					log.Printf("SSE client disconnected, ip: %v", c.RealIP())
-					return
-				case <-ticker.C:
-					resp, err := cfn.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: &stackId})
-					if err != nil {
-						srv.Publish("bootstrap", &sse.Event{
-							Data: []byte(fmt.Sprintf("error describing stack %s\n", err)),
-						})
-						log.Println(err)
-						return
-					}
-					status := string(resp.Stacks[0].StackStatus)
-					srv.Publish("bootstrap", &sse.Event{
-						Data: []byte(fmt.Sprintf("%s: %s", time.Now().UTC(), status)),
-					})
-					if !slices.Contains(inProgressStatus, status) {
-						return
-					}
-				case <-timeoutCtx.Done():
-					srv.Publish("bootstrap", &sse.Event{
-						Data: []byte("timed out"),
-					})
-					return
-				}
-			}
-		}()
-		srv.ServeHTTP(c.Response().Writer, c.Request())
-		return nil
-	})
-	g.POST("/:accountId/bootstrap/destroy/", func(c echo.Context) error {
-		ctx := c.Request().Context()
-		user, _ := userFromRequest(c)
-		if !user.Superuser {
-			return ErrOnlySuperAllowed
-		}
-		acc, err := accountFromRequest(c, store)
-		if err != nil {
-			return err
-		}
-
-		// assume ops role
-		resp, _ := stsCl.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
-		selfArn := aws.PrincipalFromSts(*resp.Arn)
-		cfg, err := assumeOpRole(ctx, stsCl, acc)
-		if err != nil {
-			return err
-		}
-		cfn := cloudformation.NewFromConfig(cfg)
-
-		stackId, err := aws.DestroyBaseStack(ctx, cfn, selfArn)
-		if err != nil {
-			return err
-		}
-		// render template with status support
-		data := templates.TemplateData(user, "Bootstrap status")
-		data.StackId = url.QueryEscape(stackId)
-		data.Accounts = []storage.Account{acc}
-		return c.Render(http.StatusOK, "bootstrap-status.html", data)
-	})
-	g.POST("/:accountId/bootstrap/", func(c echo.Context) error {
-		ctx := c.Request().Context()
-		user, _ := userFromRequest(c)
-		if !user.Superuser {
-			return ErrOnlySuperAllowed
-		}
-		acc, err := accountFromRequest(c, store)
-		if err != nil {
-			return err
-		}
-
-		// assume ops role
-		resp, _ := stsCl.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
-		selfArn := aws.PrincipalFromSts(*resp.Arn)
-		cfg, err := assumeOpRole(ctx, stsCl, acc)
-		if err != nil {
-			return err
-		}
-		cfn := cloudformation.NewFromConfig(cfg)
-
-		stackId, err := aws.DeployBaseStack(ctx, cfn, selfArn)
-		if err != nil {
-			return err
-		}
-		// render template with status support
-		data := templates.TemplateData(user, "Bootstrap status")
-		data.StackId = url.QueryEscape(stackId)
-		data.Accounts = []storage.Account{acc}
-		return c.Render(http.StatusOK, "bootstrap-status.html", data)
-	})
-
-	g.GET("/:accountId/revoke/", func(c echo.Context) error {
-		ctx := c.Request().Context()
-		user, _ := userFromRequest(c)
-
-		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
-
-		acc, err := accountFromRequest(c, store)
-		if err != nil {
-			return err
-		}
-		perms, err := store.ListPermissions(ctx, "", acc.Id, storage.RolePermission, roleName, pointerString(c.QueryParam("page")))
-		if err != nil {
-			return err
-		}
-		userIds := []string{}
-		for _, perm := range perms.Permissions {
-			if perm.UserId == user.Id {
-				// skip self
-				continue
-			}
-			userIds = append(userIds, perm.UserId)
-		}
-		users, err := store.BatchGetUserById(ctx, userIds...)
-		if err != nil {
-			return err
-		}
-
-		data := templates.TemplateData(user, "Revoke Role permission")
-		data.Roles = []templates.Role{templates.Role{Arn: acc.ArnForRole(roleName), Name: roleName}}
-		data.Accounts = []storage.Account{acc}
-		data.StartToken = toString(perms.StartToken)
-
-		// this is somewhat slow, but we are doing page wise so, its fine
-		for _, user := range users {
-			for _, perm := range perms.Permissions {
-				if perm.UserId == user.Id {
-					data.UserPermissions = append(data.UserPermissions, struct {
-						Permission storage.Permission
-						User       storage.User
-					}{
-						Permission: perm,
-						User:       user,
-					})
-					break
-				}
-			}
-		}
-
-		return c.Render(http.StatusOK, "revoke.html", data)
-	})
-
-	g.POST("/:accountId/revoke/", func(c echo.Context) error {
-		ctx := c.Request().Context()
-		user, _ := userFromRequest(c)
-
-		type RevokeAction struct {
-			RoleName string `form:"roleName"`
-			UserId   string `form:"userId"`
-			Value    string `form:"value"`
-		}
-
-		action := RevokeAction{}
-		if err := c.Bind(&action); err != nil {
-			return err
-		}
-		roleName := aws.AwsRole(action.RoleName).RealName()
-
-		acc, err := accountFromRequest(c, store)
-		if err != nil {
-			return err
-		}
-
-		// check if current user has access to grant
-		if !user.Superuser {
-			err := hasPermission(ctx, store, acc.Id, user.Id, storage.RolePermission, roleName, storage.RolePermissionGrant)
-			if err != nil {
-				return err
-			}
-		}
-		// get permission
-		perms, err := store.ListPermissions(ctx, action.UserId, acc.Id, storage.RolePermission, roleName, nil)
-		if err != nil {
-			return err
-		}
-		if len(perms.Permissions) == 0 {
-			// nothing to do i guess
-			return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/revoke/", acc.Id))
-		}
-		perm := perms.Permissions[0]
-		perm.Value = slices.DeleteFunc(perm.Value, func(a string) bool {
-			return a == action.Value
-		})
-		deletePerm := len(perm.Value) == 0
-		if err := store.PutRolePermission(ctx, perm, deletePerm); err != nil {
-			return err
-		}
-		return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/revoke/", acc.Id))
-	})
-	g.GET("/:accountId/grant/", func(c echo.Context) error {
-		ctx := c.Request().Context()
-		user, _ := userFromRequest(c)
-		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
-		acc, err := accountFromRequest(c, store)
-		if err != nil {
-			return err
-		}
-		if !user.Superuser {
-			err := hasPermission(ctx, store, acc.Id, user.Id, storage.RolePermission, roleName, storage.RolePermissionGrant)
-			if err != nil {
-				return err
-			}
-		}
-		users, _ := store.ListUsers(ctx, "", nil)
-		data := templates.TemplateData(user, "Grant Role permission")
-		data.Roles = []templates.Role{templates.Role{Arn: acc.ArnForRole(roleName), Name: roleName}}
-		data.Users = users.Users
-		data.Accounts = []storage.Account{acc}
-		return c.Render(http.StatusOK, "grant.html", data)
-	})
-
-	g.POST("/:accountId/grant/", func(c echo.Context) error {
-		type GrantForm struct {
-			Username   string `form:"username"`
-			Permission string `form:"permission"`
-		}
-		ctx := c.Request().Context()
-		user, _ := userFromRequest(c)
-		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
-
-		acc, err := accountFromRequest(c, store)
-		if err != nil {
-			return err
-		}
-
-		// check form
-		form := GrantForm{}
-		if err := c.Bind(&form); err != nil {
-			return err
-		}
-		log.Println(form)
-		if form.Username == "" {
-			return ErrInvalidGrant
-		}
-		if form.Permission != storage.RolePermissionAssume && form.Permission != storage.RolePermissionGrant && form.Permission != "BOTH" {
-			return ErrInvalidGrant
-		}
-
-		permToAdd := []string{form.Permission}
-		if form.Permission == "BOTH" {
-			permToAdd = []string{storage.RolePermissionAssume, storage.RolePermissionGrant}
-		}
-
-		// check if current user has access to grant
-		if !user.Superuser {
-			err := hasPermission(ctx, store, acc.Id, user.Id, storage.RolePermission, roleName, storage.RolePermissionGrant)
-			if err != nil {
-				return err
-			}
-		}
-
-		// check if the request user exists
-		usr, err := store.GetUserByUsername(ctx, form.Username)
-		if err != nil {
-			return err
-		}
-		// check existing permission if any
-		perms, err := store.ListPermissions(ctx, usr.Id, acc.Id, storage.RolePermission, roleName, nil)
-		perm := storage.Permission{
-			PermissionId: storage.PermissionId{UserId: usr.Id, AccountId: acc.Id, Type: storage.RolePermission, Scope: roleName},
-		}
-		if len(perms.Permissions) > 0 {
-			perm = perms.Permissions[0]
-		}
-		added := false
-		for _, v := range permToAdd {
-			if !slices.Contains(perm.Value, v) {
-				perm.Value = append(perm.Value, v)
-				added = true
-			}
-		}
-		// add if something changed
-		if added {
-			if err = store.PutRolePermission(ctx, perm, false); err != nil {
-				return err
-			}
-		}
-		return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/roles/", acc.Id))
-	})
-	g.GET("/:accountId/", handleAccount(store))
+	g.GET("/:accountId/cloudformation/", handleCloudFormation(store, stsCl))
+	g.GET("/:accountId/bootstrap/status/", handleBootstrapStatus(store, stsCl))
+	g.POST("/:accountId/bootstrap/destroy/", handleBootstrapDestroy(store, stsCl))
+	g.POST("/:accountId/bootstrap/", handleBootstrap(store, stsCl))
+	g.GET("/:accountId/revoke/", handleRevokeForm(store))
+	g.POST("/:accountId/revoke/", handleRevoke(store))
+	g.GET("/:accountId/grant/", handleGrantForm(store))
+	g.POST("/:accountId/grant/", handleGrant(store))
 }
 
 func handleRoles(store storage.Storage) echo.HandlerFunc {
@@ -658,4 +297,366 @@ func parseTags(tagString string) map[string]string {
 		tags[strings.TrimSpace(key)] = value
 	}
 	return tags
+}
+
+func handleAccountCreateForm(store storage.Storage) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		user, _ := userFromRequest(c)
+		if !user.Superuser {
+			return ErrOnlySuperAllowed
+		}
+		return c.Render(http.StatusOK, "account-create.html", templates.TemplateData(user, "Create Account"))
+	}
+}
+
+func handleAccountCreate(store *storage.StorageService) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ctx := c.Request().Context()
+		user, _ := userFromRequest(c)
+		if !user.Superuser {
+			return ErrOnlySuperAllowed
+		}
+		type CreateAccount struct {
+			FriendlyName string `form:"friendly_name"`
+			AwsAccountId string `form:"aws_account_id"`
+			Enabled      string `form:"enabled"`
+			Tags         string `form:"tags"`
+		}
+		createAccount := CreateAccount{}
+		if err := c.Bind(&createAccount); err != nil {
+			return err
+		}
+		awsAccountId, err := strconv.ParseInt(createAccount.AwsAccountId, 10, 64)
+		if err != nil {
+			return storage.ErrInvalidAccountDetails
+		}
+		acc, err := store.CreateAccount(ctx, storage.Account{
+			AwsAccountId: int(awsAccountId),
+			FriendlyName: createAccount.FriendlyName,
+			Enabled:      createAccount.Enabled == "on",
+			Tags:         parseTags(createAccount.Tags),
+		})
+		if err != nil {
+			return err
+		}
+		return redirectoAccount(c, acc.Id)
+	}
+}
+
+func handleAccountDelete(store storage.Storage) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ctx := c.Request().Context()
+		acc, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+		_, err = store.PutAccount(ctx, acc, true)
+		if err != nil {
+			return err
+		}
+		return c.Redirect(http.StatusFound, "/accounts/")
+	}
+}
+
+func handleCloudFormation(store storage.Storage, stsCl aws.StsClient) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ctx := c.Request().Context()
+		_, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+		c.Response().Header().Set("Content-Type", "text/yaml")
+		return aws.BootstrapTemplate(ctx, stsCl, c.Response())
+	}
+}
+
+func handleBootstrapStatus(store storage.Storage, stsCl aws.StsClient) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ctx := c.Request().Context()
+		stackId := c.QueryParam("stackId")
+		user, _ := userFromRequest(c)
+		if !user.Superuser {
+			return ErrOnlySuperAllowed
+		}
+		acc, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+		cfg, err := assumeOpRole(ctx, stsCl, acc)
+		if err != nil {
+			return err
+		}
+		cfn := cloudformation.NewFromConfig(cfg)
+		srv := sse.New()
+		srv.CreateStream("bootstrap")
+		go func() {
+			ticker := time.NewTicker(time.Second * 3)
+			timeoutCtx, cancel := context.WithTimeout(ctx, time.Minute*15)
+			defer srv.Close()
+			defer cancel()
+			defer ticker.Stop()
+			for {
+				select {
+				case <-c.Request().Context().Done():
+					log.Printf("SSE client disconnected, ip: %v", c.RealIP())
+					return
+				case <-ticker.C:
+					resp, err := cfn.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: &stackId})
+					if err != nil {
+						srv.Publish("bootstrap", &sse.Event{
+							Data: []byte(fmt.Sprintf("error describing stack %s\n", err)),
+						})
+						log.Println(err)
+						return
+					}
+					status := string(resp.Stacks[0].StackStatus)
+					srv.Publish("bootstrap", &sse.Event{
+						Data: []byte(fmt.Sprintf("%s: %s", time.Now().UTC(), status)),
+					})
+					if !slices.Contains(inProgressStatus, status) {
+						return
+					}
+				case <-timeoutCtx.Done():
+					srv.Publish("bootstrap", &sse.Event{
+						Data: []byte("timed out"),
+					})
+					return
+				}
+			}
+		}()
+		srv.ServeHTTP(c.Response().Writer, c.Request())
+		return nil
+	}
+}
+
+func handleBootstrapDestroy(store storage.Storage, stsCl aws.StsClient) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ctx := c.Request().Context()
+		user, _ := userFromRequest(c)
+		if !user.Superuser {
+			return ErrOnlySuperAllowed
+		}
+		acc, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+		resp, _ := stsCl.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+		selfArn := aws.PrincipalFromSts(*resp.Arn)
+		cfg, err := assumeOpRole(ctx, stsCl, acc)
+		if err != nil {
+			return err
+		}
+		cfn := cloudformation.NewFromConfig(cfg)
+		stackId, err := aws.DestroyBaseStack(ctx, cfn, selfArn)
+		if err != nil {
+			return err
+		}
+		data := templates.TemplateData(user, "Bootstrap status")
+		data.StackId = url.QueryEscape(stackId)
+		data.Accounts = []storage.Account{acc}
+		return c.Render(http.StatusOK, "bootstrap-status.html", data)
+	}
+}
+
+func handleBootstrap(store storage.Storage, stsCl aws.StsClient) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ctx := c.Request().Context()
+		user, _ := userFromRequest(c)
+		if !user.Superuser {
+			return ErrOnlySuperAllowed
+		}
+		acc, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+		resp, _ := stsCl.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+		selfArn := aws.PrincipalFromSts(*resp.Arn)
+		cfg, err := assumeOpRole(ctx, stsCl, acc)
+		if err != nil {
+			return err
+		}
+		cfn := cloudformation.NewFromConfig(cfg)
+		stackId, err := aws.DeployBaseStack(ctx, cfn, selfArn)
+		if err != nil {
+			return err
+		}
+		data := templates.TemplateData(user, "Bootstrap status")
+		data.StackId = url.QueryEscape(stackId)
+		data.Accounts = []storage.Account{acc}
+		return c.Render(http.StatusOK, "bootstrap-status.html", data)
+	}
+}
+
+func handleRevokeForm(store storage.Storage) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ctx := c.Request().Context()
+		user, _ := userFromRequest(c)
+		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
+		acc, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+		perms, err := store.ListPermissions(ctx, "", acc.Id, storage.RolePermission, roleName, pointerString(c.QueryParam("page")))
+		if err != nil {
+			return err
+		}
+		userIds := []string{}
+		for _, perm := range perms.Permissions {
+			if perm.UserId == user.Id {
+				continue
+			}
+			userIds = append(userIds, perm.UserId)
+		}
+		users, err := store.BatchGetUserById(ctx, userIds...)
+		if err != nil {
+			return err
+		}
+		data := templates.TemplateData(user, "Revoke Role permission")
+		data.Roles = []templates.Role{{Arn: acc.ArnForRole(roleName), Name: roleName}}
+		data.Accounts = []storage.Account{acc}
+		data.StartToken = toString(perms.StartToken)
+		for _, user := range users {
+			for _, perm := range perms.Permissions {
+				if perm.UserId == user.Id {
+					data.UserPermissions = append(data.UserPermissions, struct {
+						Permission storage.Permission
+						User       storage.User
+					}{
+						Permission: perm,
+						User:       user,
+					})
+					break
+				}
+			}
+		}
+		return c.Render(http.StatusOK, "revoke.html", data)
+	}
+}
+
+func handleRevoke(store storage.Storage) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ctx := c.Request().Context()
+		user, _ := userFromRequest(c)
+		type RevokeAction struct {
+			RoleName string `form:"roleName"`
+			UserId   string `form:"userId"`
+			Value    string `form:"value"`
+		}
+		action := RevokeAction{}
+		if err := c.Bind(&action); err != nil {
+			return err
+		}
+		roleName := aws.AwsRole(action.RoleName).RealName()
+		acc, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+		if !user.Superuser {
+			err := hasPermission(ctx, store, acc.Id, user.Id, storage.RolePermission, roleName, storage.RolePermissionGrant)
+			if err != nil {
+				return err
+			}
+		}
+		perms, err := store.ListPermissions(ctx, action.UserId, acc.Id, storage.RolePermission, roleName, nil)
+		if err != nil {
+			return err
+		}
+		if len(perms.Permissions) == 0 {
+			return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/revoke/", acc.Id))
+		}
+		perm := perms.Permissions[0]
+		perm.Value = slices.DeleteFunc(perm.Value, func(a string) bool {
+			return a == action.Value
+		})
+		deletePerm := len(perm.Value) == 0
+		if err := store.PutRolePermission(ctx, perm, deletePerm); err != nil {
+			return err
+		}
+		return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/revoke/", acc.Id))
+	}
+}
+
+func handleGrantForm(store storage.Storage) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ctx := c.Request().Context()
+		user, _ := userFromRequest(c)
+		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
+		acc, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+		if !user.Superuser {
+			err := hasPermission(ctx, store, acc.Id, user.Id, storage.RolePermission, roleName, storage.RolePermissionGrant)
+			if err != nil {
+				return err
+			}
+		}
+		users, _ := store.ListUsers(ctx, "", nil)
+		data := templates.TemplateData(user, "Grant Role permission")
+		data.Roles = []templates.Role{{Arn: acc.ArnForRole(roleName), Name: roleName}}
+		data.Users = users.Users
+		data.Accounts = []storage.Account{acc}
+		return c.Render(http.StatusOK, "grant.html", data)
+	}
+}
+
+func handleGrant(store storage.Storage) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		type GrantForm struct {
+			Username   string `form:"username"`
+			Permission string `form:"permission"`
+		}
+		ctx := c.Request().Context()
+		user, _ := userFromRequest(c)
+		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
+		acc, err := accountFromRequest(c, store)
+		if err != nil {
+			return err
+		}
+		form := GrantForm{}
+		if err := c.Bind(&form); err != nil {
+			return err
+		}
+		log.Println(form)
+		if form.Username == "" {
+			return ErrInvalidGrant
+		}
+		if form.Permission != storage.RolePermissionAssume && form.Permission != storage.RolePermissionGrant && form.Permission != "BOTH" {
+			return ErrInvalidGrant
+		}
+		permToAdd := []string{form.Permission}
+		if form.Permission == "BOTH" {
+			permToAdd = []string{storage.RolePermissionAssume, storage.RolePermissionGrant}
+		}
+		if !user.Superuser {
+			err := hasPermission(ctx, store, acc.Id, user.Id, storage.RolePermission, roleName, storage.RolePermissionGrant)
+			if err != nil {
+				return err
+			}
+		}
+		usr, err := store.GetUserByUsername(ctx, form.Username)
+		if err != nil {
+			return err
+		}
+		perms, err := store.ListPermissions(ctx, usr.Id, acc.Id, storage.RolePermission, roleName, nil)
+		perm := storage.Permission{
+			PermissionId: storage.PermissionId{UserId: usr.Id, AccountId: acc.Id, Type: storage.RolePermission, Scope: roleName},
+		}
+		if len(perms.Permissions) > 0 {
+			perm = perms.Permissions[0]
+		}
+		added := false
+		for _, v := range permToAdd {
+			if !slices.Contains(perm.Value, v) {
+				perm.Value = append(perm.Value, v)
+				added = true
+			}
+		}
+		if added {
+			if err = store.PutRolePermission(ctx, perm, false); err != nil {
+				return err
+			}
+		}
+		return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/roles/", acc.Id))
+	}
 }

@@ -21,11 +21,14 @@ func usersRouter(e *echo.Echo, store storage.Storage, token auth.LoginToken) {
 			return ErrOnlySuperAllowed
 		}
 	})
-	redirectToMain := func(c echo.Context) error {
-		return c.Redirect(http.StatusFound, "/users")
-	}
+	g.GET("/", handleUsersList(store))
+	g.POST("/:userId/delete/", handleUserDelete(store))
+	g.POST("/:userId/demote/", handleUserDemote(store))
+	g.POST("/:userId/promote/", handleUserPromote(store))
+}
 
-	g.GET("/", func(c echo.Context) error {
+func handleUsersList(store storage.Storage) echo.HandlerFunc {
+	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
 		page := c.QueryParam("page")
@@ -37,33 +40,42 @@ func usersRouter(e *echo.Echo, store storage.Storage, token auth.LoginToken) {
 		data.Users = res.Users
 		data.StartToken = toString(res.StartToken)
 		return c.Render(http.StatusOK, "users.html", data)
-	})
-	g.POST("/:userId/delete/", func(c echo.Context) error {
+	}
+}
+
+func handleUserDelete(store storage.Storage) echo.HandlerFunc {
+	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 		userId := c.Param("userId")
 		_, err := store.PutUser(ctx, storage.User{Id: userId}, true)
 		if err != nil {
 			return err
 		}
-		return redirectToMain(c)
-	})
-	superUserSet := func(v bool) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			ctx := c.Request().Context()
-			userId := c.Param("userId")
-			usr, err := store.GetUserById(ctx, userId)
-			if err != nil {
-				return err
-			}
-			usr.Superuser = v
-			_, err = store.PutUser(ctx, usr, false)
-			if err != nil {
-				return err
-			}
-			return redirectToMain(c)
-		}
+		return c.Redirect(http.StatusFound, "/users")
 	}
-	g.POST("/:userId/demote/", superUserSet(false))
-	g.POST("/:userId/promote/", superUserSet(true))
+}
 
+func handleUserDemote(store storage.Storage) echo.HandlerFunc {
+	return handleUserSuperuserSet(store, false)
+}
+
+func handleUserPromote(store storage.Storage) echo.HandlerFunc {
+	return handleUserSuperuserSet(store, true)
+}
+
+func handleUserSuperuserSet(store storage.Storage, v bool) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ctx := c.Request().Context()
+		userId := c.Param("userId")
+		usr, err := store.GetUserById(ctx, userId)
+		if err != nil {
+			return err
+		}
+		usr.Superuser = v
+		_, err = store.PutUser(ctx, usr, false)
+		if err != nil {
+			return err
+		}
+		return c.Redirect(http.StatusFound, "/users")
+	}
 }
