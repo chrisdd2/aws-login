@@ -6,7 +6,6 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
-	"log"
 	"time"
 
 	"github.com/chrisdd2/aws-login/auth"
@@ -36,7 +35,6 @@ func init() {
 		},
 	}
 	for _, file := range files {
-		log.Println(file)
 		if file == layoutFile {
 			continue
 		}

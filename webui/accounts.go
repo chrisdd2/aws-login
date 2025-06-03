@@ -618,7 +618,6 @@ func handleGrant(store storage.Storage) echo.HandlerFunc {
 		if err := c.Bind(&form); err != nil {
 			return err
 		}
-		log.Println(form)
 		if form.Username == "" {
 			return ErrInvalidGrant
 		}

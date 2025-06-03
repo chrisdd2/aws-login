@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 )
@@ -17,6 +17,7 @@ type MemoryStorage struct {
 	accounts  []Account
 	perms     []Permission
 	flushFunc FlushFunc
+	flushLock sync.Mutex
 }
 
 type FlushFunc func(*MemoryStorage)
@@ -78,7 +79,9 @@ func (m *MemoryStorage) SetFlush(f FlushFunc) {
 
 func (m *MemoryStorage) Flush() {
 	if m.flushFunc != nil {
+		m.flushLock.Lock()
 		m.flushFunc(m)
+		m.flushLock.Unlock()
 	}
 }
 
@@ -100,7 +103,6 @@ func (m *MemoryStorage) ListUsers(ctx context.Context, filter string, startToken
 		}
 		users = append(users, m.users[i])
 	}
-	log.Println(startToken)
 	return ListUserResult{Users: users, StartToken: startToken}, nil
 }
 

@@ -2,7 +2,6 @@ package webui
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"slices"
 	"time"
@@ -54,7 +53,6 @@ func handleLogout(token auth.LoginToken) echo.HandlerFunc {
 		_, ok := userFromRequest(c)
 		if ok {
 			cookie, _ := c.Cookie(cookieName)
-			log.Println(cookie)
 			cookie.MaxAge = -1
 			cookie.Path = "/"
 			c.SetCookie(cookie)
