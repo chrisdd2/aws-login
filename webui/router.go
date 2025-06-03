@@ -18,7 +18,7 @@ import (
 const cookieName = "AwsLoginAuthCookie"
 const tokenExpirationTime = time.Hour * 8
 
-func Router(e *echo.Echo, auth auth.AuthMethod, store storage.Storage, token auth.LoginToken, stsCl aws.StsClient) {
+func Router(e *echo.Echo, auth auth.AuthMethod, store *storage.StorageService, token auth.LoginToken, stsCl aws.StsClient) {
 
 	accountsRouter(e, token, store, stsCl)
 	usersRouter(e, store, token)

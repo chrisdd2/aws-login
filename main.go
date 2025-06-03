@@ -113,7 +113,7 @@ func main() {
 	}
 
 	stsCient := sts.NewFromConfig(cfg)
-	webui.Router(e, authMethod, store, token, stsCient)
+	webui.Router(e, authMethod, &storage.StorageService{store}, token, stsCient)
 
 	log.Printf("listening [http://%s]\n", addr)
 

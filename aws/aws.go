@@ -102,7 +102,10 @@ func (d AwsRole) RealName() string {
 }
 
 // Validate the account number for AWS it must be a 12 digit number
-func ValidateAWSAccountID(accountID string) bool {
+func ValidateAWSAccountIDStr(accountID string) bool {
 	re := regexp.MustCompile(`^\d{12}$`)
 	return re.MatchString(accountID)
+}
+func ValidateAWSAccountID(accountID int) bool {
+	return accountID > 100000000000 && accountID <= 999999999999
 }

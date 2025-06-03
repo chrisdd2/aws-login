@@ -86,3 +86,5 @@ type Storage interface {
 
 var ErrUserNotFound = errors.New("user not found")
 var ErrAccountNotFound = errors.New("account not found")
+var ErrAccountAlreadyExists = errors.New("account already exists")
+var ErrInvalidAccountDetails = errors.New("invalid account details")
