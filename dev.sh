@@ -1,6 +1,6 @@
 #!/bin/bash
-export CLIENT_ID='< github oauth client id>'
-export CLIENT_SECRET='< github oauth client secret>'
+export APP_CLIENT_ID='< github oauth client id>'
+export APP_CLIENT_SECRET='< github oauth client secret>'
 # example creds for aws
 export AWS_ACCESS_KEY_ID='<>'
 export AWS_SECRET_ACCESS_KEY='<>'

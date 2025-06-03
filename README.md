@@ -117,14 +117,24 @@ You can export and deploy these templates directly from the web UI or via the AW
 
 ## Environment Variables
 
-| Variable             | Description                              | Default           |
-|----------------------|------------------------------------------|-------------------|
-| `APP_LISTEN_ADDR`    | Address and port to listen on            | `0.0.0.0:8080`    |
-| `APP_STORE_FILE`     | Path to the storage file                 | `store.json`      |
-| `APP_GENERATE_TOKEN` | Set to any value to generate admin token | -                 |
-| `APP_SIGN_KEY`       | Key to use for signing tokens            | **Required**      |
-| `CLIENT_ID`          | GitHub OAuth client ID                   | **Required**      |
-| `CLIENT_SECRET`      | GitHub OAuth client secret               | **Required**      |
+| Variable                  | Description                              | Default           |
+|---------------------------|------------------------------------------|-------------------|
+| `APP_LISTEN_ADDR`         | Address and port to listen on            | `0.0.0.0:8080`    |
+| `APP_STORE_FILE`          | Path to the storage file                 | `store.json`      |
+| `APP_GENERATE_TOKEN`      | Set to any value to generate admin token | -                 |
+| `APP_SIGN_KEY`            | Key to use for signing tokens            | **Required**      |
+| `APP_CLIENT_ID`           | GitHub OAuth client ID                   | **Required**      |
+| `APP_CLIENT_SECRET`       | GitHub OAuth client secret               | **Required**      |
+| `APP_DATABASE_URL`        | (Optional) Postgres DSN for SQL storage  | -                 |
+
+**Note:**
+- If `APP_DATABASE_URL` is set, the application will use a PostgreSQL database for storage and auto-create tables if needed.
+- If not set, the application will use the default in-memory (JSON file) storage backend.
+
+**Example DSN:**
+```
+APP_DATABASE_URL=postgres://postgres:postgres@db:5432/postgres?sslmode=disable
+```
 
 ---
 
@@ -150,8 +160,11 @@ You can export and deploy these templates directly from the web UI or via the AW
 
 1. **Set the required environment variables:**
    ```sh
-   export CLIENT_ID=your_github_client_id
-   export CLIENT_SECRET=your_github_client_secret
+   export APP_CLIENT_ID=your_github_client_id
+   export APP_CLIENT_SECRET=your_github_client_secret
+   export APP_SIGN_KEY=your_signing_key
+   # Optionally, to use SQL storage:
+   export APP_DATABASE_URL=postgres://postgres:postgres@db:5432/postgres?sslmode=disable
    # the callback url should point to /oauth2/idpresponse e.g http://localhost:8080/oauth2/idpresponse
    # Optionally set AWS credentials and other variables
    ```

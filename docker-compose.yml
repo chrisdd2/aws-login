@@ -1,0 +1,44 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: go_app
+    volumes:
+      - ./store.json:/root/store.json:rw  # Mount store.json
+      - ~/.aws:/root/.aws:ro   
+    environment:
+      # To use SQL storage, set APP_DATABASE_URL to a valid Postgres DSN
+      - APP_DATABASE_URL=postgres://postgres:postgres@db:5432/postgres?sslmode=disable
+      - APP_CLIENT_ID=< empty >
+      - APP_CLIENT_SECRET=< empty >
+      - APP_LISTEN_ADDR=0.0.0.0:8090
+      - APP_SIGN_KEY=<some key>
+      - APP_GENERATE_TOKEN=1
+      - APP_DEVELOPMENT_MODE=1
+    depends_on:
+      - db
+    networks:
+      - appnet
+    ports:
+      - "8090:8090"  
+
+  db:
+    image: postgres:latest
+    container_name: postgres_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - appnet
+
+networks:
+  appnet:
+
+volumes:
+  pgdata:

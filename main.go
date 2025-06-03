@@ -64,7 +64,21 @@ func main() {
 	signKey := envOrDie("APP_SIGN_KEY")
 	generateAdminToken := os.Getenv("APP_GENERATE_TOKEN") != ""
 
-	store, saveStorage, err := initStorage(filename)
+	// Choose storage backend
+	var (
+		store storage.Storage
+		saveStorage func()
+		err error
+	)
+	dsn := os.Getenv("APP_DATABASE_URL") // Example: postgres://postgres:postgres@db:5432/postgres?sslmode=disable
+	if dsn != "" {
+		log.Printf("Using SQL storage backend: %s", dsn)
+		store, err = storage.NewSQLStorage(dsn)
+		saveStorage = func() {} // no-op
+	} else {
+		log.Printf("Using in-memory storage backend (MemoryStorage)")
+		store, saveStorage, err = initStorage(filename)
+	}
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -80,8 +94,8 @@ func main() {
 	}
 
 	authMethod := &auth.GithubAuth{
-		ClientSecret: envOrDie("CLIENT_SECRET"),
-		ClientId:     envOrDie("CLIENT_ID"),
+		ClientSecret: envOrDie("APP_CLIENT_SECRET"),
+		ClientId:     envOrDie("APP_CLIENT_ID"),
 	}
 
 	e := echo.New()
@@ -113,7 +127,7 @@ func main() {
 	}
 
 	stsCient := sts.NewFromConfig(cfg)
-	webui.Router(e, authMethod, &storage.StorageService{store}, token, stsCient)
+	webui.Router(e, authMethod, &storage.StorageService{Storage: store}, token, stsCient)
 
 	log.Printf("listening [http://%s]\n", addr)
 

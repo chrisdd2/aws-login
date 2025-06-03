@@ -12,6 +12,8 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/labstack/echo/v4 v4.13.4
+	github.com/lib/pq v1.10.9
+	github.com/r3labs/sse/v2 v2.10.0
 	github.com/stretchr/testify v1.10.0
 )
 
@@ -31,7 +33,6 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/niemeyer/pretty v0.0.0-20200227124842-a10e7caefd8e // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/r3labs/sse/v2 v2.10.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	golang.org/x/crypto v0.38.0 // indirect
