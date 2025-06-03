@@ -2,6 +2,7 @@ package webui
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"slices"
 	"time"
@@ -36,7 +37,7 @@ func handleLogin(token auth.LoginToken, store *storage.StorageService, auth auth
 		if t != "" {
 			info, err := token.Validate(t)
 			if err != nil {
-				return err
+				return fmt.Errorf("handleLogin [token.Validate] [%w]", err)
 			}
 			return logUserIn(c, store, &info.UserInfo, token)
 		}
@@ -72,7 +73,7 @@ func handleOAuth2IdpResponse(auth auth.AuthMethod, store *storage.StorageService
 	return func(c echo.Context) error {
 		info, err := auth.HandleCallback(c.Request())
 		if err != nil {
-			return err
+			return fmt.Errorf("handleOAuth2IdpResponse [auth.HandleCallback] [%w]", err)
 		}
 		return logUserIn(c, store, info, token)
 	}
@@ -121,14 +122,14 @@ func logUserIn(c echo.Context, store storage.Storage, info *auth.UserInfo, token
 		c.Logger().Printf("created user [%s]\n", usr.Username)
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("logUserIn [store.GetUserByUsername] [%w]", err)
 	}
 	info.Id = usr.Id
 	info.Superuser = usr.Superuser
 
 	accessToken, err := token.SignToken(*info)
 	if err != nil {
-		return err
+		return fmt.Errorf("logUserIn [token.SignToken] [%w]", err)
 	}
 	expiredTime := time.Now().Add(tokenExpirationTime)
 	cookie := &http.Cookie{
@@ -147,7 +148,7 @@ func logUserIn(c echo.Context, store storage.Storage, info *auth.UserInfo, token
 func hasPermission(ctx context.Context, store storage.Storage, accountId string, userId string, permissionType string, scope string, value string) error {
 	res, err := store.ListPermissions(ctx, userId, accountId, permissionType, scope, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("hasPermission [store.ListPermissions] [%w]", err)
 	}
 	if len(res.Permissions) != 1 {
 		return ErrNoPermissionAction

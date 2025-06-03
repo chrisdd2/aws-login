@@ -7,6 +7,7 @@ import (
 	"github.com/chrisdd2/aws-login/storage"
 	"github.com/chrisdd2/aws-login/webui/templates"
 	"github.com/labstack/echo/v4"
+	"fmt"
 )
 
 func usersRouter(e *echo.Echo, store storage.Storage, token auth.LoginToken) {
@@ -34,7 +35,7 @@ func handleUsersList(store storage.Storage) echo.HandlerFunc {
 		page := c.QueryParam("page")
 		res, err := store.ListUsers(ctx, "", pointerString(page))
 		if err != nil {
-			return err
+			return fmt.Errorf("handleUsersList [store.ListUsers] [%w]", err)
 		}
 		data := templates.TemplateData(user, "Users")
 		data.Users = res.Users
@@ -49,7 +50,7 @@ func handleUserDelete(store storage.Storage) echo.HandlerFunc {
 		userId := c.Param("userId")
 		_, err := store.PutUser(ctx, storage.User{Id: userId}, true)
 		if err != nil {
-			return err
+			return fmt.Errorf("handleUserDelete [store.PutUser] [%w]", err)
 		}
 		return c.Redirect(http.StatusFound, "/users")
 	}
@@ -69,12 +70,12 @@ func handleUserSuperuserSet(store storage.Storage, v bool) echo.HandlerFunc {
 		userId := c.Param("userId")
 		usr, err := store.GetUserById(ctx, userId)
 		if err != nil {
-			return err
+			return fmt.Errorf("handleUserSuperuserSet [store.GetUserById] [%w]", err)
 		}
 		usr.Superuser = v
 		_, err = store.PutUser(ctx, usr, false)
 		if err != nil {
-			return err
+			return fmt.Errorf("handleUserSuperuserSet [store.PutUser] [%w]", err)
 		}
 		return c.Redirect(http.StatusFound, "/users")
 	}

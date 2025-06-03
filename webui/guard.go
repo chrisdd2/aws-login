@@ -7,6 +7,7 @@ import (
 	"github.com/chrisdd2/aws-login/auth"
 	"github.com/chrisdd2/aws-login/webui/templates"
 	"github.com/labstack/echo/v4"
+	"fmt"
 )
 
 func guard(token auth.LoginToken) echo.MiddlewareFunc {
@@ -20,7 +21,7 @@ func guard(token auth.LoginToken) echo.MiddlewareFunc {
 			}
 			user, err := token.Validate(cookie.Value)
 			if err != nil {
-				return err
+				return fmt.Errorf("guard [token.Validate] [%w]", err)
 			}
 			if user.ExpiresAt.Before(time.Now().UTC()) {
 				// expired
@@ -45,7 +46,7 @@ func optionalGuard(token auth.LoginToken) echo.MiddlewareFunc {
 			}
 			user, err := token.Validate(cookie.Value)
 			if err != nil {
-				return err
+				return fmt.Errorf("optionalGuard [token.Validate] [%w]", err)
 			}
 			if user.ExpiresAt.Before(time.Now().UTC()) {
 				// expired

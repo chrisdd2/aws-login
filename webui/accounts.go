@@ -74,7 +74,7 @@ func handleRoles(store storage.Storage) echo.HandlerFunc {
 
 		acc, err := accountFromRequest(c, store)
 		if err != nil {
-			return err
+			return fmt.Errorf("handleRoles [accountFromRequest] [%w]", err)
 		}
 
 		roles := []templates.Role{}
@@ -93,7 +93,7 @@ func handleRoles(store storage.Storage) echo.HandlerFunc {
 			// get all permissions for user
 			listPerms, err := store.ListPermissions(ctx, user.Id, acc.Id, storage.RolePermission, "", nil)
 			if err != nil {
-				return err
+				return fmt.Errorf("handleRoles [store.ListPermissions] [%w]", err)
 			}
 			// it should be at least one perm
 			if len(listPerms.Permissions) < 1 {
@@ -119,7 +119,7 @@ func accountFromRequest(c echo.Context, store storage.Storage) (storage.Account,
 	accountId := c.Param("accountId")
 	acc, err := store.GetAccountById(c.Request().Context(), accountId)
 	if err != nil {
-		return storage.Account{}, err
+		return storage.Account{}, fmt.Errorf("accountFromRequest [store.GetAccountById] [%w]", err)
 	}
 	if !acc.Enabled {
 		return storage.Account{}, ErrAccountDisabled
@@ -134,13 +134,13 @@ func handleAccountEnableToggle(store storage.Storage, value bool) echo.HandlerFu
 		accountId := c.Param("accountId")
 		acc, err := store.GetAccountById(c.Request().Context(), accountId)
 		if err != nil {
-			return err
+			return fmt.Errorf("handleAccountEnableToggle [store.GetAccountById] [%w]", err)
 		}
 		if !user.Superuser {
 			// check if admin permission is present
 			perm, err := store.ListPermissions(ctx, user.Id, acc.Id, storage.AccountAdminPermission, storage.AccountAdminScopeAccount, nil)
 			if err != nil {
-				return err
+				return fmt.Errorf("handleAccountEnableToggle [store.ListPermissions] [%w]", err)
 			}
 			if len(perm.Permissions) != 1 {
 				return ErrNoPermissionAction
@@ -152,7 +152,7 @@ func handleAccountEnableToggle(store storage.Storage, value bool) echo.HandlerFu
 		acc.Enabled = value
 		_, err = store.PutAccount(ctx, acc, false)
 		if err != nil {
-			return err
+			return fmt.Errorf("handleAccountEnableToggle [store.PutAccount] [%w]", err)
 		}
 		return redirectoAccount(c, acc.Id)
 	}
@@ -171,7 +171,7 @@ func handleAccounts(store storage.Storage) echo.HandlerFunc {
 			res, err = store.ListAccountsForUser(ctx, user.Id, pointerString(page))
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("handleAccounts [store.ListAccounts] [%w]", err)
 		}
 		data := templates.TemplateData(user, "Accounts")
 		data.Accounts = res.Accounts
@@ -188,7 +188,7 @@ func handleAccount(store storage.Storage) echo.HandlerFunc {
 		accountId := c.Param("accountId")
 		acc, err := store.GetAccountById(ctx, accountId)
 		if err != nil {
-			return err
+			return fmt.Errorf("handleAccount [store.GetAccountById] [%w]", err)
 		}
 
 		data := templates.TemplateData(user, "Accounts")
@@ -234,13 +234,13 @@ func handleConsoleLogin(store storage.Storage, stsCl aws.StsClient) echo.Handler
 
 		acc, err := canAssume(c, store, user, roleName)
 		if err != nil {
-			return err
+			return fmt.Errorf("handleConsoleLogin [canAssume] [%w]", err)
 		}
 
 		arn := acc.ArnForRole(roleName)
 		url, err := aws.GenerateSigninUrl(ctx, stsCl, arn, user.Username, "https://console.aws.amazon.com/console/home")
 		if err != nil {
-			return fmt.Errorf("unable to generate url [%w]", err)
+			return fmt.Errorf("handleConsoleLogin [aws.GenerateSigninUrl] [%w]", err)
 		}
 		return c.Redirect(http.StatusTemporaryRedirect, url)
 	}
