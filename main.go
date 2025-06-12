@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/auth"
+	"github.com/chrisdd2/aws-login/aws"
 	"github.com/chrisdd2/aws-login/storage"
 	"github.com/chrisdd2/aws-login/webui"
 	"github.com/chrisdd2/aws-login/webui/templates"
@@ -81,22 +82,22 @@ func main() {
 		log.Printf("Using DynamoDB storage backend: %s", dynamoTable)
 
 		// allow different aws config for dynamo db, i.e transform any APP_DYNAMO_AWS_* variables into AWS_* variables
-		restoreFunc := environmentContext(getEnvironmentVariablesWithPrefix("APP_DYNAMODB_"))
-		cfg, err := config.LoadDefaultConfig(context.Background())
-		if err != nil {
-			log.Fatalln(err)
-		}
-		restoreFunc()
-		dynamoClient := dynamodb.NewFromConfig(cfg)
+		saveStorage = withEnvContext("APP_DYNAMODB_", func() func() {
+			cfg, err := config.LoadDefaultConfig(context.Background())
+			if err != nil {
+				log.Fatalln(err)
+			}
+			dynamoClient := dynamodb.NewFromConfig(cfg)
 
-		store, err = storage.NewDynamoDBStorage(dynamoClient, dynamoTable)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		if err := store.(*storage.DynamoDBStorage).EnsureSchema(context.Background()); err != nil {
-			log.Fatalln(err)
-		}
-		saveStorage = func() {} // no-op
+			store, err = storage.NewDynamoDBStorage(dynamoClient, dynamoTable)
+			if err != nil {
+				log.Fatalln(err)
+			}
+			if err := store.(*storage.DynamoDBStorage).EnsureSchema(context.Background()); err != nil {
+				log.Fatalln(err)
+			}
+			return func() {}
+		})
 	} else if dsn != "" {
 		log.Printf("Using SQL storage backend: %s", dsn)
 		store, err = storage.NewSQLStorage(dsn)
@@ -105,15 +106,28 @@ func main() {
 		log.Printf("Using in-memory storage backend (MemoryStorage)")
 		store, saveStorage, err = NewMemoryStorage(filename)
 	}
+	if err != nil {
+		log.Fatalln(err)
+	}
 
-	cfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		log.Fatalln(err)
-	}
-	if err != nil {
-		log.Fatalln(err)
-	}
 	defer saveStorage()
+
+	// allow different aws config for the aws user used for permissions in the other accounts
+	stsClient := withEnvContext("APP_ASSUMER_", func() *sts.Client {
+		cfg, err := config.LoadDefaultConfig(context.Background())
+		if err != nil {
+			log.Fatalln(err)
+		}
+		// sts client will be used for most access we require
+		return sts.NewFromConfig(cfg)
+	})
+
+	// check which user it is
+	stsResp, err := stsClient.GetCallerIdentity(context.Background(), &sts.GetCallerIdentityInput{})
+	if err != nil {
+		log.Fatalln(err)
+	}
+	log.Printf("using assumer [%s]\n", aws.PrincipalFromSts(*stsResp.Arn))
 
 	token := auth.LoginToken{
 		Key: []byte(signKey),
@@ -152,8 +166,7 @@ func main() {
 		}
 	}
 
-	stsCient := sts.NewFromConfig(cfg)
-	webui.Router(e, authMethod, &storage.StorageService{Storage: store}, token, stsCient)
+	webui.Router(e, authMethod, &storage.StorageService{Storage: store}, token, stsClient)
 
 	log.Printf("listening [http://%s]\n", addr)
 
@@ -202,6 +215,13 @@ func getEnvironmentVariablesWithPrefix(prefix string) map[string]string {
 	return res
 }
 
+func withEnvContext[T any](prefix string, f func() T) T {
+	restore := environmentContext(getEnvironmentVariablesWithPrefix(prefix))
+	t := f()
+	restore()
+	return t
+}
+
 func environmentContext(envVars map[string]string) (restoreFunc func()) {
 	restore := map[string]string{}
 	unset := []string{}
@@ -218,7 +238,6 @@ func environmentContext(envVars map[string]string) (restoreFunc func()) {
 		for k, v := range restore {
 			os.Setenv(k, v)
 		}
-		os.Clearenv()
 		for _, k := range unset {
 			os.Unsetenv(k)
 		}
