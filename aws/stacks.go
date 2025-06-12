@@ -54,9 +54,10 @@ func BootstrapTemplate(ctx context.Context, stsCl StsClient, w io.Writer) error 
 		return err
 	}
 	return cfnTemplates.ExecuteTemplate(w, "bootstrap.template", struct {
-		OpsRoleName string
-		Principal   string
-	}{OpsRole, PrincipalFromSts(*resp.Arn)})
+		OpsRoleName     string
+		Principal       string
+		TargetStackName string
+	}{OpsRole, PrincipalFromSts(*resp.Arn), StackName})
 }
 
 type CfnClient interface {
