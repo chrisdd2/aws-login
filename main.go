@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 
 	"log/slog"
 	"net/http"
@@ -64,78 +63,88 @@ func NewMemoryStorage(filename string) (storage.Storage, func(), error) {
 	return store, store.Flush, nil
 }
 
-func main() {
-	addr := envOrDefault("APP_LISTEN_ADDR", "0.0.0.0:8080")
-	filename := envOrDefault("APP_STORE_FILE", "store.json")
-	signKey := envOrDie("APP_SIGN_KEY")
-	generateAdminToken := os.Getenv("APP_GENERATE_TOKEN") != ""
-	dsn := os.Getenv("APP_DATABASE_URL") // Example: postgres://postgres:postgres@db:5432/postgres?sslmode=disable
-	dynamoTable := os.Getenv("APP_DYNAMODB_TABLE")
+type storageCtx struct {
+	store    storage.Storage
+	saveFunc func()
+}
 
-	// Choose storage backend
-	var (
-		store       storage.Storage
-		saveStorage func()
-		err         error
-	)
-	if dynamoTable != "" {
-		log.Printf("Using DynamoDB storage backend: %s", dynamoTable)
-
+func prepareStorage(cfg *AppConfig) (storageCtx, error) {
+	switch cfg.StorageType {
+	case StorageTypeDynamoDb:
+		log.Printf("Using DynamoDB storage backend: %s", cfg.DynamoDbTable)
 		// allow different aws config for dynamo db, i.e transform any APP_DYNAMO_AWS_* variables into AWS_* variables
-		saveStorage = withEnvContext("APP_DYNAMODB_", func() func() {
-			cfg, err := config.LoadDefaultConfig(context.Background())
+		return withEnvContext("APP_DYNAMODB_", func() (storageCtx, error) {
+			awsCfg, err := config.LoadDefaultConfig(context.Background())
 			if err != nil {
 				log.Fatalln(err)
 			}
-			dynamoClient := dynamodb.NewFromConfig(cfg)
+			dynamoClient := dynamodb.NewFromConfig(awsCfg)
 
-			store, err = storage.NewDynamoDBStorage(dynamoClient, dynamoTable)
+			store, err := storage.NewDynamoDBStorage(dynamoClient, cfg.DynamoDbTable)
 			if err != nil {
-				log.Fatalln(err)
+				return storageCtx{}, nil
 			}
-			if err := store.(*storage.DynamoDBStorage).EnsureSchema(context.Background()); err != nil {
-				log.Fatalln(err)
+			if err := store.EnsureSchema(context.Background()); err != nil {
+				return storageCtx{}, nil
 			}
-			return func() {}
+			return storageCtx{store: store, saveFunc: func() {}}, nil
 		})
-	} else if dsn != "" {
-		log.Printf("Using SQL storage backend: %s", dsn)
-		store, err = storage.NewSQLStorage(dsn)
-		saveStorage = func() {} // no-op
-	} else {
+	case StorageTypeSql:
+		log.Printf("Using SQL storage backend: %s", cfg.DatabaseUrl)
+		store, err := storage.NewSQLStorage(cfg.DatabaseUrl)
+		return storageCtx{store: store, saveFunc: func() {}}, err
+	case StorageTypeMemory:
 		log.Printf("Using in-memory storage backend (MemoryStorage)")
-		store, saveStorage, err = NewMemoryStorage(filename)
+		store, saveStorage, err := NewMemoryStorage(cfg.StorageFile)
+		return storageCtx{store: store, saveFunc: saveStorage}, err
+	default:
+		return storageCtx{}, fmt.Errorf("unknown storage type %s", cfg.StorageType)
 	}
+}
+
+func must(err error) {
 	if err != nil {
 		log.Fatalln(err)
 	}
+}
+func must2[T any](a T, err error) T {
+	if err != nil {
+		log.Fatalln(err)
+	}
+	return a
+}
 
-	defer saveStorage()
+func main() {
+	appCfg := AppConfig{}
+	must(appCfg.LoadDefaults())
+	must(appCfg.LoadFromEnv())
+
+	appCfg.debugPrint()
+
+	storageCtx := must2(prepareStorage(&appCfg))
+	defer storageCtx.saveFunc()
 
 	// allow different aws config for the aws user used for permissions in the other accounts
-	stsClient := withEnvContext("APP_ASSUMER_", func() *sts.Client {
+	stsClient := must2(withEnvContext("APP_ASSUMER_", func() (*sts.Client, error) {
 		cfg, err := config.LoadDefaultConfig(context.Background())
 		if err != nil {
-			log.Fatalln(err)
+			return nil, err
 		}
 		// sts client will be used for most access we require
-		return sts.NewFromConfig(cfg)
-	})
+		return sts.NewFromConfig(cfg), nil
+	}))
 
 	// check which user it is
-	stsResp, err := stsClient.GetCallerIdentity(context.Background(), &sts.GetCallerIdentityInput{})
-	if err != nil {
-		log.Fatalln(err)
-	}
+	stsResp := must2(stsClient.GetCallerIdentity(context.Background(), &sts.GetCallerIdentityInput{}))
 	log.Printf("using assumer [%s]\n", aws.PrincipalFromSts(*stsResp.Arn))
 
 	token := auth.LoginToken{
-		Key: []byte(signKey),
+		Key: []byte(appCfg.SignKey),
 	}
 
 	authMethod := &auth.GithubAuth{
-		ClientSecret: envOrDie("APP_CLIENT_SECRET"),
-		ClientId:     envOrDie("APP_CLIENT_ID"),
+		ClientSecret: appCfg.GithubClientSecret,
+		ClientId:     appCfg.GithubClientId,
 	}
 
 	e := echo.New()
@@ -145,7 +154,8 @@ func main() {
 	e.Pre(middleware.AddTrailingSlash())
 	if envOrDefault("APP_DEVELOPMENT_MODE", "") != "" {
 		e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
-			Format: "method=${method}, uri=${uri}, status=${status}\n",
+			Format:           "${time_custom} method=${method}, uri=${uri}, status=${status}\n",
+			CustomTimeFormat: "2006/01/02 15:04:05",
 		}))
 	} else {
 		e.Use(middleware.Logger())
@@ -166,11 +176,11 @@ func main() {
 		}
 	}
 
-	webui.Router(e, authMethod, &storage.StorageService{Storage: store}, token, stsClient)
+	webui.Router(e, authMethod, &storage.StorageService{Storage: storageCtx.store}, token, stsClient)
 
-	log.Printf("listening [http://%s]\n", addr)
+	log.Printf("listening [http://%s]\n", appCfg.ListenAddr)
 
-	if generateAdminToken {
+	if appCfg.GenerateRootToken {
 		accessToken, err := token.SignToken(auth.UserInfo{
 			Username:  "root",
 			Email:     "root@root",
@@ -180,66 +190,10 @@ func main() {
 			e.StdLogger.Fatalf("failed to generate root token [%s]\n", err)
 		}
 		e.StdLogger.Printf("ROOT access token: %s\n", accessToken)
-		e.StdLogger.Printf("login with http://%s/login?token=%s\n", addr, accessToken)
+		e.StdLogger.Printf("login with http://%s/login?token=%s\n", appCfg.ListenAddr, accessToken)
 	}
 
-	if err := e.Start(addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := e.Start(appCfg.ListenAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("failed to start server", "error", err)
-	}
-}
-
-func envOrDefault(name string, def string) string {
-	v := os.Getenv(name)
-	if v != "" {
-		return v
-	}
-	return def
-}
-
-func envOrDie(name string) string {
-	v := os.Getenv(name)
-	if v == "" {
-		panic(fmt.Sprintf("missing %s environment variable", name))
-	}
-	return v
-}
-
-func getEnvironmentVariablesWithPrefix(prefix string) map[string]string {
-	res := map[string]string{}
-	for _, env := range os.Environ() {
-		key, value, _ := strings.Cut(env, "=")
-		if strings.HasPrefix(key, prefix) {
-			res[strings.TrimPrefix(key, prefix)] = value
-		}
-	}
-	return res
-}
-
-func withEnvContext[T any](prefix string, f func() T) T {
-	restore := environmentContext(getEnvironmentVariablesWithPrefix(prefix))
-	t := f()
-	restore()
-	return t
-}
-
-func environmentContext(envVars map[string]string) (restoreFunc func()) {
-	restore := map[string]string{}
-	unset := []string{}
-	for k, v := range envVars {
-		restoreVal, exists := os.LookupEnv(k)
-		if exists {
-			restore[k] = restoreVal
-		} else {
-			unset = append(unset, k)
-		}
-		os.Setenv(k, v)
-	}
-	return func() {
-		for k, v := range restore {
-			os.Setenv(k, v)
-		}
-		for _, k := range unset {
-			os.Unsetenv(k)
-		}
 	}
 }
