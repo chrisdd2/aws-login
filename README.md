@@ -126,14 +126,21 @@ You can export and deploy these templates directly from the web UI or via the AW
 | `APP_CLIENT_ID`           | GitHub OAuth client ID                   | **Required**      |
 | `APP_CLIENT_SECRET`       | GitHub OAuth client secret               | **Required**      |
 | `APP_DATABASE_URL`        | (Optional) Postgres DSN for SQL storage  | -                 |
+| `APP_DYNAMODB_TABLE`      | (Optional) DynamoDB table name           | -                 |
 
 **Note:**
 - If `APP_DATABASE_URL` is set, the application will use a PostgreSQL database for storage and auto-create tables if needed.
-- If not set, the application will use the default in-memory (JSON file) storage backend.
+- If `APP_DYNAMODB_TABLE` is set, the application will use DynamoDB for storage and auto-create the table if needed.
+- If neither is set, the application will use the default in-memory (JSON file) storage backend.
 
 **Example DSN:**
 ```
 APP_DATABASE_URL=postgres://postgres:postgres@db:5432/postgres?sslmode=disable
+```
+
+**Example DynamoDB:**
+```
+APP_DYNAMODB_TABLE=aws-login-table
 ```
 
 ---

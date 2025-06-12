@@ -12,6 +12,7 @@ import (
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/auth"
 	"github.com/chrisdd2/aws-login/storage"
@@ -63,15 +64,31 @@ func main() {
 	filename := envOrDefault("APP_STORE_FILE", "store.json")
 	signKey := envOrDie("APP_SIGN_KEY")
 	generateAdminToken := os.Getenv("APP_GENERATE_TOKEN") != ""
+	dsn := os.Getenv("APP_DATABASE_URL") // Example: postgres://postgres:postgres@db:5432/postgres?sslmode=disable
+	dynamoTable := os.Getenv("APP_DYNAMODB_TABLE")
+
+	cfg, err := config.LoadDefaultConfig(context.Background())
+	if err != nil {
+		log.Fatalln(err)
+	}
 
 	// Choose storage backend
 	var (
-		store storage.Storage
+		store       storage.Storage
 		saveStorage func()
-		err error
 	)
-	dsn := os.Getenv("APP_DATABASE_URL") // Example: postgres://postgres:postgres@db:5432/postgres?sslmode=disable
-	if dsn != "" {
+	if dynamoTable != "" {
+		log.Printf("Using DynamoDB storage backend: %s", dynamoTable)
+		dynamoClient := dynamodb.NewFromConfig(cfg)
+		store, err = storage.NewDynamoDBStorage(dynamoClient, dynamoTable)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		if err := store.(*storage.DynamoDBStorage).EnsureSchema(context.Background()); err != nil {
+			log.Fatalln(err)
+		}
+		saveStorage = func() {} // no-op
+	} else if dsn != "" {
 		log.Printf("Using SQL storage backend: %s", dsn)
 		store, err = storage.NewSQLStorage(dsn)
 		saveStorage = func() {} // no-op
@@ -83,11 +100,6 @@ func main() {
 		log.Fatalln(err)
 	}
 	defer saveStorage()
-
-	cfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		log.Fatalln(err)
-	}
 
 	token := auth.LoginToken{
 		Key: []byte(signKey),
