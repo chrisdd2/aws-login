@@ -36,16 +36,19 @@ type jsonMemorystore struct {
 	Perms    []Permission `json:"perms,omitempty"`
 }
 
-func NewMemoryStorageFromJson(reader io.Reader) (*MemoryStorage, error) {
+func (m *MemoryStorage) LoadFromReader(reader io.Reader) error {
 	store := jsonMemorystore{}
 	err := json.NewDecoder(reader).Decode(&store)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return &MemoryStorage{users: store.Users, accounts: store.Accounts, perms: store.Perms}, nil
-
+	m.users = store.Users
+	m.accounts = store.Accounts
+	m.perms = store.Perms
+	return nil
 }
-func SaveMemoryStorageFromJson(m *MemoryStorage, writer io.Writer) error {
+
+func (m *MemoryStorage) SaveToWriter(writer io.Writer) error {
 	store := jsonMemorystore{
 		Users:    m.users,
 		Accounts: m.accounts,

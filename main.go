@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 
 	"log/slog"
 	"net/http"
@@ -22,31 +23,34 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 )
 
-func loadStorage(file string) (*storage.MemoryStorage, error) {
-	f, err := os.Open(file)
+func NewMemoryStorage(filename string) (storage.Storage, func(), error) {
+	store := storage.NewMemoryStorage()
+
+	f, err := os.Open(filename)
 	if err != nil {
 		log.Println(err)
-		return storage.NewMemoryStorage(), nil
+	} else {
+		if err := store.LoadFromReader(f); err != nil {
+			return nil, nil, fmt.Errorf("store.LoadFromReader [%w]", err)
+		}
 	}
 	defer f.Close()
-	return storage.NewMemoryStorageFromJson(f)
-}
-
-func initStorage(filename string) (storage.Storage, func(), error) {
-	store, err := loadStorage(filename)
-	if err != nil {
-		return nil, nil, fmt.Errorf("loadStorage [%w]", err)
-	}
 	flushFunc := func(s *storage.MemoryStorage) {
 		log.Printf("saving storage to [%s]\n", filename)
 		f, err := os.Create(filename)
 		if err != nil {
 			log.Fatalln(err)
 		}
-		err = storage.SaveMemoryStorageFromJson(s, f)
-		if err != nil {
+		if err := s.SaveToWriter(f); err != nil {
+			f.Close()
 			log.Fatalln(err)
 		}
+		f.Close()
+		f, err = os.Open(filename)
+		if err := s.LoadFromReader(f); err != nil {
+			log.Fatalln(err)
+		}
+		defer f.Close()
 	}
 	store.SetFlush(flushFunc)
 	exitSignal := make(chan os.Signal, 10)
@@ -67,19 +71,24 @@ func main() {
 	dsn := os.Getenv("APP_DATABASE_URL") // Example: postgres://postgres:postgres@db:5432/postgres?sslmode=disable
 	dynamoTable := os.Getenv("APP_DYNAMODB_TABLE")
 
-	cfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		log.Fatalln(err)
-	}
-
 	// Choose storage backend
 	var (
 		store       storage.Storage
 		saveStorage func()
+		err         error
 	)
 	if dynamoTable != "" {
 		log.Printf("Using DynamoDB storage backend: %s", dynamoTable)
+
+		// allow different aws config for dynamo db, i.e transform any APP_DYNAMO_AWS_* variables into AWS_* variables
+		restoreFunc := environmentContext(getEnvironmentVariablesWithPrefix("APP_DYNAMODB_"))
+		cfg, err := config.LoadDefaultConfig(context.Background())
+		if err != nil {
+			log.Fatalln(err)
+		}
+		restoreFunc()
 		dynamoClient := dynamodb.NewFromConfig(cfg)
+
 		store, err = storage.NewDynamoDBStorage(dynamoClient, dynamoTable)
 		if err != nil {
 			log.Fatalln(err)
@@ -94,7 +103,12 @@ func main() {
 		saveStorage = func() {} // no-op
 	} else {
 		log.Printf("Using in-memory storage backend (MemoryStorage)")
-		store, saveStorage, err = initStorage(filename)
+		store, saveStorage, err = NewMemoryStorage(filename)
+	}
+
+	cfg, err := config.LoadDefaultConfig(context.Background())
+	if err != nil {
+		log.Fatalln(err)
 	}
 	if err != nil {
 		log.Fatalln(err)
@@ -175,4 +189,38 @@ func envOrDie(name string) string {
 		panic(fmt.Sprintf("missing %s environment variable", name))
 	}
 	return v
+}
+
+func getEnvironmentVariablesWithPrefix(prefix string) map[string]string {
+	res := map[string]string{}
+	for _, env := range os.Environ() {
+		key, value, _ := strings.Cut(env, "=")
+		if strings.HasPrefix(key, prefix) {
+			res[strings.TrimPrefix(key, prefix)] = value
+		}
+	}
+	return res
+}
+
+func environmentContext(envVars map[string]string) (restoreFunc func()) {
+	restore := map[string]string{}
+	unset := []string{}
+	for k, v := range envVars {
+		restoreVal, exists := os.LookupEnv(k)
+		if exists {
+			restore[k] = restoreVal
+		} else {
+			unset = append(unset, k)
+		}
+		os.Setenv(k, v)
+	}
+	return func() {
+		for k, v := range restore {
+			os.Setenv(k, v)
+		}
+		os.Clearenv()
+		for _, k := range unset {
+			os.Unsetenv(k)
+		}
+	}
 }
