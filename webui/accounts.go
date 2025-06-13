@@ -2,6 +2,7 @@ package webui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -396,31 +397,65 @@ func handleBootstrapStatus(store storage.Storage, stsCl aws.StsClient) echo.Hand
 			defer srv.Close()
 			defer cancel()
 			defer ticker.Stop()
+
+			publishMessage := func(message ...string) {
+				buf, _ := json.Marshal(message)
+				srv.Publish("bootstrap", &sse.Event{
+					Data: buf,
+				})
+			}
+
+			publishStackEvents := func(latestEventTime time.Time) (time.Time, error) {
+				events, err := cfn.DescribeStackEvents(ctx, &cloudformation.DescribeStackEventsInput{
+					StackName: &stackId,
+				})
+				if err != nil {
+					publishMessage(fmt.Sprintf("error list stack events stack %s\n", err))
+					return latestEventTime, err
+				}
+				// its reverse order so reverse it for the user
+				for i := len(events.StackEvents) - 1; i >= 0; i-- {
+					ev := events.StackEvents[i]
+					evTime := toTimestamp(ev.Timestamp).UTC()
+					if !evTime.After(latestEventTime) {
+						continue
+					}
+					publishMessage(evTime.Format(time.DateTime), toString(ev.LogicalResourceId), toString(ev.ResourceType), toString((*string)(&ev.ResourceStatus)))
+					latestEventTime = evTime
+				}
+				return latestEventTime.UTC(), nil
+			}
+			// send initial events
+			latestEventTime, err := publishStackEvents(time.Time{}.UTC())
+			if err != nil {
+				log.Println(err)
+				return
+			}
 			for {
 				select {
 				case <-c.Request().Context().Done():
 					log.Printf("SSE client disconnected, ip: %v", c.RealIP())
 					return
 				case <-ticker.C:
+					eventTime, err := publishStackEvents(latestEventTime)
+					if err != nil {
+						log.Println(err)
+						return
+					}
+					latestEventTime = eventTime
+					// stop if the status is not in progress
 					resp, err := cfn.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: &stackId})
 					if err != nil {
-						srv.Publish("bootstrap", &sse.Event{
-							Data: []byte(fmt.Sprintf("error describing stack %s\n", err)),
-						})
+						publishMessage(fmt.Sprintf("error describing stack %s\n", err))
 						log.Println(err)
 						return
 					}
 					status := string(resp.Stacks[0].StackStatus)
-					srv.Publish("bootstrap", &sse.Event{
-						Data: []byte(fmt.Sprintf("%s: %s", time.Now().UTC(), status)),
-					})
 					if !slices.Contains(inProgressStatus, status) {
 						return
 					}
 				case <-timeoutCtx.Done():
-					srv.Publish("bootstrap", &sse.Event{
-						Data: []byte("timed out"),
-					})
+					publishMessage("timed out")
 					return
 				}
 			}
@@ -659,4 +694,11 @@ func handleGrant(store storage.Storage) echo.HandlerFunc {
 		}
 		return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/roles/", acc.Id))
 	}
+}
+
+func toTimestamp(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
 }
