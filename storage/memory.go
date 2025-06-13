@@ -13,11 +13,13 @@ import (
 )
 
 type MemoryStorage struct {
-	users     []User
-	accounts  []Account
-	perms     []Permission
-	flushFunc FlushFunc
-	flushLock sync.Mutex
+	users            []User
+	accounts         []Account
+	perms            []Permission
+	roles            []Role
+	roleAssociations map[string][]string
+	flushFunc        FlushFunc
+	flushLock        sync.Mutex
 }
 
 type FlushFunc func(*MemoryStorage)
@@ -27,13 +29,18 @@ func NewMemoryStorage() *MemoryStorage {
 		users:    []User{},
 		accounts: []Account{},
 		perms:    []Permission{},
+		roles:    []Role{},
+		// only one actually needed
+		roleAssociations: map[string][]string{},
 	}
 }
 
 type jsonMemorystore struct {
-	Users    []User       `json:"users,omitempty"`
-	Accounts []Account    `json:"accounts,omitempty"`
-	Perms    []Permission `json:"perms,omitempty"`
+	Users            []User              `json:"users,omitempty"`
+	Accounts         []Account           `json:"accounts,omitempty"`
+	Perms            []Permission        `json:"perms,omitempty"`
+	Roles            []Role              `json:"roles,omitempty"`
+	RoleAssociations map[string][]string `json:"role_associations,omitempty"`
 }
 
 func (m *MemoryStorage) LoadFromReader(reader io.Reader) error {
@@ -45,14 +52,21 @@ func (m *MemoryStorage) LoadFromReader(reader io.Reader) error {
 	m.users = store.Users
 	m.accounts = store.Accounts
 	m.perms = store.Perms
+	m.roles = store.Roles
+	m.roleAssociations = store.RoleAssociations
+	if m.roleAssociations == nil {
+		m.roleAssociations = map[string][]string{}
+	}
 	return nil
 }
 
 func (m *MemoryStorage) SaveToWriter(writer io.Writer) error {
 	store := jsonMemorystore{
-		Users:    m.users,
-		Accounts: m.accounts,
-		Perms:    m.perms,
+		Users:            m.users,
+		Accounts:         m.accounts,
+		Perms:            m.perms,
+		Roles:            m.roles,
+		RoleAssociations: m.roleAssociations,
 	}
 	enc := json.NewEncoder(writer)
 	enc.SetIndent("", "  ")
@@ -296,6 +310,96 @@ func (m *MemoryStorage) PutRolePermission(ctx context.Context, newPerm Permissio
 	return nil
 }
 
+func (m *MemoryStorage) PutRole(ctx context.Context, role Role, delete bool) (Role, error) {
+	defer m.Flush()
+	if delete {
+		m.roles = slices.DeleteFunc(m.roles, func(a Role) bool {
+			return a.Id == role.Id
+		})
+		return role, nil
+	}
+	for i, r := range m.roles {
+		if r.Id == role.Id {
+			m.roles[i] = role
+			return role, nil
+		}
+	}
+	role.Id = newUuid()
+	m.roles = append(m.roles, role)
+	return role, nil
+}
+func (m *MemoryStorage) PutRoleAssociation(ctx context.Context, accountId string, roleId string, delete bool) error {
+	defer m.Flush()
+	accRoles := m.roleAssociations[accountId]
+	if delete {
+		accRoles = slices.DeleteFunc(accRoles, func(a string) bool {
+			return a == roleId
+		})
+		m.roleAssociations[accountId] = accRoles
+		return nil
+	}
+	if slices.Contains(accRoles, roleId) {
+		// already in
+		return nil
+	}
+	accRoles = append(accRoles, roleId)
+	m.roleAssociations[accountId] = accRoles
+	return nil
+}
+func (m *MemoryStorage) ListRolesForAccount(ctx context.Context, accountId string, startToken *string) (ListRolesForAccount, error) {
+	startIdx, err := parseStartToken(startToken)
+	if err != nil {
+		return ListRolesForAccount{}, err
+	}
+	accRoles := m.roleAssociations[accountId]
+	endIdx := startIdx + ListResultPageSize
+	startToken = generateStartToken(endIdx)
+	if endIdx >= len(accRoles) {
+		endIdx = len(accRoles)
+		startToken = nil
+	}
+	accRoles = accRoles[startIdx:endIdx]
+	roles, err := m.BatchGetRolesById(ctx, accRoles...)
+	if err != nil {
+		return ListRolesForAccount{}, err
+	}
+	res := []ListRoleItem{}
+	for _, role := range roles {
+		res = append(res, ListRoleItem{RoleId: role.Id, RoleName: role.RoleName})
+	}
+	return ListRolesForAccount{Roles: res, StartToken: startToken}, nil
+}
+func (m *MemoryStorage) BatchGetRolesById(ctx context.Context, roleId ...string) ([]Role, error) {
+	roles := []Role{}
+	for _, r := range m.roles {
+		if slices.Contains(roleId, r.Id) {
+			roles = append(roles, r)
+		}
+	}
+	return roles, nil
+}
+func (m *MemoryStorage) GetRoleById(ctx context.Context, roleId string) (Role, error) {
+	if roleId == "" {
+		return Role{}, ErrRoleNotFound
+	}
+	for _, r := range m.roles {
+		if r.Id == roleId {
+			return r, nil
+		}
+	}
+	return Role{}, ErrRoleNotFound
+}
+func (m *MemoryStorage) GetRoleByName(ctx context.Context, roleName string) (Role, error) {
+	if roleName == "" {
+		return Role{}, ErrRoleNotFound
+	}
+	for _, r := range m.roles {
+		if r.RoleName == roleName {
+			return r, nil
+		}
+	}
+	return Role{}, ErrRoleNotFound
+}
 func matchOrEmpty(item string, check string) bool {
 	return item == check || check == ""
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"text/template"
@@ -17,22 +18,36 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 	"github.com/chrisdd2/aws-login/aws/cfn"
+	"github.com/chrisdd2/aws-login/storage"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 var cfnTemplates *template.Template
 
 // some unique identifiers we might need
 const (
-	uniqueId      = "8db7bc11-acf5-4c7a-be46-967f44e33028"
-	StackName     = "aws-login-stack-" + uniqueId
-	OpsRole       = "ops-role-role-" + uniqueId
-	DeveloperRole = "developer-role-" + uniqueId
-	ReadOnlyRole  = "read-only-role-" + uniqueId
-	boundaryName  = "iam-role-boundary-" + uniqueId
+	StackName    = "aws-login-stack-" + storage.UniqueId
+	OpsRole      = "ops-role-role-" + storage.UniqueId
+	boundaryName = "iam-role-boundary-" + storage.UniqueId
 )
 
 func init() {
-	cfnTemplates = template.Must(template.ParseFS(cfn.CloudFormationFs, "*.template"))
+	tmpl := template.New("stacks").Funcs(
+		template.FuncMap{
+			"roleLogicalName": func(roleName string) string {
+				// remove invalid characters
+				normalized := strings.ReplaceAll(strings.ReplaceAll(roleName, "-", " "), "/", " ")
+				// capitalize
+				normalized = cases.Title(language.English, cases.Compact).String(strings.ToLower(normalized))
+				// remove spaces
+				return strings.Join(strings.Split(normalized, " "), "")
+			},
+			"maxSessionDuration": func(duration time.Duration) string {
+				return strconv.Itoa(int((duration) / time.Second))
+			},
+		})
+	cfnTemplates = template.Must(tmpl.ParseFS(cfn.CloudFormationFs, "*.template"))
 }
 
 func PrincipalFromSts(arn string) string {
@@ -67,13 +82,14 @@ type CfnClient interface {
 	DeleteStack(ctx context.Context, params *cloudformation.DeleteStackInput, optFns ...func(*cloudformation.Options)) (*cloudformation.DeleteStackOutput, error)
 }
 
-func DeployBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn string) (string, error) {
+func DeployBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn string, roles []storage.Role) (string, error) {
 	buf := bytes.Buffer{}
-	err := cfnTemplates.ExecuteTemplate(&buf, "base.template", nil)
+	err := cfnTemplates.ExecuteTemplate(&buf, "base.template", struct{ Roles []storage.Role }{Roles: roles})
 	if err != nil {
 		return "", err
 	}
 	tmpl := buf.String()
+	os.WriteFile("something.yaml", []byte(tmpl), 0644)
 	stackName := aws.String(StackName)
 	_, err = cfnCl.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: stackName})
 	update := true
@@ -88,11 +104,8 @@ func DeployBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn str
 		update = false
 	}
 	cfnParams := []cfnTypes.Parameter{
-		{ParameterKey: aws.String("DeveloperRoleName"), ParameterValue: aws.String(DeveloperRole)},
-		{ParameterKey: aws.String("ReadOnlyRoleName"), ParameterValue: aws.String(ReadOnlyRole)},
 		{ParameterKey: aws.String("ManagementRoleArn"), ParameterValue: &managementRoleArn},
 		{ParameterKey: aws.String("PermissionBoundaryName"), ParameterValue: aws.String(boundaryName)},
-		{ParameterKey: aws.String("MaxSessionDuration"), ParameterValue: aws.String(strconv.Itoa(int((time.Hour * 8) / time.Second)))},
 	}
 	if update {
 		_, err = cfnCl.UpdateStack(ctx, &cloudformation.UpdateStackInput{StackName: stackName, TemplateBody: &tmpl, Parameters: cfnParams, Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam}})

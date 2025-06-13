@@ -80,10 +80,14 @@ func handleRoles(store storage.Storage) echo.HandlerFunc {
 
 		roles := []templates.Role{}
 		if user.Superuser {
-			for _, role := range acc.Roles() {
+			accRoles, err := store.ListRolesForAccount(ctx, acc.Id, nil)
+			if err != nil {
+				return fmt.Errorf("handleRoles [store.ListRolesForAccount] [%w]", err)
+			}
+			for _, role := range accRoles.Roles {
 				roles = append(roles, templates.Role{
-					Arn:       acc.ArnForRole(role),
-					Name:      aws.AwsRole(role).String(),
+					Arn:       acc.ArnForRole(role.RoleName),
+					Name:      storage.AwsRole(role.RoleName).String(),
 					AccountId: acc.Id,
 					CanGrant:  true,
 					CanAssume: true,
@@ -103,7 +107,7 @@ func handleRoles(store storage.Storage) echo.HandlerFunc {
 			for _, role := range listPerms.Permissions {
 				roles = append(roles, templates.Role{
 					Arn:       acc.ArnForRole(role.Scope),
-					Name:      aws.AwsRole(role.Scope).String(),
+					Name:      storage.AwsRole(role.Scope).String(),
 					AccountId: acc.Id,
 					CanGrant:  slices.Contains(role.Value, storage.RolePermissionGrant),
 					CanAssume: slices.Contains(role.Value, storage.RolePermissionAssume),
@@ -231,7 +235,7 @@ func handleConsoleLogin(store storage.Storage, stsCl aws.StsClient) echo.Handler
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
-		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
+		roleName := storage.AwsRole(c.QueryParam("roleName")).RealName()
 
 		acc, err := canAssume(c, store, user, roleName)
 		if err != nil {
@@ -251,7 +255,7 @@ func handleCredentialsLogin(store storage.Storage, stsCl aws.StsClient) echo.Han
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
-		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
+		roleName := storage.AwsRole(c.QueryParam("roleName")).RealName()
 
 		acc, err := canAssume(c, store, user, roleName)
 		if err != nil {
@@ -511,8 +515,30 @@ func handleBootstrap(store storage.Storage, stsCl aws.StsClient) echo.HandlerFun
 		if err != nil {
 			return err
 		}
+		// all roles
+		roles := []storage.Role{}
+		var startToken *string
+		for {
+			accRoles, err := store.ListRolesForAccount(ctx, acc.Id, startToken)
+			if err != nil {
+				return err
+			}
+			roleIds := []string{}
+			for _, r := range accRoles.Roles {
+				roleIds = append(roleIds, r.RoleId)
+			}
+			actualRoles, err := store.BatchGetRolesById(ctx, roleIds...)
+			if err != nil {
+				return err
+			}
+			roles = append(roles, actualRoles...)
+			startToken = accRoles.StartToken
+			if startToken == nil {
+				break
+			}
+		}
 		cfn := cloudformation.NewFromConfig(cfg)
-		stackId, err := aws.DeployBaseStack(ctx, cfn, selfArn)
+		stackId, err := aws.DeployBaseStack(ctx, cfn, selfArn, roles)
 		if err != nil {
 			return err
 		}
@@ -527,7 +553,7 @@ func handleRevokeForm(store storage.Storage) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
-		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
+		roleName := storage.AwsRole(c.QueryParam("roleName")).RealName()
 		acc, err := accountFromRequest(c, store)
 		if err != nil {
 			return err
@@ -582,7 +608,7 @@ func handleRevoke(store storage.Storage) echo.HandlerFunc {
 		if err := c.Bind(&action); err != nil {
 			return err
 		}
-		roleName := aws.AwsRole(action.RoleName).RealName()
+		roleName := storage.AwsRole(action.RoleName).RealName()
 		acc, err := accountFromRequest(c, store)
 		if err != nil {
 			return err
@@ -616,7 +642,7 @@ func handleGrantForm(store storage.Storage) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
-		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
+		roleName := storage.AwsRole(c.QueryParam("roleName")).RealName()
 		acc, err := accountFromRequest(c, store)
 		if err != nil {
 			return err
@@ -644,7 +670,7 @@ func handleGrant(store storage.Storage) echo.HandlerFunc {
 		}
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
-		roleName := aws.AwsRole(c.QueryParam("roleName")).RealName()
+		roleName := storage.AwsRole(c.QueryParam("roleName")).RealName()
 		acc, err := accountFromRequest(c, store)
 		if err != nil {
 			return err

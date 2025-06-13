@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"time"
 
@@ -76,36 +75,4 @@ func GenerateSigninUrl(ctx context.Context, cl StsClient, roleArn string, sessio
 		"SigninToken": []string{signinToken.SigninToken},
 	}
 	return fmt.Sprintf("%s?%s", signInUrl, values.Encode()), nil
-}
-
-type AwsRole string
-
-func (d AwsRole) String() string {
-	if d == DeveloperRole {
-		return "developer"
-	}
-	if d == ReadOnlyRole {
-		return "read-only"
-	}
-	return string(d)
-}
-
-func (d AwsRole) RealName() string {
-	if d == "developer" {
-		return DeveloperRole
-	}
-	if d == "read-only" {
-		return ReadOnlyRole
-	}
-	return string(d)
-
-}
-
-// Validate the account number for AWS it must be a 12 digit number
-func ValidateAWSAccountIDStr(accountID string) bool {
-	re := regexp.MustCompile(`^\d{12}$`)
-	return re.MatchString(accountID)
-}
-func ValidateAWSAccountID(accountID int) bool {
-	return accountID > 100000000000 && accountID <= 999999999999
 }

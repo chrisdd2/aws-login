@@ -369,6 +369,27 @@ func (s *SQLStorage) PutRolePermission(ctx context.Context, perm Permission, del
 		return err
 	}
 	return nil
+
+}
+
+func (s *SQLStorage) PutRole(ctx context.Context, role Role, delete bool) (Role, error) {
+	return Role{}, nil
+}
+func (s *SQLStorage) PutRoleAssociation(ctx context.Context, accountId string, roleId string, delete bool) error {
+	return nil
+}
+func (s *SQLStorage) ListRolesForAccount(ctx context.Context, accountId string, startToken *string) (ListRolesForAccount, error) {
+	return ListRolesForAccount{}, nil
+}
+func (s *SQLStorage) BatchGetRolesById(ctx context.Context, roleId ...string) ([]Role, error) {
+	return nil, nil
+}
+
+func (s *SQLStorage) GetRoleById(ctx context.Context, roleId string) (Role, error) {
+	return Role{}, nil
+}
+func (s *SQLStorage) GetRoleByName(ctx context.Context, roleName string) (Role, error) {
+	return Role{}, nil
 }
 
 // Tags helpers: serialize as JSON string for DB

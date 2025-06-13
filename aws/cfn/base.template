@@ -2,26 +2,15 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   IAM setup with:
     - Permissions boundary to prevent unrestricted IAM user creation
-    - Developer role (full access, restricted by boundary)
-    - Read-only role
-    - Roles assumeable only by specified principal
+    - Roles for the account assumeable only by specified principal
 
 Parameters:
   ManagementRoleArn:
     Type: String
     Description: Management role arn
-  DeveloperRoleName:
-    Type: String
-    Description: name for developer role
-  ReadOnlyRoleName:
-    Type: String
-    Description: name for read only role
   PermissionBoundaryName:
     Type: String
     Description: name for the permission boundary on iam roles
-  MaxSessionDuration:
-    Type: Number
-    Description: session duration for roles
 
 Resources:
 
@@ -66,12 +55,11 @@ Resources:
             Action:
               - "*"
             Resource: "*"
-
-
-  DeveloperRole:
+{{ range .Roles}}
+  {{roleLogicalName .RoleName }}:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Ref DeveloperRoleName
+      RoleName: {{ .RoleName }}
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -79,33 +67,28 @@ Resources:
             Principal:
               AWS: !Ref ManagementRoleArn
             Action: sts:AssumeRole
+      {{ if .ManagedPolicies }}
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AdministratorAccess
+        {{range .ManagedPolicies}}
+        - {{.}}
+        {{end}}
+      {{ end }}
+      {{ if .Policies }}
+      Policies:
+      {{ range $key, $value := .Policies }}
+        - PolicyName: {{ $key }}
+          PolicyDocument: {{ $value }}
+      {{ end }}
+      {{ end }}
       PermissionsBoundary: !Ref IAMPermissionsBoundary
-      MaxSessionDuration: !Ref MaxSessionDuration
+      MaxSessionDuration: {{ maxSessionDuration .MaxSessionDuration }} 
+{{ end }}
 
-
-  ReadOnlyRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Ref ReadOnlyRoleName
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS: !Ref ManagementRoleArn
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/ReadOnlyAccess
-      PermissionsBoundary: !Ref IAMPermissionsBoundary
-      MaxSessionDuration: !Ref MaxSessionDuration
 
 Outputs:
-  DeveloperRoleArn:
-    Description: ARN of the Developer Role
-    Value: !GetAtt DeveloperRole.Arn
-
-  ReadOnlyRoleArn:
-    Description: ARN of the ReadOnly Role
-    Value: !GetAtt ReadOnlyRole.Arn
+  {{ range .Roles}}
+  {{ $name := roleLogicalName .RoleName }}
+  {{ $name }}Arn:
+    Description: Arn of {{.RoleName}}
+    Value: !GetAtt {{$name}}.Arn
+  {{end}}
