@@ -14,23 +14,28 @@ const (
 )
 
 type AppConfig struct {
-	StorageType        string `cfg:"name" default:"memory"`
-	StorageFile        string `cfg:"store_file" default:"store.json"`
-	ListenAddr         string `cfg:"listen_addr" default:"localhost:8090"`
-	SignKey            string `cfg:"sign_key" default:"somekey" mask:"true"`
-	GenerateRootToken  bool   `cfg:"generate_token" default:"false"`
-	DatabaseUrl        string `cfg:"database_url" default:"postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"`
-	DynamoDbTable      string `cfg:"dynamodb_table" default:"aws-login"`
-	GithubClientSecret string `cfg:"client_secret"`
-	GithubClientId     string `cfg:"client_id"`
+	environmentVariablePrefix string
+	StorageType               string `cfg:"name" default:"memory"`
+	StorageFile               string `cfg:"store_file" default:"store.json"`
+	ListenAddr                string `cfg:"listen_addr" default:"localhost:8090"`
+	SignKey                   string `cfg:"sign_key" default:"somekey" mask:"true"`
+	GenerateRootToken         bool   `cfg:"generate_token" default:"false"`
+	DevelopmentMode           bool   `cfg:"development_mode" default:"false"`
+	DatabaseUrl               string `cfg:"database_url" default:"postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"`
+	DynamoDbTable             string `cfg:"dynamodb_table" default:"aws-login"`
+	GithubClientSecret        string `cfg:"client_secret" mask:"true"`
+	GithubClientId            string `cfg:"client_id"`
 }
 
 func (a *AppConfig) LoadDefaults() error {
 	t := reflect.TypeOf(a).Elem()
 	v := reflect.ValueOf(a).Elem()
 	for i := range v.NumField() {
-		fld := v.Field(i)
 		tFld := t.Field(i)
+		if !tFld.IsExported() {
+			continue
+		}
+		fld := v.Field(i)
 		def := tFld.Tag.Get("default")
 		switch k := fld.Kind(); k {
 		case reflect.String:
@@ -50,10 +55,14 @@ func (a *AppConfig) debugPrint() {
 	v := reflect.ValueOf(a).Elem()
 	fmt.Print("AppConfig {\n")
 	for i := range v.NumField() {
-		fld := v.Field(i)
 		tFld := t.Field(i)
+		if !tFld.IsExported() {
+			continue
+		}
+		fld := v.Field(i)
 		val := fmt.Sprint(fld.Interface())
 		if len(tFld.Tag.Get("mask")) > 0 {
+			// this is a security risk cause it hints size, but you know looks cooler
 			val = strings.Repeat("*", len(val))
 		}
 		fmt.Printf("\t%s: %s\n", tFld.Name, val)
@@ -65,8 +74,11 @@ func (a *AppConfig) LoadFromEnv() error {
 	t := reflect.TypeOf(a).Elem()
 	v := reflect.ValueOf(a).Elem()
 	for i := range v.NumField() {
-		fld := v.Field(i)
 		tFld := t.Field(i)
+		if !tFld.IsExported() {
+			continue
+		}
+		fld := v.Field(i)
 		name := tFld.Tag.Get("env")
 		if name == "" {
 			name = tFld.Tag.Get("cfg")
@@ -74,7 +86,7 @@ func (a *AppConfig) LoadFromEnv() error {
 		if name == "" {
 			return fmt.Errorf("missing cfg or name tag for field %s", tFld.Name)
 		}
-		envVarName := strings.ToUpper(fmt.Sprintf("APP_%s", name))
+		envVarName := strings.ToUpper(a.PrefixEnv(name))
 		envVar, exists := os.LookupEnv(envVarName)
 		if !exists {
 			continue
@@ -91,20 +103,13 @@ func (a *AppConfig) LoadFromEnv() error {
 	}
 	return nil
 }
-func envOrDefault(name string, def string) string {
-	v := os.Getenv(name)
-	if v != "" {
-		return v
-	}
-	return def
+
+func (a *AppConfig) PrefixEnv(v string) string {
+	return fmt.Sprintf("%s%s", a.environmentVariablePrefix, v)
 }
 
-func envOrDie(name string) string {
-	v := os.Getenv(name)
-	if v == "" {
-		panic(fmt.Sprintf("missing %s environment variable", name))
-	}
-	return v
+func (a *AppConfig) SetEnvironmentVariablePrefix(v string) {
+	a.environmentVariablePrefix = v
 }
 
 func getEnvironmentVariablesWithPrefix(prefix string) map[string]string {

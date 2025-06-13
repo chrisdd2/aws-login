@@ -73,7 +73,7 @@ func prepareStorage(cfg *AppConfig) (storageCtx, error) {
 	case StorageTypeDynamoDb:
 		log.Printf("Using DynamoDB storage backend: %s", cfg.DynamoDbTable)
 		// allow different aws config for dynamo db, i.e transform any APP_DYNAMO_AWS_* variables into AWS_* variables
-		return withEnvContext("APP_DYNAMODB_", func() (storageCtx, error) {
+		return withEnvContext(cfg.PrefixEnv("DYNAMODB_"), func() (storageCtx, error) {
 			awsCfg, err := config.LoadDefaultConfig(context.Background())
 			if err != nil {
 				log.Fatalln(err)
@@ -116,6 +116,7 @@ func must2[T any](a T, err error) T {
 
 func main() {
 	appCfg := AppConfig{}
+	appCfg.SetEnvironmentVariablePrefix("APP_")
 	must(appCfg.LoadDefaults())
 	must(appCfg.LoadFromEnv())
 
@@ -125,7 +126,7 @@ func main() {
 	defer storageCtx.saveFunc()
 
 	// allow different aws config for the aws user used for permissions in the other accounts
-	stsClient := must2(withEnvContext("APP_ASSUMER_", func() (*sts.Client, error) {
+	stsClient := must2(withEnvContext(appCfg.PrefixEnv("ASSUMER_"), func() (*sts.Client, error) {
 		cfg, err := config.LoadDefaultConfig(context.Background())
 		if err != nil {
 			return nil, err
@@ -152,7 +153,7 @@ func main() {
 
 	// Middleware
 	e.Pre(middleware.AddTrailingSlash())
-	if envOrDefault("APP_DEVELOPMENT_MODE", "") != "" {
+	if appCfg.DevelopmentMode {
 		e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 			Format:           "${time_custom} method=${method}, uri=${uri}, status=${status}\n",
 			CustomTimeFormat: "2006/01/02 15:04:05",
