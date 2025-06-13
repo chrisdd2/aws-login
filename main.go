@@ -70,7 +70,9 @@ type storageCtx struct {
 func prepareStorage(cfg *AppConfig) (storageCtx, error) {
 	switch cfg.StorageType {
 	case StorageTypeSql:
-		return storageCtx{}, fmt.Errorf("sql backend currently disabled")
+		log.Printf("Using SQL storage backend: %s", cfg.DatabaseUrl)
+		store, err := storage.NewSQLStorage(cfg.DatabaseUrl)
+		return storageCtx{store: store, saveFunc: func() {}}, err
 	case StorageTypeMemory:
 		log.Printf("Using in-memory storage backend (MemoryStorage)")
 		store, saveStorage, err := NewMemoryStorage(cfg.StorageFile)

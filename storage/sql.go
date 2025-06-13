@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	_ "github.com/lib/pq"
 )
@@ -61,6 +62,32 @@ func (s *SQLStorage) EnsureSchema() error {
 			PRIMARY KEY (user_id, account_id, type, scope),
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 			FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+		);`,
+		`CREATE TABLE IF NOT EXISTS roles (
+			id TEXT PRIMARY KEY,
+			role_name TEXT UNIQUE NOT NULL,
+			max_session_duration BIGINT,
+			enabled BOOLEAN
+		);`,
+		`CREATE TABLE IF NOT EXISTS policies (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			content TEXT NOT NULL,
+			type TEXT NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS role_policies (
+			role_id TEXT NOT NULL,
+			policy_id TEXT NOT NULL,
+			PRIMARY KEY (role_id, policy_id),
+			FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+			FOREIGN KEY (policy_id) REFERENCES policies(id) ON DELETE CASCADE
+		);`,
+		`CREATE TABLE IF NOT EXISTS role_associations (
+			account_id TEXT NOT NULL,
+			role_id TEXT NOT NULL,
+			PRIMARY KEY (account_id, role_id),
+			FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+			FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
 		);`,
 	}
 	for _, stmt := range tableStmts {
@@ -369,27 +396,260 @@ func (s *SQLStorage) PutRolePermission(ctx context.Context, perm Permission, del
 		return err
 	}
 	return nil
-
 }
 
 func (s *SQLStorage) PutRole(ctx context.Context, role Role, delete bool) (Role, error) {
-	return Role{}, nil
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Role{}, err
+	}
+	defer tx.Rollback()
+
+	if delete {
+		_, err := tx.ExecContext(ctx, `DELETE FROM roles WHERE id=$1`, role.Id)
+		if err != nil {
+			return role, err
+		}
+		return role, tx.Commit()
+	}
+
+	if role.Id == "" {
+		role.Id = newUuid()
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO roles (id, role_name, max_session_duration, enabled)
+			VALUES ($1, $2, $3, $4)
+		`, role.Id, role.RoleName, role.MaxSessionDuration, role.Enabled)
+		if err != nil {
+			return role, err
+		}
+	} else {
+		_, err := tx.ExecContext(ctx, `
+			UPDATE roles 
+			SET role_name=$1, max_session_duration=$2, enabled=$3
+			WHERE id=$4
+		`, role.RoleName, role.MaxSessionDuration, role.Enabled, role.Id)
+		if err != nil {
+			return role, err
+		}
+	}
+
+	// Handle inline policies
+	if role.Policies != nil {
+		// Delete existing inline policies
+		_, err = tx.ExecContext(ctx, `
+			DELETE FROM role_policies rp
+			USING policies p
+			WHERE rp.role_id = $1 AND rp.policy_id = p.id AND p.type = 'inline'
+		`, role.Id)
+		if err != nil {
+			return role, err
+		}
+
+		// Insert new inline policies
+		for name, content := range role.Policies {
+			policyId := newUuid()
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO policies (id, name, content, type)
+				VALUES ($1, $2, $3, 'inline')
+			`, policyId, name, content)
+			if err != nil {
+				return role, err
+			}
+
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO role_policies (role_id, policy_id)
+				VALUES ($1, $2)
+			`, role.Id, policyId)
+			if err != nil {
+				return role, err
+			}
+		}
+	}
+
+	// Handle managed policies
+	if role.ManagedPolicies != nil {
+		// Delete existing managed policies
+		_, err = tx.ExecContext(ctx, `
+			DELETE FROM role_policies rp
+			USING policies p
+			WHERE rp.role_id = $1 AND rp.policy_id = p.id AND p.type = 'managed'
+		`, role.Id)
+		if err != nil {
+			return role, err
+		}
+
+		// Insert new managed policies
+		for _, arn := range role.ManagedPolicies {
+			policyId := newUuid()
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO policies (id, name, content, type)
+				VALUES ($1, $2, $2, 'managed')
+			`, policyId, arn)
+			if err != nil {
+				return role, err
+			}
+
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO role_policies (role_id, policy_id)
+				VALUES ($1, $2)
+			`, role.Id, policyId)
+			if err != nil {
+				return role, err
+			}
+		}
+	}
+
+	return role, tx.Commit()
 }
+
 func (s *SQLStorage) PutRoleAssociation(ctx context.Context, accountId string, roleId string, delete bool) error {
-	return nil
+	if delete {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM role_associations WHERE account_id=$1 AND role_id=$2`, accountId, roleId)
+		return err
+	}
+
+	// Try to insert, ignore if already exists
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO role_associations (account_id, role_id)
+		VALUES ($1, $2)
+		ON CONFLICT (account_id, role_id) DO NOTHING
+	`, accountId, roleId)
+	return err
 }
+
 func (s *SQLStorage) ListRolesForAccount(ctx context.Context, accountId string, startToken *string) (ListRolesForAccount, error) {
-	return ListRolesForAccount{}, nil
+	startIdx, err := parseStartToken(startToken)
+	if err != nil {
+		return ListRolesForAccount{}, err
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.id, r.role_name
+		FROM roles r
+		JOIN role_associations ra ON r.id = ra.role_id
+		WHERE ra.account_id = $1
+		ORDER BY r.role_name
+		LIMIT $2 OFFSET $3
+	`, accountId, ListResultPageSize, startIdx)
+	if err != nil {
+		return ListRolesForAccount{}, err
+	}
+	defer rows.Close()
+
+	roles := []ListRoleItem{}
+	for rows.Next() {
+		var item ListRoleItem
+		if err := rows.Scan(&item.RoleId, &item.RoleName); err != nil {
+			return ListRolesForAccount{}, err
+		}
+		roles = append(roles, item)
+	}
+
+	var nextToken *string
+	if len(roles) == ListResultPageSize {
+		nextToken = generateStartToken(startIdx + ListResultPageSize)
+	}
+	return ListRolesForAccount{Roles: roles, StartToken: nextToken}, nil
 }
-func (s *SQLStorage) BatchGetRolesById(ctx context.Context, roleId ...string) ([]Role, error) {
-	return nil, nil
+
+func (s *SQLStorage) BatchGetRolesById(ctx context.Context, roleIds ...string) ([]Role, error) {
+	if len(roleIds) == 0 {
+		return nil, nil
+	}
+
+	placeholders := []string{}
+	args := []interface{}{}
+	for i, id := range roleIds {
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
+		args = append(args, id)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT r.id, r.role_name, r.max_session_duration, r.enabled,
+			   p.name as policy_name, p.content as policy_content, p.type as policy_type
+		FROM roles r
+		LEFT JOIN role_policies rp ON r.id = rp.role_id
+		LEFT JOIN policies p ON rp.policy_id = p.id
+		WHERE r.id IN (%s)
+	`, strings.Join(placeholders, ","))
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	roles := make(map[string]*Role)
+	for rows.Next() {
+		var roleId, roleName string
+		var maxSessionDuration time.Duration
+		var enabled bool
+		var policyName, policyContent, policyType sql.NullString
+
+		err := rows.Scan(&roleId, &roleName, &maxSessionDuration, &enabled, &policyName, &policyContent, &policyType)
+		if err != nil {
+			return nil, err
+		}
+
+		role, exists := roles[roleId]
+		if !exists {
+			role = &Role{
+				Id:                 roleId,
+				RoleName:           roleName,
+				MaxSessionDuration: maxSessionDuration,
+				Enabled:            enabled,
+				Policies:           make(map[string]string),
+				ManagedPolicies:    make([]string, 0),
+			}
+			roles[roleId] = role
+		}
+
+		if policyName.Valid && policyContent.Valid && policyType.Valid {
+			if policyType.String == "inline" {
+				role.Policies[policyName.String] = policyContent.String
+			} else if policyType.String == "managed" {
+				role.ManagedPolicies = append(role.ManagedPolicies, policyContent.String)
+			}
+		}
+	}
+
+	result := make([]Role, 0, len(roles))
+	for _, role := range roles {
+		result = append(result, *role)
+	}
+	return result, nil
 }
 
 func (s *SQLStorage) GetRoleById(ctx context.Context, roleId string) (Role, error) {
-	return Role{}, nil
+	if roleId == "" {
+		return Role{}, ErrRoleNotFound
+	}
+
+	roles, err := s.BatchGetRolesById(ctx, roleId)
+	if err != nil {
+		return Role{}, err
+	}
+	if len(roles) == 0 {
+		return Role{}, ErrRoleNotFound
+	}
+	return roles[0], nil
 }
+
 func (s *SQLStorage) GetRoleByName(ctx context.Context, roleName string) (Role, error) {
-	return Role{}, nil
+	if roleName == "" {
+		return Role{}, ErrRoleNotFound
+	}
+
+	var roleId string
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM roles WHERE role_name = $1`, roleName).Scan(&roleId)
+	if err == sql.ErrNoRows {
+		return Role{}, ErrRoleNotFound
+	}
+	if err != nil {
+		return Role{}, err
+	}
+
+	return s.GetRoleById(ctx, roleId)
 }
 
 // Tags helpers: serialize as JSON string for DB

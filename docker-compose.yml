@@ -9,6 +9,7 @@ services:
       - ~/.aws:/root/.aws:ro   
     environment:
       # To use SQL storage, set APP_DATABASE_URL to a valid Postgres DSN
+      - APP_STORAGE_TYPE=sql
       - APP_DATABASE_URL=postgres://postgres:postgres@db:5432/postgres?sslmode=disable
       - APP_CLIENT_ID=< empty >
       - APP_CLIENT_SECRET=< empty >

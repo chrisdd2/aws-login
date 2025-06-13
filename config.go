@@ -14,7 +14,7 @@ const (
 
 type AppConfig struct {
 	environmentVariablePrefix string
-	StorageType               string `cfg:"name" default:"memory"`
+	StorageType               string `cfg:"storage_type" default:"memory"`
 	StorageFile               string `cfg:"store_file" default:"store.json"`
 	ListenAddr                string `cfg:"listen_addr" default:"localhost:8090"`
 	SignKey                   string `cfg:"sign_key" default:"somekey" mask:"true"`
