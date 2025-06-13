@@ -39,6 +39,7 @@ Resources:
                   - cloudformation:UpdateStack
                   - cloudformation:DeleteStack
                   - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
                 Resource: !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${TargetStackName}/*
 
               - Sid: AllowFullIAMViaCloudFormation
