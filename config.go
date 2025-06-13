@@ -8,9 +8,8 @@ import (
 )
 
 const (
-	StorageTypeSql      = "sql"
-	StorageTypeDynamoDb = "dynamodb"
-	StorageTypeMemory   = "memory"
+	StorageTypeSql    = "sql"
+	StorageTypeMemory = "memory"
 )
 
 type AppConfig struct {
@@ -22,7 +21,6 @@ type AppConfig struct {
 	GenerateRootToken         bool   `cfg:"generate_token" default:"false"`
 	DevelopmentMode           bool   `cfg:"development_mode" default:"false"`
 	DatabaseUrl               string `cfg:"database_url" default:"postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"`
-	DynamoDbTable             string `cfg:"dynamodb_table" default:"aws-login"`
 	GithubClientSecret        string `cfg:"client_secret" mask:"true"`
 	GithubClientId            string `cfg:"client_id"`
 }

@@ -12,7 +12,6 @@ import (
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/auth"
 	"github.com/chrisdd2/aws-login/aws"
@@ -70,25 +69,6 @@ type storageCtx struct {
 
 func prepareStorage(cfg *AppConfig) (storageCtx, error) {
 	switch cfg.StorageType {
-	case StorageTypeDynamoDb:
-		log.Printf("Using DynamoDB storage backend: %s", cfg.DynamoDbTable)
-		// allow different aws config for dynamo db, i.e transform any APP_DYNAMO_AWS_* variables into AWS_* variables
-		return withEnvContext(cfg.PrefixEnv("DYNAMODB_"), func() (storageCtx, error) {
-			awsCfg, err := config.LoadDefaultConfig(context.Background())
-			if err != nil {
-				log.Fatalln(err)
-			}
-			dynamoClient := dynamodb.NewFromConfig(awsCfg)
-
-			store, err := storage.NewDynamoDBStorage(dynamoClient, cfg.DynamoDbTable)
-			if err != nil {
-				return storageCtx{}, nil
-			}
-			if err := store.EnsureSchema(context.Background()); err != nil {
-				return storageCtx{}, nil
-			}
-			return storageCtx{store: store, saveFunc: func() {}}, nil
-		})
 	case StorageTypeSql:
 		log.Printf("Using SQL storage backend: %s", cfg.DatabaseUrl)
 		store, err := storage.NewSQLStorage(cfg.DatabaseUrl)
