@@ -22,7 +22,7 @@ func TestSimple(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, acc.Id)
 
-	err = m.PutRolePermission(ctx, storage.Permission{
+	err = m.PutPermission(ctx, storage.Permission{
 		PermissionId: storage.PermissionId{
 			UserId:    usr.Id,
 			AccountId: acc.Id,

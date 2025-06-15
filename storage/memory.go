@@ -291,7 +291,7 @@ func (m *MemoryStorage) PutUser(ctx context.Context, usr User, delete bool) (Use
 	m.users = append(m.users, usr)
 	return usr, nil
 }
-func (m *MemoryStorage) PutRolePermission(ctx context.Context, newPerm Permission, delete bool) error {
+func (m *MemoryStorage) PutPermission(ctx context.Context, newPerm Permission, delete bool) error {
 	defer m.Flush()
 	if delete {
 		m.perms = slices.DeleteFunc(m.perms, func(a Permission) bool {

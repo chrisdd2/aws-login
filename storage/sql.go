@@ -375,7 +375,7 @@ func (s *SQLStorage) ListPermissions(ctx context.Context, userId string, account
 	return ListPermissionResult{Permissions: perms, StartToken: nextToken}, nil
 }
 
-func (s *SQLStorage) PutRolePermission(ctx context.Context, perm Permission, delete bool) error {
+func (s *SQLStorage) PutPermission(ctx context.Context, perm Permission, delete bool) error {
 	valueStr, _ := json.Marshal(perm.Value)
 	if delete {
 		_, err := s.db.ExecContext(ctx, `DELETE FROM permissions WHERE user_id=$1 AND account_id=$2 AND type=$3 AND scope=$4`,

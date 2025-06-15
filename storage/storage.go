@@ -52,6 +52,7 @@ const (
 	RolePermission       = "ROLE"
 	RolePermissionAssume = "ASSUME"
 	RolePermissionGrant  = "GRANT"
+	PermissionGrant      = "GRANT"
 )
 
 type Permission struct {
@@ -99,7 +100,7 @@ type Storage interface {
 	// write
 	PutAccount(ctx context.Context, acc Account, delete bool) (Account, error)
 	PutUser(ctx context.Context, usr User, delete bool) (User, error)
-	PutRolePermission(ctx context.Context, perm Permission, delete bool) error
+	PutPermission(ctx context.Context, perm Permission, delete bool) error
 	PutRole(ctx context.Context, role Role, delete bool) (Role, error)
 	PutRoleAssociation(ctx context.Context, accountId string, roleId string, delete bool) error
 }
@@ -109,6 +110,7 @@ var ErrRoleNotFound = errors.New("role not found")
 var ErrAccountNotFound = errors.New("account not found")
 var ErrAccountAlreadyExists = errors.New("account already exists")
 var ErrInvalidAccountDetails = errors.New("invalid account details")
+var ErrNoPermission = errors.New("no permission to perform this action")
 
 func GetDeveloperRole() Role {
 	return Role{

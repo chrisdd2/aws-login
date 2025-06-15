@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"slices"
 	"time"
 
 	"github.com/chrisdd2/aws-login/auth"
@@ -145,16 +144,13 @@ func logUserIn(c echo.Context, store storage.Storage, info *auth.UserInfo, token
 	return c.Redirect(http.StatusTemporaryRedirect, "/")
 }
 
-func hasPermission(ctx context.Context, store storage.Storage, accountId string, userId string, permissionType string, scope string, value string) error {
-	res, err := store.ListPermissions(ctx, userId, accountId, permissionType, scope, nil)
+func hasPermission(ctx context.Context, store *storage.StorageService, accountId string, userId string, permissionType string, scope string, value string) error {
+	has, err := store.HasPermission(ctx, storage.PermissionId{UserId: userId, AccountId: accountId, Type: permissionType, Scope: scope}, value)
 	if err != nil {
-		return fmt.Errorf("hasPermission [store.ListPermissions] [%w]", err)
+		return err
 	}
-	if len(res.Permissions) != 1 {
-		return ErrNoPermissionAction
+	if !has {
+		return ErrNoPermissionInAccount
 	}
-	if slices.Contains(res.Permissions[0].Value, value) {
-		return nil
-	}
-	return ErrNoPermissionAction
+	return nil
 }

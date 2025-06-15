@@ -202,35 +202,23 @@ func handleAccount(store storage.Storage) echo.HandlerFunc {
 	}
 }
 
-func canAssume(c echo.Context, store storage.Storage, user *auth.UserInfo, roleName string) (acc storage.Account, err error) {
+func canAssume(c echo.Context, store *storage.StorageService, user *auth.UserInfo, roleName string) (acc storage.Account, err error) {
 	ctx := c.Request().Context()
 	acc, err = accountFromRequest(c, store)
 	if err != nil {
 		return
 	}
-
-	if user.Superuser {
-		return
-	}
-
-	listPerms, err := store.ListPermissions(ctx, user.Id, acc.Id, storage.RolePermission, roleName, nil)
+	has, err := store.HasPermission(ctx, storage.PermissionId{UserId: user.Id, AccountId: acc.Id, Type: storage.RolePermission, Scope: roleName}, storage.RolePermissionAssume)
 	if err != nil {
-		return
+		return acc, err
 	}
-	// it should be only one perm
-	if len(listPerms.Permissions) != 1 {
-		err = ErrNoPermissionInAccount
-		return
+	if !has {
+		return acc, ErrNoPermissionAction
 	}
-
-	if !slices.Contains(listPerms.Permissions[0].Value, storage.RolePermissionAssume) {
-		err = ErrNoPermissionAction
-		return
-	}
-	return
+	return acc, nil
 }
 
-func handleConsoleLogin(store storage.Storage, stsCl aws.StsClient) echo.HandlerFunc {
+func handleConsoleLogin(store *storage.StorageService, stsCl aws.StsClient) echo.HandlerFunc {
 
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
@@ -251,7 +239,7 @@ func handleConsoleLogin(store storage.Storage, stsCl aws.StsClient) echo.Handler
 	}
 }
 
-func handleCredentialsLogin(store storage.Storage, stsCl aws.StsClient) echo.HandlerFunc {
+func handleCredentialsLogin(store *storage.StorageService, stsCl aws.StsClient) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
@@ -595,7 +583,7 @@ func handleRevokeForm(store storage.Storage) echo.HandlerFunc {
 	}
 }
 
-func handleRevoke(store storage.Storage) echo.HandlerFunc {
+func handleRevoke(store *storage.StorageService) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
@@ -613,32 +601,19 @@ func handleRevoke(store storage.Storage) echo.HandlerFunc {
 		if err != nil {
 			return err
 		}
-		if !user.Superuser {
-			err := hasPermission(ctx, store, acc.Id, user.Id, storage.RolePermission, roleName, storage.RolePermissionGrant)
-			if err != nil {
-				return err
-			}
-		}
-		perms, err := store.ListPermissions(ctx, action.UserId, acc.Id, storage.RolePermission, roleName, nil)
-		if err != nil {
-			return err
-		}
-		if len(perms.Permissions) == 0 {
-			return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/revoke/", acc.Id))
-		}
-		perm := perms.Permissions[0]
-		perm.Value = slices.DeleteFunc(perm.Value, func(a string) bool {
-			return a == action.Value
-		})
-		deletePerm := len(perm.Value) == 0
-		if err := store.PutRolePermission(ctx, perm, deletePerm); err != nil {
+		if err := store.UpdatePermissionValue(ctx, user.Id, storage.PermissionId{
+			UserId:    action.UserId,
+			AccountId: acc.Id,
+			Type:      storage.RolePermission,
+			Scope:     roleName,
+		}, []string{action.Value}, true); err != nil {
 			return err
 		}
 		return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/revoke/", acc.Id))
 	}
 }
 
-func handleGrantForm(store storage.Storage) echo.HandlerFunc {
+func handleGrantForm(store *storage.StorageService) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
@@ -662,7 +637,7 @@ func handleGrantForm(store storage.Storage) echo.HandlerFunc {
 	}
 }
 
-func handleGrant(store storage.Storage) echo.HandlerFunc {
+func handleGrant(store *storage.StorageService) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		type GrantForm struct {
 			Username   string `form:"username"`
@@ -689,34 +664,16 @@ func handleGrant(store storage.Storage) echo.HandlerFunc {
 		if form.Permission == "BOTH" {
 			permToAdd = []string{storage.RolePermissionAssume, storage.RolePermissionGrant}
 		}
-		if !user.Superuser {
-			err := hasPermission(ctx, store, acc.Id, user.Id, storage.RolePermission, roleName, storage.RolePermissionGrant)
-			if err != nil {
-				return err
-			}
-		}
 		usr, err := store.GetUserByUsername(ctx, form.Username)
 		if err != nil {
 			return err
 		}
-		perms, err := store.ListPermissions(ctx, usr.Id, acc.Id, storage.RolePermission, roleName, nil)
-		perm := storage.Permission{
-			PermissionId: storage.PermissionId{UserId: usr.Id, AccountId: acc.Id, Type: storage.RolePermission, Scope: roleName},
-		}
-		if len(perms.Permissions) > 0 {
-			perm = perms.Permissions[0]
-		}
-		added := false
-		for _, v := range permToAdd {
-			if !slices.Contains(perm.Value, v) {
-				perm.Value = append(perm.Value, v)
-				added = true
-			}
-		}
-		if added {
-			if err = store.PutRolePermission(ctx, perm, false); err != nil {
-				return err
-			}
+		if err := store.UpdatePermissionValue(
+			ctx,
+			user.Id, storage.PermissionId{UserId: usr.Id, AccountId: acc.Id, Type: storage.RolePermission, Scope: roleName},
+			permToAdd,
+			false); err != nil {
+			return err
 		}
 		return c.Redirect(http.StatusFound, fmt.Sprintf("/accounts/%s/roles/", acc.Id))
 	}
