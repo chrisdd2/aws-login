@@ -70,6 +70,7 @@ type templateData struct {
 	HasPrevious bool
 	Roles       []Role
 	StackId     string
+	Filter      string
 
 	Menu []MenuItem
 }
@@ -94,6 +95,7 @@ func TemplateData(user *auth.UserInfo, title string) *templateData {
 		ProfilePath: "/profile/",
 		Menu: []MenuItem{
 			{Label: "Accounts", Path: "/accounts/"},
+			{Label: "Permissions", Path: "/permissions/"},
 		},
 		User: user,
 	}

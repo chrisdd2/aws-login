@@ -26,6 +26,7 @@ func Router(e *echo.Echo, auth auth.AuthMethod, store *storage.StorageService, t
 	e.GET("/expired/", handleExpired())
 	e.GET("/oauth2/idpresponse/", handleOAuth2IdpResponse(auth, store, token))
 	e.GET("/admin/", handleAdmin(token), guard(token))
+	e.GET("/permissions/", handlePermissions(token), guard(token))
 	e.FileFS("/css/layout.css/", "layout.css", css.CssFiles)
 	e.GET("/", handleHome(token), optionalGuard(token))
 }
@@ -153,4 +154,11 @@ func hasPermission(ctx context.Context, store *storage.StorageService, accountId
 		return ErrNoPermissionInAccount
 	}
 	return nil
+}
+
+func handlePermissions(token auth.LoginToken) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		user, _ := userFromRequest(c)
+		return c.Render(http.StatusOK, "permissions.html", templates.TemplateData(user, "Permissions"))
+	}
 }
