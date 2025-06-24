@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 	"text/template"
@@ -89,7 +88,6 @@ func DeployBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn str
 		return "", err
 	}
 	tmpl := buf.String()
-	os.WriteFile("something.yaml", []byte(tmpl), 0644)
 	stackName := aws.String(StackName)
 	_, err = cfnCl.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: stackName})
 	update := true
