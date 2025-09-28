@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"log/slog"
 	"net/http"
@@ -53,7 +54,7 @@ func NewMemoryStorage(filename string) (storage.Storage, func(), error) {
 	}
 	store.SetFlush(flushFunc)
 	exitSignal := make(chan os.Signal, 10)
-	signal.Notify(exitSignal, os.Interrupt, os.Kill)
+	signal.Notify(exitSignal, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-exitSignal
 		store.Flush()
@@ -166,7 +167,7 @@ func main() {
 			Username:  "root",
 			Email:     "root@root",
 			Superuser: true,
-		})
+		}, auth.DefaultTokenExpiration)
 		if err != nil {
 			e.StdLogger.Fatalf("failed to generate root token [%s]\n", err)
 		}

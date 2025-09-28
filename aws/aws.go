@@ -18,7 +18,7 @@ import (
 const signInUrl = "https://signin.aws.amazon.com/federation"
 
 // one working day, unless you slave away
-var SessionDuration = int32((time.Hour * 8).Seconds())
+var DefaultSessionDuration = int32((time.Hour * 8).Seconds())
 
 type StsClient interface {
 	AssumeRole(ctx context.Context, params *sts.AssumeRoleInput, optFns ...func(*sts.Options)) (*sts.AssumeRoleOutput, error)
@@ -30,7 +30,7 @@ type StsClient interface {
 // Basically implements the flow describe in the docs (https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_enable-console-custom-url.html)
 func GenerateSigninUrl(ctx context.Context, cl StsClient, roleArn string, sessionName string, redirectUrl string) (string, error) {
 	// get credentials
-	resp, err := cl.AssumeRole(ctx, &sts.AssumeRoleInput{RoleArn: &roleArn, RoleSessionName: &sessionName, DurationSeconds: &SessionDuration})
+	resp, err := cl.AssumeRole(ctx, &sts.AssumeRoleInput{RoleArn: &roleArn, RoleSessionName: &sessionName, DurationSeconds: &DefaultSessionDuration})
 	if err != nil {
 		return "", err
 	}
@@ -45,7 +45,7 @@ func GenerateSigninUrl(ctx context.Context, cl StsClient, roleArn string, sessio
 	tokenStr, _ := json.Marshal(token)
 	values := url.Values{
 		"Action":          []string{"getSigninToken"},
-		"SessionDuration": []string{strconv.Itoa(int(SessionDuration))},
+		"SessionDuration": []string{strconv.Itoa(int(DefaultSessionDuration))},
 		"Session":         []string{string(tokenStr)},
 	}
 

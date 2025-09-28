@@ -7,6 +7,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+const DefaultTokenExpiration = time.Hour * 24 * 30
+
 type LoginToken struct {
 	Key any
 }
@@ -17,11 +19,11 @@ type UserClaims struct {
 	Tags map[string]string
 }
 
-func (t *LoginToken) SignToken(usr UserInfo) (string, error) {
+func (t *LoginToken) SignToken(usr UserInfo, expiration time.Duration) (string, error) {
 	claims := UserClaims{
 		UserInfo: usr,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(time.Hour * 24 * 30)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(expiration)),
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

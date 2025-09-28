@@ -126,7 +126,7 @@ func logUserIn(c echo.Context, store storage.Storage, info *auth.UserInfo, token
 	info.Id = usr.Id
 	info.Superuser = usr.Superuser
 
-	accessToken, err := token.SignToken(*info)
+	accessToken, err := token.SignToken(*info, auth.DefaultTokenExpiration)
 	if err != nil {
 		return fmt.Errorf("logUserIn [token.SignToken] [%w]", err)
 	}

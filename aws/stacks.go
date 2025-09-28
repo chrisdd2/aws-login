@@ -31,6 +31,26 @@ const (
 	boundaryName = "iam-role-boundary-" + storage.UniqueId
 )
 
+var (
+	ErrInvalidCfnResponse = errors.New("invalid response from cfn api")
+)
+
+func BootstrapTemplate(ctx context.Context, stsCl StsClient, w io.Writer) error {
+	resp, err := stsCl.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		return err
+	}
+	return cfnTemplates.ExecuteTemplate(w, "bootstrap.template", struct {
+		OpsRoleName     string
+		Principal       string
+		TargetStackName string
+	}{OpsRole, PrincipalFromSts(*resp.Arn), StackName})
+}
+
+func BaseTemplate(w io.Writer, roles []storage.Role) error {
+	return cfnTemplates.ExecuteTemplate(w, "base.template", struct{ Roles []storage.Role }{Roles: roles})
+}
+
 func init() {
 	tmpl := template.New("stacks").Funcs(
 		template.FuncMap{
@@ -62,18 +82,6 @@ func PrincipalFromSts(arn string) string {
 	return arn
 }
 
-func BootstrapTemplate(ctx context.Context, stsCl StsClient, w io.Writer) error {
-	resp, err := stsCl.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
-	if err != nil {
-		return err
-	}
-	return cfnTemplates.ExecuteTemplate(w, "bootstrap.template", struct {
-		OpsRoleName     string
-		Principal       string
-		TargetStackName string
-	}{OpsRole, PrincipalFromSts(*resp.Arn), StackName})
-}
-
 type CfnClient interface {
 	CreateStack(ctx context.Context, params *cloudformation.CreateStackInput, optFns ...func(*cloudformation.Options)) (*cloudformation.CreateStackOutput, error)
 	UpdateStack(ctx context.Context, params *cloudformation.UpdateStackInput, optFns ...func(*cloudformation.Options)) (*cloudformation.UpdateStackOutput, error)
@@ -82,24 +90,21 @@ type CfnClient interface {
 }
 
 func DeployBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn string, roles []storage.Role) (string, error) {
+	stackName := aws.String(StackName)
 	buf := bytes.Buffer{}
-	err := cfnTemplates.ExecuteTemplate(&buf, "base.template", struct{ Roles []storage.Role }{Roles: roles})
+	err := BaseTemplate(&buf, roles)
 	if err != nil {
 		return "", err
 	}
 	tmpl := buf.String()
-	stackName := aws.String(StackName)
 	_, err = cfnCl.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: stackName})
 	update := true
 	if err != nil {
-		var apiErr smithy.APIError
-		if !errors.As(err, &apiErr) {
+		if isStackMissingErr(err) {
+			update = false
+		} else {
 			return "", err
 		}
-		if !(apiErr.ErrorCode() == "ValidationError" && strings.Contains(apiErr.ErrorMessage(), "does not exist")) {
-			return "", err
-		}
-		update = false
 	}
 	cfnParams := []cfnTypes.Parameter{
 		{ParameterKey: aws.String("ManagementRoleArn"), ParameterValue: &managementRoleArn},
@@ -107,14 +112,8 @@ func DeployBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn str
 	}
 	if update {
 		_, err = cfnCl.UpdateStack(ctx, &cloudformation.UpdateStackInput{StackName: stackName, TemplateBody: &tmpl, Parameters: cfnParams, Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam}})
-		if err != nil {
-			var apiErr smithy.APIError
-			if !errors.As(err, &apiErr) {
-				return "", err
-			}
-			if apiErr.ErrorMessage() != "No updates are to be performed." {
-				return "", err
-			}
+		if err != nil && !isNoUpdateErr(err) {
+			return "", err
 		}
 		return StackName, nil
 	}
@@ -124,16 +123,28 @@ func DeployBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn str
 func DestroyBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn string) (string, error) {
 	stackName := aws.String(StackName)
 	resp, err := cfnCl.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: stackName})
-	if err != nil {
-		var apiErr smithy.APIError
-		if !errors.As(err, &apiErr) {
-			return "", err
-		}
-		if !(apiErr.ErrorCode() == "ValidationError" && strings.Contains(apiErr.ErrorMessage(), "does not exist")) {
-			return "", err
-		}
+	if err != nil && !isStackMissingErr(err) {
 		return "", err
 	}
 	_, err = cfnCl.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: stackName})
-	return *resp.Stacks[0].StackId, nil
+	if len(resp.Stacks) > 1 && resp.Stacks[0].StackId != nil {
+		return *resp.Stacks[0].StackId, nil
+	}
+	return "", ErrInvalidCfnResponse
+}
+
+func isNoUpdateErr(err error) bool {
+	var apiErr smithy.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.ErrorMessage() == "No updates are to be performed."
+}
+
+func isStackMissingErr(err error) bool {
+	var apiErr smithy.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.ErrorCode() == "ValidationError" && strings.Contains(apiErr.ErrorMessage(), "does not exist")
 }

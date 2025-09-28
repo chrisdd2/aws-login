@@ -46,29 +46,18 @@ var ErrCannotFindEmail error = errors.New("unable to determine github email")
 func (g *GithubAuth) HandleCallback(r *http.Request) (*UserInfo, error) {
 	code := r.URL.Query().Get("code")
 	url := generateGithubAccessToken(g.ClientId, g.ClientSecret, code)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("Accept", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
 	token := struct {
 		AccessToken string `json:"access_token"`
 	}{}
-	err = json.NewDecoder(resp.Body).Decode(&token)
-	if err != nil {
+	if err := getWrapped(url, map[string]string{
+		"Accept": "application/json",
+	}, http.StatusOK, &token); err != nil {
 		return nil, err
 	}
-	resp.Body.Close()
 	loginInfo := struct {
 		Login string `json:"login"`
 	}{}
-	err = fetchJsonAuthed(GithubUserApiUrl, token.AccessToken, &loginInfo)
-	if err != nil {
+	if err := fetchJsonAuthed(GithubUserApiUrl, token.AccessToken, &loginInfo); err != nil {
 		return nil, err
 	}
 	emails := []struct {
@@ -76,8 +65,7 @@ func (g *GithubAuth) HandleCallback(r *http.Request) (*UserInfo, error) {
 		Verified bool   `json:"verified,omitempty"`
 		Primary  bool   `json:"primary,omitempty"`
 	}{}
-	err = fetchJsonAuthed(GIthubUserEmailApiUrl, token.AccessToken, &emails)
-	if err != nil {
+	if err := fetchJsonAuthed(GIthubUserEmailApiUrl, token.AccessToken, &emails); err != nil {
 		return nil, err
 	}
 	userEmail := ""
@@ -90,23 +78,29 @@ func (g *GithubAuth) HandleCallback(r *http.Request) (*UserInfo, error) {
 	if userEmail == "" {
 		return nil, ErrCannotFindEmail
 	}
-	return &UserInfo{Username: loginInfo.Login, Email: userEmail}, err
+	return &UserInfo{Username: loginInfo.Login, Email: userEmail}, nil
 }
 
 func fetchJsonAuthed(url string, accessToken string, v any) error {
+	return getWrapped(url, map[string]string{"Authorization": fmt.Sprintf("Bearer %s", accessToken)}, http.StatusOK, v)
+}
+
+func getWrapped(url string, headers map[string]string, expected int, v any) error {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", accessToken))
+	for k, v := range headers {
+		req.Header.Add(k, v)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != expected {
 		data, err := io.ReadAll(resp.Body)
-		return errors.Join(err, fmt.Errorf("fetchJsonAuthed [%s]", string(data)))
+		return errors.Join(err, fmt.Errorf("getWrapped [%s]", string(data)))
 	}
 	return json.NewDecoder(resp.Body).Decode(v)
 }

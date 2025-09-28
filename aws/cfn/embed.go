@@ -1,6 +1,9 @@
 package cfn
 
-import "embed"
+import (
+	"embed"
+)
 
 //go:embed *.template
 var CloudFormationFs embed.FS
+
