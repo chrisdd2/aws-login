@@ -24,15 +24,7 @@ import (
 
 var cfnTemplates *template.Template
 
-// some unique identifiers we might need
-const (
-	StackName    = "aws-login-stack-" + storage.UniqueId
-	OpsRole      = "ops-role-role-" + storage.UniqueId
-	boundaryName = "iam-role-boundary-" + storage.UniqueId
-)
-
 var (
-	ErrInvalidCfnResponse = errors.New("invalid response from cfn api")
 )
 
 func BootstrapTemplate(ctx context.Context, stsCl StsClient, w io.Writer) error {
@@ -69,18 +61,6 @@ func init() {
 	cfnTemplates = template.Must(tmpl.ParseFS(cfn.CloudFormationFs, "*.template"))
 }
 
-func PrincipalFromSts(arn string) string {
-	if strings.Contains(arn, ":user/") {
-		return arn
-	} else if strings.Contains(arn, ":assumed-role/") {
-		//arn:aws:sts::123456789012:assumed-role/SomeRole/i-0abcdef1234567890//
-		//arn:aws:iam::123456789012:role/SomeRole
-		parts := strings.Split(arn, ":")
-		roleNameParts := strings.Split(parts[5], "/")
-		return fmt.Sprintf("arn:aws:iam::%s:role/%s", parts[4], roleNameParts[1])
-	}
-	return arn
-}
 
 type CfnClient interface {
 	CreateStack(ctx context.Context, params *cloudformation.CreateStackInput, optFns ...func(*cloudformation.Options)) (*cloudformation.CreateStackOutput, error)
@@ -133,18 +113,4 @@ func DestroyBaseStack(ctx context.Context, cfnCl CfnClient, managementRoleArn st
 	return "", ErrInvalidCfnResponse
 }
 
-func isNoUpdateErr(err error) bool {
-	var apiErr smithy.APIError
-	if !errors.As(err, &apiErr) {
-		return false
-	}
-	return apiErr.ErrorMessage() == "No updates are to be performed."
-}
 
-func isStackMissingErr(err error) bool {
-	var apiErr smithy.APIError
-	if !errors.As(err, &apiErr) {
-		return false
-	}
-	return apiErr.ErrorCode() == "ValidationError" && strings.Contains(apiErr.ErrorMessage(), "does not exist")
-}
