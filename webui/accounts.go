@@ -45,7 +45,7 @@ var inProgressStatus []string = []string{
 	string(types.StackStatusDeleteInProgress),
 }
 
-func accountsRouter(e *echo.Echo, token auth.LoginToken, store *storage.StorageService, stsCl aws.StsClient) {
+func accountsRouter(e *echo.Echo, token auth.LoginToken, store *storage.Service, stsCl aws.StsClient) {
 	g := e.Group("/accounts")
 	g.Use(guard(token))
 	g.GET("/", handleAccounts(store))
@@ -202,7 +202,7 @@ func handleAccount(store storage.Storage) echo.HandlerFunc {
 	}
 }
 
-func canAssume(c echo.Context, store *storage.StorageService, user *auth.UserInfo, roleName string) (acc storage.Account, err error) {
+func canAssume(c echo.Context, store *storage.Service, user *auth.UserInfo, roleName string) (acc storage.Account, err error) {
 	ctx := c.Request().Context()
 	acc, err = accountFromRequest(c, store)
 	if err != nil {
@@ -218,7 +218,7 @@ func canAssume(c echo.Context, store *storage.StorageService, user *auth.UserInf
 	return acc, nil
 }
 
-func handleConsoleLogin(store *storage.StorageService, stsCl aws.StsClient) echo.HandlerFunc {
+func handleConsoleLogin(store *storage.Service, stsCl aws.StsClient) echo.HandlerFunc {
 
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
@@ -239,7 +239,7 @@ func handleConsoleLogin(store *storage.StorageService, stsCl aws.StsClient) echo
 	}
 }
 
-func handleCredentialsLogin(store *storage.StorageService, stsCl aws.StsClient) echo.HandlerFunc {
+func handleCredentialsLogin(store *storage.Service, stsCl aws.StsClient) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
@@ -303,7 +303,7 @@ func handleAccountCreateForm(store storage.Storage) echo.HandlerFunc {
 	}
 }
 
-func handleAccountCreate(store *storage.StorageService) echo.HandlerFunc {
+func handleAccountCreate(store *storage.Service) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
@@ -583,7 +583,7 @@ func handleRevokeForm(store storage.Storage) echo.HandlerFunc {
 	}
 }
 
-func handleRevoke(store *storage.StorageService) echo.HandlerFunc {
+func handleRevoke(store *storage.Service) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
@@ -613,7 +613,7 @@ func handleRevoke(store *storage.StorageService) echo.HandlerFunc {
 	}
 }
 
-func handleGrantForm(store *storage.StorageService) echo.HandlerFunc {
+func handleGrantForm(store *storage.Service) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		ctx := c.Request().Context()
 		user, _ := userFromRequest(c)
@@ -637,7 +637,7 @@ func handleGrantForm(store *storage.StorageService) echo.HandlerFunc {
 	}
 }
 
-func handleGrant(store *storage.StorageService) echo.HandlerFunc {
+func handleGrant(store *storage.Service) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		type GrantForm struct {
 			Username   string `form:"username"`

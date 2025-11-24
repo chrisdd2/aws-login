@@ -2,7 +2,7 @@ package storage
 
 import "io"
 
-type StorageBackend interface {
+type Service interface {
 	AccountPermissionService
 	RolePermissionService
 	UserService

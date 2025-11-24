@@ -24,7 +24,7 @@ type Role struct {
 type RoleService interface {
 	GetRole(ctx context.Context, id ...string) ([]*Role, error)
 	PutRole(ctx context.Context, role *Role, delete bool) (*Role, error)
-	ListRoles(ctx context.Context, accountId string) (iter.Seq[*Role], error)
+	ListRoles(ctx context.Context, accountId string, token *string) (roles iter.Seq[*Role], nextToken *string, err error)
 }
 
 // defaults

@@ -8,7 +8,7 @@ import (
 type AccountPermissionType int
 
 const (
-	AccountPermissionBootstrap = RolePermissionType(iota)
+	AccountPermissionBootstrap = AccountPermissionType(iota)
 	AccountPermissionStatus
 )
 
@@ -21,5 +21,5 @@ type AccountPermission struct {
 type AccountPermissionService interface {
 	PutAccountPermission(ctx context.Context, userId string, accountId string, permissionType AccountPermissionType, delete bool) error
 	HasAccountPermission(ctx context.Context, userId string, accountId string, permissionType AccountPermissionType) (bool, error)
-	ListAccountPermissions(ctx context.Context, userId string, accountId string) (iter.Seq[*AccountPermission], error)
+	ListAccountPermissions(ctx context.Context, userId string, accountId string, token *string) (perms iter.Seq[*AccountPermission], nextToken *string, err error)
 }

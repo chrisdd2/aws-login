@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/chrisdd2/aws-login/api"
 	"github.com/chrisdd2/aws-login/auth"
-	"github.com/chrisdd2/aws-login/aws"
 	"github.com/chrisdd2/aws-login/storage"
 	"github.com/chrisdd2/aws-login/webui/templates"
 	"github.com/chrisdd2/aws-login/webui/templates/css"
@@ -17,28 +17,29 @@ import (
 const cookieName = "AwsLoginAuthCookie"
 const tokenExpirationTime = time.Hour * 8
 
-func Router(e *echo.Echo, auth auth.AuthMethod, store *storage.StorageService, token auth.LoginToken, stsCl aws.StsClient) {
+func Router(e *echo.Echo, auth auth.AuthMethod, api api.App, token auth.LoginToken) {
 
 	accountsRouter(e, token, store, stsCl)
 	usersRouter(e, store, token)
-	e.GET("/login/", handleLogin(token, store, auth))
+	e.GET("/login/", handleLogin(api, auth))
 	e.GET("/logout/", handleLogout(token), guard(token))
 	e.GET("/expired/", handleExpired())
-	e.GET("/oauth2/idpresponse/", handleOAuth2IdpResponse(auth, store, token))
+	e.GET("/oauth2/idpresponse/", handleOAuth2IdpResponse(auth, api))
 	e.GET("/admin/", handleAdmin(token), guard(token))
 	e.FileFS("/css/layout.css/", "layout.css", css.CssFiles)
 	e.GET("/", handleHome(token), optionalGuard(token))
 }
 
-func handleLogin(token auth.LoginToken, store *storage.StorageService, auth auth.AuthMethod) echo.HandlerFunc {
+func handleLogin(api api.App, auth auth.AuthMethod) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		t := c.QueryParam("token")
+
 		if t != "" {
-			info, err := token.Validate(t)
+			info, err := api.ValidateAccessToken(t)
 			if err != nil {
 				return fmt.Errorf("handleLogin [token.Validate] [%w]", err)
 			}
-			return logUserIn(c, store, &info.UserInfo, token)
+			return logUserIn(c, api, info)
 		}
 		_, ok := userFromRequest(c)
 		if ok {
@@ -68,13 +69,13 @@ func handleExpired() echo.HandlerFunc {
 	}
 }
 
-func handleOAuth2IdpResponse(auth auth.AuthMethod, store *storage.StorageService, token auth.LoginToken) echo.HandlerFunc {
+func handleOAuth2IdpResponse(auth auth.AuthMethod, api api.App) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		info, err := auth.HandleCallback(c.Request())
 		if err != nil {
 			return fmt.Errorf("handleOAuth2IdpResponse [auth.HandleCallback] [%w]", err)
 		}
-		return logUserIn(c, store, info, token)
+		return logUserIn(c, api, info)
 	}
 }
 
@@ -110,30 +111,16 @@ func pointerString(v string) *string {
 	return nil
 }
 
-func logUserIn(c echo.Context, store storage.Storage, info *auth.UserInfo, token auth.LoginToken) error {
+func logUserIn(c echo.Context, api api.App, info *auth.UserInfo) error {
 	ctx := c.Request().Context()
-	usr, err := store.GetUserByUsername(ctx, info.Username)
-	if err == storage.ErrUserNotFound {
-		usr.Email = info.Email
-		usr.Username = info.Username
-		usr.Superuser = info.Superuser
-		usr, err = store.PutUser(ctx, usr, false)
-		c.Logger().Printf("created user [%s]\n", usr.Username)
-	}
+	token, err := api.CreateAccessToken(ctx, info)
 	if err != nil {
-		return fmt.Errorf("logUserIn [store.GetUserByUsername] [%w]", err)
-	}
-	info.Id = usr.Id
-	info.Superuser = usr.Superuser
-
-	accessToken, err := token.SignToken(*info, auth.DefaultTokenExpiration)
-	if err != nil {
-		return fmt.Errorf("logUserIn [token.SignToken] [%w]", err)
+		return fmt.Errorf("logUserIn [api.CreateAccessToken] [%w]", err)
 	}
 	expiredTime := time.Now().Add(tokenExpirationTime)
 	cookie := &http.Cookie{
 		Name:     cookieName,
-		Value:    accessToken,
+		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
@@ -144,7 +131,7 @@ func logUserIn(c echo.Context, store storage.Storage, info *auth.UserInfo, token
 	return c.Redirect(http.StatusTemporaryRedirect, "/")
 }
 
-func hasPermission(ctx context.Context, store *storage.StorageService, accountId string, userId string, permissionType string, scope string, value string) error {
+func hasPermission(ctx context.Context, store *storage.Service, accountId string, userId string, permissionType string, scope string, value string) error {
 	has, err := store.HasPermission(ctx, storage.PermissionId{UserId: userId, AccountId: accountId, Type: permissionType, Scope: scope}, value)
 	if err != nil {
 		return err
