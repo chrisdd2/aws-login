@@ -9,6 +9,7 @@ import (
 	"iter"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -65,8 +66,8 @@ type apiImpl struct {
 	roleName string
 }
 
-func NewAwsApi(ctx context.Context) (AwsApiCaller, error) {
-	ret := apiImpl{}
+func NewAwsApi(ctx context.Context, stsCl *sts.Client) (AwsApiCaller, error) {
+	ret := apiImpl{stsCl: stsCl}
 	_, _, err := ret.WhoAmI(ctx)
 	if err != nil {
 		return nil, err
@@ -136,8 +137,7 @@ func (a *apiImpl) WatchStackEvents(ctx context.Context, account string, stackNam
 			return nil, latestEventTime, err
 		}
 		// its reverse order so reverse it for the user
-		for i := len(resp.StackEvents) - 1; i >= 0; i-- {
-			ev := resp.StackEvents[i]
+		for _, ev := range slices.Backward(resp.StackEvents) {
 			evTime := aws.ToTime(ev.Timestamp).UTC()
 			if !evTime.After(latestEventTime) {
 				continue
@@ -278,7 +278,7 @@ func principalFromArn(arn string) string {
 }
 
 func arnForRole(account string, roleName string) string {
-	return fmt.Sprintf("arn:aws:iam::%s:role/%s", roleName)
+	return fmt.Sprintf("arn:aws:iam::%s:role/%s", account, roleName)
 }
 
 func assumeRole(ctx context.Context, stsCl *sts.Client, roleArn string) (aws.Config, error) {
