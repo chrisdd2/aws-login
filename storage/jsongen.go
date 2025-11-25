@@ -38,7 +38,7 @@ import (
 )
 
 var ({{range .Objects}}
-	Err{{.TypeName}}NotFound = errors.New("{{.FieldName}} does not exist")
+	Err{{.TypeName}}NotFound = errors.New("{{.TypeName}} does not exist")
 	{{- end}}
 )
 
@@ -85,7 +85,7 @@ func New{{.StructName}}(fileName string) (Service, error) {
 
 func (j *jsonSerializableFields) sortSlices() {
 	{{- range .Objects}}
-	j.{{.FieldName}} = slices.SortedFunc(slices.Values(j.{{.FieldName}}), func(u1, u2 *{{.TypeName}}) int { return cmp.Compare(u1.{{.IdField}}, u1.{{.IdField}}) })
+	j.{{.FieldName}} = slices.SortedFunc(slices.Values(j.{{.FieldName}}), func(u1, u2 *{{.TypeName}}) int { return cmp.Compare(u1.{{.IdField}}, u2.{{.IdField}}) })
 	{{- end}}
 }
 
@@ -140,7 +140,7 @@ func matchOrEmpty(a, b string) bool {
 {{- $structName:= .StructName -}}
 {{ range .Objects -}}
 {{$parent :=.}}
-{{if and ( ne .IdField "") (not .SkipIdFunc ) }}
+{{if and ( ne .IdField "") (not .SkipGetFunc ) }}
 func (j *{{$structName}}) Get{{.Name}}(ctx context.Context, id string) (*{{.TypeName}}, error) {
 	for _, v := range j.{{.FieldName}} {
 		if id ==  v.{{.IdField}} {
@@ -194,7 +194,7 @@ func (j *{{$structName}}) Put{{.Name}}(ctx context.Context, {{$v}} *{{.TypeName}
 {{- $rest := slice .CompareFields 1 }}
 	j.lock()
 	defer j.unlock()
-	if del && {{$v}}.{{.IdField}} != "" {
+	if del {
 		j.{{.FieldName}} = slices.DeleteFunc(j.{{.FieldName}}, func(v *{{.TypeName}}) bool {
 			return {{$v}}.{{$first}} == v.{{$first}} {{range $rest }} && {{$v}}.{{.}} == v.{{.}}{{end}}
 		})
@@ -205,12 +205,13 @@ func (j *{{$structName}}) Put{{.Name}}(ctx context.Context, {{$v}} *{{.TypeName}
 	})
 	if idx != -1 {
 		{{$v}}.{{.IdField}} = j.{{.FieldName}}[idx].{{.IdField}}
+		j.{{.FieldName}}[idx] = {{$v}}
 	} else {
 		if {{$v}}.{{.IdField}} == "" {
 			{{$v}}.{{.IdField}} = uuid.NewString()
 		}
+		j.{{.FieldName}} = append(j.{{.FieldName}}, {{$v}})
 	}
-	j.{{.FieldName}} = append(j.{{.FieldName}}, {{$v}})
 	return {{$v}}, nil
 }
 
@@ -251,7 +252,7 @@ type Object struct {
 	FieldName        string
 	TypeName         string
 	IdField          string
-	SkipIdFunc       bool
+	SkipGetFunc       bool
 	CompareFields    []string
 	ListConditionals []Field
 	LookupFields     []*LookupField
@@ -315,16 +316,15 @@ func main() {
 			}
 			name := field.Names[0].Name
 			fieldType := fmt.Sprint(field.Type)
-			skipId := mapHasKey(sgTag, "skipid")
-			if mapHasKey(sgTag, "id") || skipId {
+			if mapHasKey(sgTag, "id") {
 				if object.IdField != "" {
 					fmt.Printf("duplicate id key found for struct %s [%s,%s]", object.Name, object.IdField, name)
 					return true
 				}
 				object.IdField = name
-				if skipId {
-					object.SkipIdFunc = true
-				}
+			}
+			if mapHasKey(sgTag, "skipget") {
+				object.SkipGetFunc = true
 			}
 			lookup := sgTag["lookup"]
 			functionName := sgTag["functionName"]

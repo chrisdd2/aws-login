@@ -16,11 +16,11 @@ import (
 )
 
 var (
-	ErrRoleNotFound              = errors.New("Roles does not exist")
-	ErrRolePermissionNotFound    = errors.New("RolePermissions does not exist")
-	ErrAccountPermissionNotFound = errors.New("AccountPermissions does not exist")
-	ErrAccountNotFound           = errors.New("Accounts does not exist")
-	ErrUserNotFound              = errors.New("Users does not exist")
+	ErrRoleNotFound              = errors.New("Role does not exist")
+	ErrRolePermissionNotFound    = errors.New("RolePermission does not exist")
+	ErrAccountPermissionNotFound = errors.New("AccountPermission does not exist")
+	ErrAccountNotFound           = errors.New("Account does not exist")
+	ErrUserNotFound              = errors.New("User does not exist")
 )
 
 const (
@@ -67,11 +67,11 @@ func NewJsonBackend(fileName string) (Service, error) {
 }
 
 func (j *jsonSerializableFields) sortSlices() {
-	j.Roles = slices.SortedFunc(slices.Values(j.Roles), func(u1, u2 *Role) int { return cmp.Compare(u1.Id, u1.Id) })
-	j.RolePermissions = slices.SortedFunc(slices.Values(j.RolePermissions), func(u1, u2 *RolePermission) int { return cmp.Compare(u1.UserId, u1.UserId) })
-	j.AccountPermissions = slices.SortedFunc(slices.Values(j.AccountPermissions), func(u1, u2 *AccountPermission) int { return cmp.Compare(u1.UserId, u1.UserId) })
-	j.Accounts = slices.SortedFunc(slices.Values(j.Accounts), func(u1, u2 *Account) int { return cmp.Compare(u1.Id, u1.Id) })
-	j.Users = slices.SortedFunc(slices.Values(j.Users), func(u1, u2 *User) int { return cmp.Compare(u1.Id, u1.Id) })
+	j.Roles = slices.SortedFunc(slices.Values(j.Roles), func(u1, u2 *Role) int { return cmp.Compare(u1.Id, u2.Id) })
+	j.RolePermissions = slices.SortedFunc(slices.Values(j.RolePermissions), func(u1, u2 *RolePermission) int { return cmp.Compare(u1.UserId, u2.UserId) })
+	j.AccountPermissions = slices.SortedFunc(slices.Values(j.AccountPermissions), func(u1, u2 *AccountPermission) int { return cmp.Compare(u1.UserId, u2.UserId) })
+	j.Accounts = slices.SortedFunc(slices.Values(j.Accounts), func(u1, u2 *Account) int { return cmp.Compare(u1.Id, u2.Id) })
+	j.Users = slices.SortedFunc(slices.Values(j.Users), func(u1, u2 *User) int { return cmp.Compare(u1.Id, u2.Id) })
 }
 
 func (j *JsonBackend) lock() {
@@ -163,7 +163,7 @@ func (j *JsonBackend) ListRoles(ctx context.Context, accountId string, nextToken
 func (j *JsonBackend) PutRole(ctx context.Context, role *Role, del bool) (*Role, error) {
 	j.lock()
 	defer j.unlock()
-	if del && role.Id != "" {
+	if del {
 		j.Roles = slices.DeleteFunc(j.Roles, func(v *Role) bool {
 			return role.Id == v.Id
 		})
@@ -174,12 +174,13 @@ func (j *JsonBackend) PutRole(ctx context.Context, role *Role, del bool) (*Role,
 	})
 	if idx != -1 {
 		role.Id = j.Roles[idx].Id
+		j.Roles[idx] = role
 	} else {
 		if role.Id == "" {
 			role.Id = uuid.NewString()
 		}
+		j.Roles = append(j.Roles, role)
 	}
-	j.Roles = append(j.Roles, role)
 	return role, nil
 }
 
@@ -205,7 +206,7 @@ func (j *JsonBackend) ListRolePermissions(ctx context.Context, accountId string,
 func (j *JsonBackend) PutRolePermission(ctx context.Context, rolepermission *RolePermission, del bool) (*RolePermission, error) {
 	j.lock()
 	defer j.unlock()
-	if del && rolepermission.UserId != "" {
+	if del {
 		j.RolePermissions = slices.DeleteFunc(j.RolePermissions, func(v *RolePermission) bool {
 			return rolepermission.AccountId == v.AccountId && rolepermission.UserId == v.UserId && rolepermission.RoleId == v.RoleId && rolepermission.Type == v.Type
 		})
@@ -216,12 +217,13 @@ func (j *JsonBackend) PutRolePermission(ctx context.Context, rolepermission *Rol
 	})
 	if idx != -1 {
 		rolepermission.UserId = j.RolePermissions[idx].UserId
+		j.RolePermissions[idx] = rolepermission
 	} else {
 		if rolepermission.UserId == "" {
 			rolepermission.UserId = uuid.NewString()
 		}
+		j.RolePermissions = append(j.RolePermissions, rolepermission)
 	}
-	j.RolePermissions = append(j.RolePermissions, rolepermission)
 	return rolepermission, nil
 }
 
@@ -256,7 +258,7 @@ func (j *JsonBackend) ListAccountPermissions(ctx context.Context, accountId stri
 func (j *JsonBackend) PutAccountPermission(ctx context.Context, accountpermission *AccountPermission, del bool) (*AccountPermission, error) {
 	j.lock()
 	defer j.unlock()
-	if del && accountpermission.UserId != "" {
+	if del {
 		j.AccountPermissions = slices.DeleteFunc(j.AccountPermissions, func(v *AccountPermission) bool {
 			return accountpermission.AccountId == v.AccountId && accountpermission.UserId == v.UserId && accountpermission.Type == v.Type
 		})
@@ -267,12 +269,13 @@ func (j *JsonBackend) PutAccountPermission(ctx context.Context, accountpermissio
 	})
 	if idx != -1 {
 		accountpermission.UserId = j.AccountPermissions[idx].UserId
+		j.AccountPermissions[idx] = accountpermission
 	} else {
 		if accountpermission.UserId == "" {
 			accountpermission.UserId = uuid.NewString()
 		}
+		j.AccountPermissions = append(j.AccountPermissions, accountpermission)
 	}
-	j.AccountPermissions = append(j.AccountPermissions, accountpermission)
 	return accountpermission, nil
 }
 
@@ -323,7 +326,7 @@ func (j *JsonBackend) ListAccounts(ctx context.Context, nextToken *string) (iter
 func (j *JsonBackend) PutAccount(ctx context.Context, account *Account, del bool) (*Account, error) {
 	j.lock()
 	defer j.unlock()
-	if del && account.Id != "" {
+	if del {
 		j.Accounts = slices.DeleteFunc(j.Accounts, func(v *Account) bool {
 			return account.AwsAccountId == v.AwsAccountId
 		})
@@ -334,12 +337,13 @@ func (j *JsonBackend) PutAccount(ctx context.Context, account *Account, del bool
 	})
 	if idx != -1 {
 		account.Id = j.Accounts[idx].Id
+		j.Accounts[idx] = account
 	} else {
 		if account.Id == "" {
 			account.Id = uuid.NewString()
 		}
+		j.Accounts = append(j.Accounts, account)
 	}
-	j.Accounts = append(j.Accounts, account)
 	return account, nil
 }
 
@@ -390,7 +394,7 @@ func (j *JsonBackend) ListUsers(ctx context.Context, nextToken *string) (iter.Se
 func (j *JsonBackend) PutUser(ctx context.Context, user *User, del bool) (*User, error) {
 	j.lock()
 	defer j.unlock()
-	if del && user.Id != "" {
+	if del {
 		j.Users = slices.DeleteFunc(j.Users, func(v *User) bool {
 			return user.Name == v.Name
 		})
@@ -401,12 +405,13 @@ func (j *JsonBackend) PutUser(ctx context.Context, user *User, del bool) (*User,
 	})
 	if idx != -1 {
 		user.Id = j.Users[idx].Id
+		j.Users[idx] = user
 	} else {
 		if user.Id == "" {
 			user.Id = uuid.NewString()
 		}
+		j.Users = append(j.Users, user)
 	}
-	j.Users = append(j.Users, user)
 	return user, nil
 }
 

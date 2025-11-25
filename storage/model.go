@@ -32,14 +32,14 @@ type Role struct {
 
 type RolePermission struct {
 	AccountId string             `json:"account_id,omitempty" sg:"lookup=1,functionName=HasRolePermission,existsOnly,list,cmp"`
-	UserId    string             `json:"user_id,omitempty" sg:"lookup=1,skipid,list,cmp"`
+	UserId    string             `json:"user_id,omitempty" sg:"lookup=1,id,skipget,list,cmp"`
 	RoleId    string             `json:"role_id,omitempty" sg:"lookup=1,cmp"`
 	Type      RolePermissionType `json:"type,omitempty" sg:"lookup=1,cmp"`
 }
 
 type AccountPermission struct {
 	AccountId string                `json:"account_id,omitempty" sg:"lookup=1,functionName=HasAccountPermission,existsOnly,list,cmp"`
-	UserId    string                `json:"user_id,omitempty" sg:"lookup=1,skipid,list,cmp"`
+	UserId    string                `json:"user_id,omitempty" sg:"lookup=1,id,skipget,list,cmp"`
 	Type      AccountPermissionType `json:"type,omitempty" sg:"lookup=1,cmp"`
 }
 type Account struct {

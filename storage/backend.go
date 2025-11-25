@@ -29,6 +29,7 @@ type RoleService interface {
 }
 
 type UserService interface {
+	GetUser(ctx context.Context, id string) (*User, error)
 	GetUsers(ctx context.Context, id ...string) ([]*User, error)
 	GetUserByName(ctx context.Context, name string) (*User, error)
 	PutUser(ctx context.Context, user *User, delete bool) (*User, error)

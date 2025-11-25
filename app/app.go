@@ -1,4 +1,4 @@
-package api
+package app
 
 import (
 	"context"
@@ -16,6 +16,14 @@ type App struct {
 	aws     aws.AwsApiCaller
 }
 
+func New(storage sg.Service, token auth.LoginToken, aws aws.AwsApiCaller) *App {
+	return &App{
+		Storage: storage,
+		token:   token,
+		aws:     aws,
+	}
+}
+
 func ValidateAWSAccountID(accountID int) bool {
 	return accountID > 100000000000 && accountID <= 999999999999
 }
@@ -23,21 +31,10 @@ func ValidateAWSAccountID(accountID int) bool {
 var ErrInvalidAccountDetails error = errors.New("invalid account details")
 var ErrAccountAlreadyExists error = errors.New("account already exists")
 
-func (a *App) getUser(ctx context.Context, id string) (*sg.User, error) {
-	users, err := a.Storage.GetUsers(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if len(users) == 0 {
-		return nil, errors.New("user not found")
-	}
-	return users[0], nil
-}
-
 func (a *App) CreateAccount(ctx context.Context, userId string, acc *sg.Account) (*sg.Account, error) {
 
 	// Permission check
-	user, err := a.getUser(ctx, userId)
+	user, err := a.Storage.GetUser(ctx, userId)
 	if err != nil {
 		return nil, err
 	}

@@ -1,4 +1,4 @@
-package api
+package app
 
 import (
 	"bytes"
@@ -170,14 +170,10 @@ func (a *App) SyncAccount(ctx context.Context, userId string, accountId string) 
 	}
 
 	// Deploy the stack
-	accounts, err := a.Storage.GetAccount(ctx, accountId)
+	account, err := a.Storage.GetAccount(ctx, accountId)
 	if err != nil {
 		return err
 	}
-	if len(accounts) == 0 {
-		return errors.New("account not found")
-	}
-	account := accounts[0]
 
 	err = a.aws.DeployStack(ctx, account.AccountIdStr(), aws.StackName, templateString, nil)
 	if err != nil {
