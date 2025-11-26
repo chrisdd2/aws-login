@@ -13,7 +13,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
-	"github.com/chrisdd2/aws-login/app"
 	"github.com/chrisdd2/aws-login/auth"
 	"github.com/chrisdd2/aws-login/aws"
 	"github.com/chrisdd2/aws-login/storage"
@@ -107,12 +106,11 @@ func main() {
 		logger.Info("login with http://%s/login?token=%s\n", appCfg.ListenAddr, accessToken)
 	}
 
-	authMethod := &auth.GithubAuth{
+	_ = &auth.GithubAuth{
 		ClientSecret: appCfg.GithubClientSecret,
 		ClientId:     appCfg.GithubClientId,
 	}
 
-	app := app.New(storage, token, awsApi)
 	// Http server
 	router := http.NewServeMux()
 	router.Handle("/api", nil)

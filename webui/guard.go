@@ -1,13 +1,15 @@
+// go build:ignore
 package webui
 
 import (
 	"net/http"
 	"time"
 
+	"fmt"
+
 	"github.com/chrisdd2/aws-login/auth"
 	"github.com/chrisdd2/aws-login/webui/templates"
 	"github.com/labstack/echo/v4"
-	"fmt"
 )
 
 func guard(token auth.LoginToken) echo.MiddlewareFunc {

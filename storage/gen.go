@@ -20,8 +20,8 @@ import (
 
 const tmpl = `
 {{ $root := .}}
-package {{ .Package }}
 
+package {{ .Package }}
 import (
 	"cmp"
 	"context"
@@ -45,6 +45,29 @@ var ({{range .Objects}}
 const (
 	pageSize = 50
 )
+
+type Service interface {
+	{{- range .Objects }}
+	{{- $parent:=. -}}
+	{{- $v := .Name | lower -}}
+	{{if and ( ne .IdField "") (not .SkipGetFunc ) }}
+	Get{{.Name}}(ctx context.Context, id string) (*{{.TypeName}}, error)
+	Get{{.Name}}s(ctx context.Context, id ...string) ([]*{{.TypeName}}, error)
+	{{end}}
+	{{- if gt (.ListConditionals | len) 0 -}}
+	List{{.Name}}s(ctx context.Context {{range .ListConditionals}}, {{.Name | makeParam}} {{.Type}} {{end}},nextToken *string ) (iter.Seq[*{{.TypeName}}], *string, error)
+	{{- else -}}
+	List{{.Name}}s(ctx context.Context, nextToken *string) (iter.Seq[*{{.TypeName}}], *string, error)
+	{{- end }}
+	Put{{.Name}}(ctx context.Context, {{$v}} *{{.TypeName}}, del bool) (*{{.TypeName}}, error)
+	{{range .LookupFields }}
+	{{- $first := index .Fields 0 -}}
+	{{- $rest := slice .Fields 1 -}}
+	{{.FunctionName}}(ctx context.Context, {{$first.Name | makeParam }} {{ $first.Type}} {{ range $rest }}, {{ .Name | makeParam}} {{.Type}} {{end}} )({{ if .ExistsOnly }} bool {{else }} *{{$parent.TypeName}} {{end}}, error)
+	{{ end}}
+	{{- end }}
+	Close() error
+}
 
 // Simple memory based implementation of the storage backend
 //
@@ -252,7 +275,7 @@ type Object struct {
 	FieldName        string
 	TypeName         string
 	IdField          string
-	SkipGetFunc       bool
+	SkipGetFunc      bool
 	CompareFields    []string
 	ListConditionals []Field
 	LookupFields     []*LookupField

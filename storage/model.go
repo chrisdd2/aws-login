@@ -6,7 +6,7 @@ import (
 )
 
 // generate implementation for backends
-//go:generate go run jsongen.go
+//go:generate go run gen.go
 
 type RolePermissionType int
 type AccountPermissionType int
@@ -66,3 +66,38 @@ type User struct {
 	Tags      string `json:"tags,omitempty"`
 	Superuser bool   `json:"superuser,omitempty"`
 }
+
+func DeveloperRoleDefinition(accountId string, roleName string) *Role {
+	if roleName == "" {
+		roleName = DeveloperRole
+	}
+	return &Role{
+		Name:               roleName,
+		AccountId:          accountId,
+		MaxSessionDuration: time.Hour * 8,
+		Enabled:            true,
+		ManagedPolicies: []string{
+			"arn:aws:iam::aws:policy/AdministratorAccess",
+		},
+	}
+}
+func ReadOnlyRoleDefinition(accountId string, roleName string) *Role {
+	if roleName == "" {
+		roleName = ReadOnlyRole
+	}
+	return &Role{
+		Name:               roleName,
+		AccountId:          accountId,
+		MaxSessionDuration: time.Hour * 8,
+		Enabled:            true,
+		ManagedPolicies: []string{
+			"arn:aws:iam::aws:policy/ReadOnlyAccess",
+		},
+	}
+}
+
+const (
+	DeveloperRole = "developer-role-" + UniqueId
+	ReadOnlyRole  = "read-only-role-" + UniqueId
+	UniqueId      = "8db7bc11-acf5-4c7a-be46-967f44e33028"
+)

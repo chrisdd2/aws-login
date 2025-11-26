@@ -27,6 +27,33 @@ const (
 	pageSize = 50
 )
 
+type Service interface {
+	GetRole(ctx context.Context, id string) (*Role, error)
+	GetRoles(ctx context.Context, id ...string) ([]*Role, error)
+	ListRoles(ctx context.Context, accountId string, nextToken *string) (iter.Seq[*Role], *string, error)
+	PutRole(ctx context.Context, role *Role, del bool) (*Role, error)
+	ListRolePermissions(ctx context.Context, accountId string, userId string, nextToken *string) (iter.Seq[*RolePermission], *string, error)
+	PutRolePermission(ctx context.Context, rolepermission *RolePermission, del bool) (*RolePermission, error)
+	HasRolePermission(ctx context.Context, accountId string, userId string, roleId string, type_ RolePermissionType) (bool, error)
+	ListAccountPermissions(ctx context.Context, accountId string, userId string, nextToken *string) (iter.Seq[*AccountPermission], *string, error)
+	PutAccountPermission(ctx context.Context, accountpermission *AccountPermission, del bool) (*AccountPermission, error)
+	HasAccountPermission(ctx context.Context, accountId string, userId string, type_ AccountPermissionType) (bool, error)
+
+	GetAccount(ctx context.Context, id string) (*Account, error)
+	GetAccounts(ctx context.Context, id ...string) ([]*Account, error)
+	ListAccounts(ctx context.Context, nextToken *string) (iter.Seq[*Account], *string, error)
+	PutAccount(ctx context.Context, account *Account, del bool) (*Account, error)
+	GetAccountByAwsAccountId(ctx context.Context, awsAccountId int) (*Account, error)
+
+	GetUser(ctx context.Context, id string) (*User, error)
+	GetUsers(ctx context.Context, id ...string) ([]*User, error)
+	ListUsers(ctx context.Context, nextToken *string) (iter.Seq[*User], *string, error)
+	PutUser(ctx context.Context, user *User, del bool) (*User, error)
+	GetUserByName(ctx context.Context, name string) (*User, error)
+
+	Close() error
+}
+
 // Simple memory based implementation of the storage backend
 //
 // Persists data to a json file.
