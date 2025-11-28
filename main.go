@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -13,9 +14,11 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
-	"github.com/chrisdd2/aws-login/auth"
 	"github.com/chrisdd2/aws-login/aws"
+	"github.com/chrisdd2/aws-login/services"
 	"github.com/chrisdd2/aws-login/storage"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 func must(err error) {
@@ -69,7 +72,7 @@ func main() {
 		<-exitSignal
 		err := storage.Close()
 		if err != nil {
-			logger.Error("error saving storage [%s]", err)
+			logger.Error("error saving storage", "error", err)
 		}
 		os.Exit(1)
 	}()
@@ -89,44 +92,46 @@ func main() {
 	// check which user it is
 	_, arn := must3(awsApi.WhoAmI(ctx))
 
-	log.Printf("using assumer [%s]\n", arn)
+	logger.Info("using", "assumer", arn)
 
 	// Authentication
-	token := auth.LoginToken{
-		Key: []byte(appCfg.SignKey),
-	}
+	token := services.NewToken(storage, []byte(appCfg.SignKey))
 
 	if appCfg.GenerateRootToken {
-		accessToken := must2(token.SignToken(auth.UserInfo{
+		accessToken := must2(token.Create(ctx, &services.UserInfo{
 			Username:  "root",
 			Email:     "root@root",
 			Superuser: true,
-		}, auth.DefaultTokenExpiration))
-		logger.Info("ROOT access token: %s\n", accessToken)
-		logger.Info("login with http://%s/login?token=%s\n", appCfg.ListenAddr, accessToken)
+		}))
+		logger.Info("Generated token", "access token", accessToken)
+		logger.Info("login with", "url", fmt.Sprintf("http://%s/login?token=%s", appCfg.ListenAddr, accessToken))
 	}
 
-	_ = &auth.GithubAuth{
-		ClientSecret: appCfg.GithubClientSecret,
-		ClientId:     appCfg.GithubClientId,
-	}
+	// _ = &auth.GithubAuth{
+	// 	ClientSecret: appCfg.GithubClientSecret,
+	// 	ClientId:     appCfg.GithubClientId,
+	// }
 
-	// Http server
-	router := http.NewServeMux()
-	router.Handle("/api", nil)
-	router.Handle("/", nil)
-	handler := addTrailingSlash(router)
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.Logger)
 
-	log.Printf("listening [http://%s]\n", appCfg.ListenAddr)
-	must(http.ListenAndServe(appCfg.ListenAddr, handler))
+	// api := api.V1Api()
+	// r.Mount("/api", api)
 
-}
-
-func addTrailingSlash(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/") {
-			r.URL = r.URL.JoinPath("/")
+	h := http.FileServer(http.Dir("webui"))
+	r.Mount("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers := []any{}
+		for k := range r.Header {
+			if strings.HasPrefix(k, "Hx-") {
+				headers = append(headers, k, r.Header.Get(k))
+			}
 		}
+		slog.Info("headers", headers...)
 		h.ServeHTTP(w, r)
-	})
+	}))
+
+	logger.Info("listening", "address", appCfg.ListenAddr, "url", fmt.Sprintf("http:/%s", appCfg.ListenAddr))
+	must(http.ListenAndServe(appCfg.ListenAddr, r))
+
 }

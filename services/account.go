@@ -27,7 +27,10 @@ type accountService struct {
 	aws     aws.AwsApiCaller
 }
 
-var baseStackTemplate = template.Must(template.New("base-stack").Parse(
+var baseStackTemplate = template.Must(template.New("base-stack").Funcs(template.FuncMap{
+	"roleLogicalName":    roleLogicalName,
+	"maxSessionDuration": maxSessionDuration,
+}).Parse(
 	`
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >

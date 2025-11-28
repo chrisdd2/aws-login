@@ -1,4 +1,4 @@
-package auth
+package services
 
 import (
 	"encoding/json"
@@ -8,6 +8,12 @@ import (
 	"net/http"
 	"net/url"
 )
+
+type AuthService interface {
+	RedirectUrl() string
+	CallbackEndpoint() string
+	CallbackHandler(r *http.Request) (*UserInfo, error)
+}
 
 const (
 	GithubAuthUrl         = "https://github.com/login/oauth/authorize"
@@ -32,18 +38,22 @@ func generateGithubAccessToken(clientId, clientSecret, sessionCode string) strin
 	return fmt.Sprintf("%s?%s", GithubAccessTokenUrl, values.Encode())
 }
 
-type GithubAuth struct {
-	ClientSecret string
-	ClientId     string
+type GithubService struct {
+	ClientSecret     string
+	ClientId         string
+	AuthResponsePath string
 }
 
-func (g *GithubAuth) RedirectUrl() string {
+func (g *GithubService) RedirectUrl() string {
 	return generateGithubAuthUrl(g.ClientId, []string{"user"})
+}
+func (g *GithubService) CallbackEndpoint() string {
+	return g.AuthResponsePath
 }
 
 var ErrCannotFindEmail error = errors.New("unable to determine github email")
 
-func (g *GithubAuth) HandleCallback(r *http.Request) (*UserInfo, error) {
+func (g *GithubService) CallbackHandler(r *http.Request) (*UserInfo, error) {
 	code := r.URL.Query().Get("code")
 	url := generateGithubAccessToken(g.ClientId, g.ClientSecret, code)
 	token := struct {
