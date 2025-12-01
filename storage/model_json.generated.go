@@ -32,9 +32,11 @@ type Service interface {
 	GetRoles(ctx context.Context, id ...string) ([]*Role, error)
 	ListRoles(ctx context.Context, accountId string, nextToken *string) (iter.Seq[*Role], *string, error)
 	PutRole(ctx context.Context, role *Role, del bool) (*Role, error)
+
 	ListRolePermissions(ctx context.Context, accountId string, userId string, nextToken *string) (iter.Seq[*RolePermission], *string, error)
 	PutRolePermission(ctx context.Context, rolepermission *RolePermission, del bool) (*RolePermission, error)
 	HasRolePermission(ctx context.Context, accountId string, userId string, roleId string, type_ RolePermissionType) (bool, error)
+
 	ListAccountPermissions(ctx context.Context, accountId string, userId string, nextToken *string) (iter.Seq[*AccountPermission], *string, error)
 	PutAccountPermission(ctx context.Context, accountpermission *AccountPermission, del bool) (*AccountPermission, error)
 	HasAccountPermission(ctx context.Context, accountId string, userId string, type_ AccountPermissionType) (bool, error)

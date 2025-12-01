@@ -65,7 +65,7 @@ type Service interface {
 	{{- $rest := slice .Fields 1 -}}
 	{{.FunctionName}}(ctx context.Context, {{$first.Name | makeParam }} {{ $first.Type}} {{ range $rest }}, {{ .Name | makeParam}} {{.Type}} {{end}} )({{ if .ExistsOnly }} bool {{else }} *{{$parent.TypeName}} {{end}}, error)
 	{{ end}}
-	{{- end }}
+	{{ end }}
 	Close() error
 }
 
