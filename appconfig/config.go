@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/goccy/go-yaml"
+	"gopkg.in/yaml.v2"
 )
 
 type AppConfig struct {
@@ -15,7 +15,7 @@ type AppConfig struct {
 	ListenAddr                string `default:"localhost:8090" json:"listen_addr,omitempty"`
 	SignKey                   string `default:"somekey" mask:"true" json:"sign_key,omitempty"`
 	DevelopmentMode           bool   `default:"false" json:"development_mode,omitempty"`
-	ConfigDirectory           string `default:"config" json:"conf_dir,omitempty"`
+	ConfigDirectory           string `default:".config" json:"conf_dir,omitempty"`
 	ConfigUrl                 string `json:"conf_url,omitempty"`
 	GithubClientSecret        string `mask:"true" json:"github_client_secret,omitempty"`
 	GithubClientId            string `json:"github_client_id,omitempty"`

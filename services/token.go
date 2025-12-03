@@ -5,7 +5,6 @@ import (
 	"errors"
 	"time"
 
-	sg "github.com/chrisdd2/aws-login/storage"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -27,7 +26,7 @@ type UserClaims struct {
 	Tags map[string]string
 }
 type tokenServiceImpl struct {
-	storage sg.Service
+	storage Storage
 	key     any
 }
 
@@ -46,12 +45,12 @@ func (t *tokenServiceImpl) signToken(usr UserInfo, expiration time.Duration) (st
 	return token.SignedString(t.key)
 }
 func (a *tokenServiceImpl) Create(ctx context.Context, usr *UserInfo) (string, error) {
-	sgUser, err := a.storage.GetUserByName(ctx, usr.Username)
+	sgUser, err := a.storage.GetUser(ctx, usr.Username)
 	if err != nil {
 		return "", err
 	}
 	usr.Superuser = sgUser.Superuser
-	usr.Id = sgUser.Id
+	usr.Id = sgUser.Name
 	accessToken, err := a.signToken(*usr, DefaultTokenExpiration)
 	if err != nil {
 		return "", nil

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"log/slog"
 	"net/http"
@@ -82,7 +84,64 @@ func main() {
 	// 	ClientSecret: appCfg.GithubClientSecret,
 	// 	ClientId:     appCfg.GithubClientId,
 	// }
-	token := services.NewToken()
+	storageSvc := &services.Store{}
+	if appCfg.ConfigDirectory != "" {
+		entries := must2(os.ReadDir(appCfg.ConfigDirectory))
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			name := filepath.Join(appCfg.ConfigDirectory, entry.Name())
+			o := services.Store{}
+			log.Printf("loading file [%s]\n", name)
+			f := must2(os.Open(name))
+			if strings.HasSuffix(name, ".yml") {
+				must(o.LoadYaml(f))
+			} else if strings.HasSuffix(name, "json") {
+				must(o.LoadJson(f))
+			}
+			f.Close()
+			storageSvc = storageSvc.Merge(&o)
+		}
+	}
+	// storageSvc.Accounts = append(storageSvc.Accounts, appconfig.Account{
+	// 	Name:         "main",
+	// 	AwsAccountId: 992885815868,
+	// 	Enabled:      true,
+	// })
+	// storageSvc.Users = append(storageSvc.Users, appconfig.User{
+	// 	Name:      "chrisdd2",
+	// 	Email:     "chris.damianidis2@gmail.com",
+	// 	Superuser: true,
+	// 	Roles: []appconfig.RoleAttachment{
+	// 		{RoleName: "developer-role", AccountName: "main", Permissions: []string{"console"}},
+	// 		{RoleName: "readonly-role", AccountName: "main", Permissions: []string{"credential", "console"}},
+	// 	},
+	// })
+	// storageSvc.Roles = append(storageSvc.Roles, appconfig.Role{
+	// 	Name:               "developer-role",
+	// 	MaxSessionDuration: time.Hour * 8,
+	// 	Enabled:            true,
+	// 	AssociatedAccounts: []string{"main"},
+	// 	ManagedPolicies:    []string{"arn:aws:iam::aws:policy/AdministratorAccess"},
+	// })
+	// storageSvc.Roles = append(storageSvc.Roles, appconfig.Role{
+	// 	Name:               "readonly-role",
+	// 	MaxSessionDuration: time.Hour * 8,
+	// 	Enabled:            true,
+	// 	AssociatedAccounts: []string{"main"},
+	// 	ManagedPolicies:    []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"},
+	// })
+	// f := must2(os.Create(".config/test.yml"))
+	// must(yaml.NewEncoder(f).Encode(&storageSvc))
+	// f.Close()
+	// f = must2(os.Open(".config/test.yml"))
+	// must(yaml.NewDecoder(f).Decode(&storageSvc))
+	// f.Close()
+
+	tokenSvc := services.NewToken(storageSvc, appCfg.SignKey)
+	roleSvc := services.NewRoleService(storageSvc)
+	accSvc := services.NewAccountService(storageSvc, awsApi)
 	idp := must2(services.NewOpenId(ctx, "http://localhost:8080/realms/grafana", "http://localhost:8090/oauth2/idpresponse", "awslogin", "x8CQn6u68os9NbJOHX2nQpkMdIxcfx40"))
 	log.Println(idp.RedirectUrl())
 
@@ -99,11 +158,10 @@ func main() {
 
 	r.Handle("/metrics", metrics.Handler())
 
+	r.Mount("/", webui.Router(tokenSvc, idp, roleSvc, accSvc))
+
 	// api := api.V1Api()
 	// r.Mount("/api", api)
-
-	r.Mount("/", webui.Router(token, idp))
-
 	// key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	// jwks := goidc.JSONWebKeySet{
 	// 	Keys: []goidc.JSONWebKey{{

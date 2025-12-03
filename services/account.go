@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
 
+	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/aws"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -16,6 +18,7 @@ import (
 
 type AccountService interface {
 	Deploy(ctx context.Context, userId string, accountId string) error
+	GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error)
 }
 
 type accountService struct {
@@ -152,28 +155,27 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 		MaxSessionDuration string
 	}
 
-	roles := make([]CfnRole, 0, 2)
-	var token *string
-	for {
-		iter, nextToken, err := a.storage.ListRoles(ctx, accountId, token)
-		if err != nil {
-			return err
+	roles, err := a.storage.ListRolesForAccount(ctx, accountId)
+	cfnroles := []CfnRole{}
+	for _, item := range roles {
+		resolvedPolicies := map[string]string{}
+		for name, id := range item.Policies {
+			policy, err := a.storage.GetInlinePolicy(ctx, id)
+			if err != nil {
+				return fmt.Errorf("storage.GetInlinePolicy: %w", err)
+			}
+			resolvedPolicies[name] = policy.Document
 		}
-		for item := range iter {
-			roles = append(roles, CfnRole{
-				LogicalName:        roleLogicalName(item.Name),
-				RoleName:           item.Name,
-				ManagedPolicies:    item.ManagedPolicies,
-				Policies:           item.Policies,
-				MaxSessionDuration: maxSessionDuration(item.MaxSessionDuration),
-			})
-		}
-		if nextToken == nil {
-			break
-		}
-		token = nextToken
+
+		cfnroles = append(cfnroles, CfnRole{
+			LogicalName:        roleLogicalName(item.Name),
+			RoleName:           item.Name,
+			ManagedPolicies:    item.ManagedPolicies,
+			Policies:           resolvedPolicies,
+			MaxSessionDuration: maxSessionDuration(item.MaxSessionDuration),
+		})
 	}
-	templateString, err := templateExecuteToString(baseStackTemplate, struct{ Roles []CfnRole }{Roles: roles})
+	templateString, err := templateExecuteToString(baseStackTemplate, struct{ Roles []CfnRole }{Roles: cfnroles})
 	if err != nil {
 		return err
 	}
@@ -185,6 +187,9 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 	}
 
 	return a.aws.DeployStack(ctx, strconv.Itoa(account.AwsAccountId), aws.StackName, templateString, nil)
+}
+func (a *accountService) GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error) {
+	return a.storage.GetAccount(ctx, name)
 }
 
 func roleLogicalName(roleName string) string {
@@ -201,4 +206,11 @@ func maxSessionDuration(duration time.Duration) string {
 
 func ValidateAWSAccountID(accountID int) bool {
 	return accountID > 100000000000 && accountID <= 999999999999
+}
+
+func NewAccountService(store Storage, aws aws.AwsApiCaller) AccountService {
+	return &accountService{
+		storage: store,
+		aws:     aws,
+	}
 }

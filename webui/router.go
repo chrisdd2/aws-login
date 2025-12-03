@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/chrisdd2/aws-login/services"
@@ -21,12 +22,14 @@ func loginErrorString(v string) string {
 	switch v {
 	case "invalid_cookie":
 		return "Authentication cookie is invalid, log out and retry"
+	case "user_not_found":
+		return "User not found in database.\nContact an administrator"
 	default:
 		return "Interval server error"
 	}
 }
 
-func Router(tokenSvc services.TokenService, authSvc services.AuthService, rolesSvc services.RolesService) chi.Router {
+func Router(tokenSvc services.TokenService, authSvc services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService) chi.Router {
 	r := chi.NewRouter()
 	r.Get("/login", func(w http.ResponseWriter, r *http.Request) {
 		loginType := r.URL.Query().Get("type")
@@ -50,6 +53,10 @@ func Router(tokenSvc services.TokenService, authSvc services.AuthService, rolesS
 			render.JSON(w, r, err)
 		}
 		accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, Email: info.Email})
+		if err == services.ErrUserNotFound {
+			http.Redirect(w, r, "/login?error=user_not_found", http.StatusTemporaryRedirect)
+			return
+		}
 		if err != nil {
 			render.Status(r, http.StatusUnauthorized)
 			log.Println(err)
@@ -69,8 +76,9 @@ func Router(tokenSvc services.TokenService, authSvc services.AuthService, rolesS
 	})
 	g := r.With(guardMiddleware(tokenSvc))
 	g.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
 		user := getUser(r)
-		roles, err := rolesSvc.UserPermissions(r.Context(), user.Id, "")
+		roles, err := rolesSvc.UserPermissions(ctx, user.Id, "")
 		if err != nil {
 			render.Status(r, http.StatusInternalServerError)
 			log.Println(err)
@@ -78,19 +86,24 @@ func Router(tokenSvc services.TokenService, authSvc services.AuthService, rolesS
 		}
 		templateRoles := make([]templates.Role, 0, len(roles))
 		for _, role := range roles {
+			acc, err := accountSrvc.GetFromAccountName(ctx, role.AccountName)
+			if err != nil {
+				render.Status(r, http.StatusInternalServerError)
+				log.Println(err)
+				render.JSON(w, r, err)
+				return
+			}
 			templateRoles = append(templateRoles, templates.Role{
-				AccountId: role.AwsAccountId,
-				AccountName: role.Account.Name,
-				RoleName: role.Role.Name,
-				HasCredentials: role.pe,
+				AccountName:    role.AccountName,
+				AccountId:      acc.AwsAccountId,
+				RoleName:       role.RoleName,
+				HasCredentials: slices.Contains(role.Permissions, "credentials"),
+				HasConsole:     slices.Contains(role.Permissions, "console"),
 			})
 		}
 		data := templates.RolesData{
 			Navbar: templates.Navbar{Username: user.Username},
-			Roles: []templates.Role{
-				{AccountId: 999999999999, AccountName: "main", RoleName: "developer-role", HasCredentials: true},
-				{AccountId: 999999999999, AccountName: "main", RoleName: "readonly-role", HasCredentials: true, HasConsole: true},
-			},
+			Roles:  templateRoles,
 		}
 		if err := templates.RolesTemplate(w, data); err != nil {
 			render.Status(r, http.StatusInternalServerError)
