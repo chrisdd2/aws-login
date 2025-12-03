@@ -130,6 +130,7 @@ func guardMiddleware(tokenService services.TokenService) func(next http.Handler)
 			info, err := tokenService.Validate(r.Context(), cookie.Value)
 			if err != nil {
 				http.Redirect(w, r, "/login?error=invalid_cookie", http.StatusSeeOther)
+				log.Println(err)
 				return
 			}
 			r = r.WithContext(context.WithValue(r.Context(), UserCtxKey, info))

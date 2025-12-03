@@ -139,7 +139,7 @@ func main() {
 	// must(yaml.NewDecoder(f).Decode(&storageSvc))
 	// f.Close()
 
-	tokenSvc := services.NewToken(storageSvc, appCfg.SignKey)
+	tokenSvc := services.NewToken(storageSvc, []byte(appCfg.SignKey))
 	roleSvc := services.NewRoleService(storageSvc)
 	accSvc := services.NewAccountService(storageSvc, awsApi)
 	idp := must2(services.NewOpenId(ctx, "http://localhost:8080/realms/grafana", "http://localhost:8090/oauth2/idpresponse", "awslogin", "x8CQn6u68os9NbJOHX2nQpkMdIxcfx40"))

@@ -53,7 +53,7 @@ func (a *tokenServiceImpl) Create(ctx context.Context, usr *UserInfo) (string, e
 	usr.Id = sgUser.Name
 	accessToken, err := a.signToken(*usr, DefaultTokenExpiration)
 	if err != nil {
-		return "", nil
+		return "", err
 	}
 	return accessToken, nil
 }
