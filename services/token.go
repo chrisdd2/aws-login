@@ -9,7 +9,7 @@ import (
 )
 
 type TokenService interface {
-	Create(ctx context.Context, usr *UserInfo) (accessToken string, err error)
+	Create(ctx context.Context, usr *UserInfo, validate bool) (accessToken string, err error)
 	Validate(ctx context.Context, token string) (*UserInfo, error)
 }
 
@@ -44,13 +44,15 @@ func (t *tokenServiceImpl) signToken(usr UserInfo, expiration time.Duration) (st
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(t.key)
 }
-func (a *tokenServiceImpl) Create(ctx context.Context, usr *UserInfo) (string, error) {
-	sgUser, err := a.storage.GetUser(ctx, usr.Username)
-	if err != nil {
-		return "", err
+func (a *tokenServiceImpl) Create(ctx context.Context, usr *UserInfo, validate bool) (string, error) {
+	if validate {
+		sgUser, err := a.storage.GetUser(ctx, usr.Username)
+		if err != nil {
+			return "", err
+		}
+		usr.Superuser = sgUser.Superuser
+		usr.Id = sgUser.Name
 	}
-	usr.Superuser = sgUser.Superuser
-	usr.Id = sgUser.Name
 	accessToken, err := a.signToken(*usr, DefaultTokenExpiration)
 	if err != nil {
 		return "", err

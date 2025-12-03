@@ -16,9 +16,11 @@ var ErrUserNotFound = errors.New("UserNotFound")
 
 type Storage interface {
 	ListRolesForAccount(ctx context.Context, accountId string) ([]*appconfig.Role, error)
-	ListRolePermissions(ctx context.Context, userName string, accountName string) ([]*appconfig.RoleAttachment, error)
+
+	ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]*appconfig.RoleAttachment, error)
 	GetInlinePolicy(ctx context.Context, id string) (*appconfig.InlinePolicy, error)
 
+	GetRole(ctx context.Context, name string) (*appconfig.Role, error)
 	GetUser(ctx context.Context, name string) (*appconfig.User, error)
 	GetAccount(ctx context.Context, id string) (*appconfig.Account, error)
 }
@@ -62,13 +64,13 @@ func (s *Store) GetAccount(ctx context.Context, name string) (*appconfig.Account
 func (s *Store) ListRolesForAccount(ctx context.Context, accountName string) ([]*appconfig.Role, error) {
 	roles := []*appconfig.Role{}
 	for _, role := range s.Roles {
-		if slices.Contains(role.AssociatedAccounts, accountName) {
+		if accountName == "" || slices.Contains(role.AssociatedAccounts, accountName) {
 			roles = append(roles, &role)
 		}
 	}
 	return roles, nil
 }
-func (s *Store) ListRolePermissions(ctx context.Context, userName string, accountName string) ([]*appconfig.RoleAttachment, error) {
+func (s *Store) ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]*appconfig.RoleAttachment, error) {
 	if userName == "" {
 		return nil, errors.New("username must be provided")
 	}
@@ -78,7 +80,7 @@ func (s *Store) ListRolePermissions(ctx context.Context, userName string, accoun
 	}
 	ats := []*appconfig.RoleAttachment{}
 	for _, at := range user.Roles {
-		if accountName == "" || at.AccountName == accountName {
+		if (accountName == "" || at.AccountName == accountName) && (roleName == "" || at.RoleName == roleName) {
 			ats = append(ats, &at)
 		}
 	}
@@ -101,4 +103,14 @@ func (s *Store) GetUser(ctx context.Context, id string) (*appconfig.User, error)
 		return &s.Users[idx], nil
 	}
 	return nil, ErrUserNotFound
+}
+
+func (s *Store) GetRole(ctx context.Context, name string) (*appconfig.Role, error) {
+	idx := slices.IndexFunc(s.Roles, func(acc appconfig.Role) bool {
+		return name == acc.Name
+	})
+	if idx != -1 {
+		return &s.Roles[idx], nil
+	}
+	return nil, errors.New("RoleNotFound")
 }

@@ -16,6 +16,10 @@ type Navbar struct {
 
 type LoginData struct {
 	ErrorString string
+	LoginType   []struct {
+		Name string
+		Desc string
+	}
 }
 
 func LoginTemplate(w io.Writer, data LoginData) error {

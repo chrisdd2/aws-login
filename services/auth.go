@@ -30,6 +30,7 @@ type AuthInfo struct {
 type AuthService interface {
 	RedirectUrl() string
 	CallbackEndpoint() string
+	Name() string
 	CallbackHandler(r *http.Request) (*AuthInfo, error)
 }
 
@@ -67,6 +68,10 @@ func (g *GithubService) RedirectUrl() string {
 }
 func (g *GithubService) CallbackEndpoint() string {
 	return g.AuthResponsePath
+}
+
+func (g *GithubService) Name() string {
+	return "github"
 }
 
 var ErrCannotFindEmail error = errors.New("unable to determine github email")
@@ -172,7 +177,7 @@ func (g *OpenIdService) RedirectUrl() string {
 }
 
 func (g *OpenIdService) CallbackEndpoint() string {
-	return "/oauth2/idpresponse"
+	return "/oauth2/keycloak/idpresponse"
 }
 func (g *OpenIdService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 	ctx := r.Context()
@@ -231,6 +236,9 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 
 }
 
+func (g *OpenIdService) Name() string {
+	return "keycloak"
+}
 func parseRoleAttribute(attr string) RolePermissionClaim {
 	claim := RolePermissionClaim{}
 	for pair := range strings.SplitSeq(attr, ";") {

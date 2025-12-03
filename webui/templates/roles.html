@@ -55,19 +55,19 @@
                         {{range .Roles}}
                         <tr class="border-b border-gray-200 dark:border-gray-700">
                             <td class="py-3 px-4 text-gray-900 dark:text-white">
-                                {{if .AccountName}}{{.AccountName}}{{else}}{{.AccountId}}{{end}}
+                                <span>{{.AccountName}} </span><span class="text-xs text-cyan-600 dark:text-cyan-400">({{.AccountId}})</span>
                             </td>
                             <td class="py-3 px-4 text-gray-900 dark:text-white">{{.RoleName}}</td>
                             <td class="py-3 px-4 text-right whitespace-nowrap">
                                 <div class="flex gap-2 justify-end">
                                     {{if .HasConsole}}
-                                    <a href="/console?account={{.AccountId}}&role={{.RoleName}}" target="_blank" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
+                                    <a href="/account/console?account={{.AccountName}}&role={{.RoleName}}" target="_blank" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
                                         <i class="fas fa-external-link-alt text-xs"></i>
                                         <span>Console</span>
                                     </a>
                                     {{end}}
                                     {{if .HasCredentials}}
-                                    <a href="/credentials?account={{.AccountId}}&role={{.RoleName}}" class="bg-blue-500 hover:bg-blue-600 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
+                                    <a href="/account/credentials?account={{.AccountName}}&role={{.RoleName}}" class="bg-blue-500 hover:bg-blue-600 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
                                         <i class="fas fa-download text-xs"></i>
                                         <span>Credentials</span>
                                     </a>

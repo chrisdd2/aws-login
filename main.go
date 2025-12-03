@@ -80,10 +80,6 @@ func main() {
 
 	logger.Info("using", "assumer", arn)
 
-	// _ = &auth.GithubAuth{
-	// 	ClientSecret: appCfg.GithubClientSecret,
-	// 	ClientId:     appCfg.GithubClientId,
-	// }
 	storageSvc := &services.Store{}
 	if appCfg.ConfigDirectory != "" {
 		entries := must2(os.ReadDir(appCfg.ConfigDirectory))
@@ -140,10 +136,17 @@ func main() {
 	// f.Close()
 
 	tokenSvc := services.NewToken(storageSvc, []byte(appCfg.SignKey))
-	roleSvc := services.NewRoleService(storageSvc)
+	roleSvc := services.NewRoleService(storageSvc, awsApi)
 	accSvc := services.NewAccountService(storageSvc, awsApi)
-	idp := must2(services.NewOpenId(ctx, "http://localhost:8080/realms/grafana", "http://localhost:8090/oauth2/idpresponse", "awslogin", "x8CQn6u68os9NbJOHX2nQpkMdIxcfx40"))
-	log.Println(idp.RedirectUrl())
+	idps := []services.AuthService{}
+	if appCfg.GithubEnabled {
+		idps = append(idps, &services.GithubService{ClientSecret: appCfg.GithubClientSecret, ClientId: appCfg.GithubClientId, AuthResponsePath: "/oauth2/github/idpresponse"})
+		log.Println("[github] login enabled")
+	}
+	if appCfg.OpenIdEnabled {
+		idps = append(idps, must2(services.NewOpenId(ctx, appCfg.OpenIdProviderUrl, appCfg.OpenIdRedirectUrl, appCfg.OpenIdClientId, appCfg.OpenIdClientSecret)))
+		log.Println("[keycloak] login enabled")
+	}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -158,7 +161,7 @@ func main() {
 
 	r.Handle("/metrics", metrics.Handler())
 
-	r.Mount("/", webui.Router(tokenSvc, idp, roleSvc, accSvc))
+	r.Mount("/", webui.Router(tokenSvc, idps, roleSvc, accSvc, appCfg.AdminUsername, appCfg.AdminPassword))
 
 	// api := api.V1Api()
 	// r.Mount("/api", api)

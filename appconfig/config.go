@@ -17,8 +17,10 @@ type AppConfig struct {
 	DevelopmentMode           bool   `default:"false" json:"development_mode,omitempty"`
 	ConfigDirectory           string `default:".config" json:"conf_dir,omitempty"`
 	ConfigUrl                 string `json:"conf_url,omitempty"`
+	GithubEnabled             bool   `default:"false" json:"github_enabled"`
 	GithubClientSecret        string `mask:"true" json:"github_client_secret,omitempty"`
 	GithubClientId            string `json:"github_client_id,omitempty"`
+	OpenIdEnabled             bool   `default:"false" json:"openid_enabled"`
 	OpenIdProviderUrl         string `json:"openid_provider_url,omitempty"`
 	OpenIdRedirectUrl         string `json:"openid_redirect_url,omitempty"`
 	OpenIdClientId            string `json:"openid_client_id,omitempty"`

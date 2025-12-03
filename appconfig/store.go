@@ -1,6 +1,7 @@
 package appconfig
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -17,6 +18,11 @@ type Role struct {
 	Enabled            bool              `json:"enabled,omitempty"`
 	AssociatedAccounts []string          `json:"accounts,omitempty"`
 }
+
+func (r Role) Arn(accountId int) string{
+	return fmt.Sprintf("arn:aws:iam::%d:role/%s", accountId, r.Name)
+}
+
 type RoleAttachment struct {
 	RoleName    string
 	AccountName string
