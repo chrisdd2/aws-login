@@ -6,8 +6,8 @@ import (
 )
 
 type InlinePolicy struct {
-	Id       string
-	Document string
+	Id       string `json:"id,omitempty"`
+	Document string `json:"document,omitempty"`
 }
 
 type Role struct {
@@ -19,14 +19,14 @@ type Role struct {
 	AssociatedAccounts []string          `json:"accounts,omitempty"`
 }
 
-func (r Role) Arn(accountId int) string{
+func (r Role) Arn(accountId int) string {
 	return fmt.Sprintf("arn:aws:iam::%d:role/%s", accountId, r.Name)
 }
 
 type RoleAttachment struct {
-	RoleName    string
-	AccountName string
-	Permissions []string
+	RoleName    string   `json:"role_name,omitempty"`
+	AccountName string   `json:"account_name,omitempty"`
+	Permissions []string `json:"permissions,omitempty"`
 }
 type User struct {
 	Name      string           `json:"name,omitempty"`

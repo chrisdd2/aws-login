@@ -129,10 +129,7 @@ func main() {
 	// 	ManagedPolicies:    []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"},
 	// })
 	// f := must2(os.Create(".config/test.yml"))
-	// must(yaml.NewEncoder(f).Encode(&storageSvc))
-	// f.Close()
-	// f = must2(os.Open(".config/test.yml"))
-	// must(yaml.NewDecoder(f).Decode(&storageSvc))
+	// f.Write(must2(yaml.Marshal(&storageSvc)))
 	// f.Close()
 
 	tokenSvc := services.NewToken(storageSvc, []byte(appCfg.SignKey))

@@ -9,7 +9,8 @@ import (
 	"slices"
 
 	"github.com/chrisdd2/aws-login/appconfig"
-	"gopkg.in/yaml.v2"
+
+	"sigs.k8s.io/yaml"
 )
 
 var ErrUserNotFound = errors.New("UserNotFound")
@@ -41,7 +42,11 @@ func (s *Store) Merge(o *Store) *Store {
 	}
 }
 func (s *Store) LoadYaml(r io.Reader) error {
-	return yaml.NewDecoder(r).Decode(&s)
+	buf, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	return yaml.Unmarshal(buf, s)
 }
 func (s *Store) LoadJson(r io.Reader) error {
 	return json.NewDecoder(r).Decode(&s)

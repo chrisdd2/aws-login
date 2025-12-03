@@ -18,6 +18,7 @@ type UserInfo struct {
 	Username  string
 	Email     string
 	Superuser bool
+	LoginType string
 }
 
 type UserClaims struct {

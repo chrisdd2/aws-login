@@ -30,6 +30,7 @@ type AuthInfo struct {
 type AuthService interface {
 	RedirectUrl() string
 	CallbackEndpoint() string
+	LogoutUrl() string
 	Name() string
 	CallbackHandler(r *http.Request) (*AuthInfo, error)
 }
@@ -72,6 +73,9 @@ func (g *GithubService) CallbackEndpoint() string {
 
 func (g *GithubService) Name() string {
 	return "github"
+}
+func (g *GithubService) LogoutUrl() string {
+	return "/"
 }
 
 var ErrCannotFindEmail error = errors.New("unable to determine github email")
@@ -139,9 +143,27 @@ func getWrapped(url string, headers map[string]string, expected int, v any) erro
 }
 
 type OpenIdService struct {
-	provider *oidc.Provider
-	verifier *oidc.IDTokenVerifier
-	oauthCfg *oauth2.Config
+	provider  *oidc.Provider
+	verifier  *oidc.IDTokenVerifier
+	oauthCfg  *oauth2.Config
+	logoutUrl string
+}
+
+func findLogoutUrl(issuer string) (string, error) {
+	// find the logout url
+	wellKnown := strings.TrimSuffix(issuer, "/") + "/.well-known/openid-configuration"
+	info := struct {
+		EndSessionEndpoint string `json:"end_session_endpoint"`
+	}{}
+	resp, err := http.Get(wellKnown)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return "", err
+	}
+	return info.EndSessionEndpoint, nil
 }
 
 func NewOpenId(ctx context.Context, providerUrl string, redirectUrl string, clientId string, clientSecret string) (*OpenIdService, error) {
@@ -150,6 +172,11 @@ func NewOpenId(ctx context.Context, providerUrl string, redirectUrl string, clie
 	if err != nil {
 		return nil, fmt.Errorf("oidc.NewProvider %w", err)
 	}
+	logoutUrl, err := findLogoutUrl(providerUrl)
+	if err != nil {
+		return nil, fmt.Errorf("oidc.NewProvider %w", err)
+	}
+
 	verifier := provider.VerifierContext(ctx, &oidc.Config{
 		ClientID: clientId,
 	})
@@ -166,9 +193,10 @@ func NewOpenId(ctx context.Context, providerUrl string, redirectUrl string, clie
 		},
 	}
 	return &OpenIdService{
-		oauthCfg: &cfg,
-		verifier: verifier,
-		provider: provider,
+		oauthCfg:  &cfg,
+		verifier:  verifier,
+		provider:  provider,
+		logoutUrl: logoutUrl,
 	}, nil
 }
 
@@ -238,6 +266,10 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 
 func (g *OpenIdService) Name() string {
 	return "keycloak"
+}
+
+func (g *OpenIdService) LogoutUrl() string {
+	return g.logoutUrl
 }
 func parseRoleAttribute(attr string) RolePermissionClaim {
 	claim := RolePermissionClaim{}

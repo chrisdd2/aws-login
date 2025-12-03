@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -71,7 +72,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				http.Redirect(w, r, "/login?error=wrong_credentials", http.StatusSeeOther)
 				return
 			}
-			accessToken, _ := tokenSvc.Create(r.Context(), &services.UserInfo{Username: username, Email: "admin@admin", Superuser: true}, false)
+			accessToken, _ := tokenSvc.Create(r.Context(), &services.UserInfo{Username: username, Email: "admin@admin", Superuser: true, LoginType: "userpass"}, false)
 			sendAccessToken(w, r, accessToken)
 			return
 		}
@@ -90,7 +91,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				log.Println(err)
 				render.JSON(w, r, err)
 			}
-			accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, Email: info.Email}, true)
+			accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, Email: info.Email, LoginType: idp.Name()}, true)
 			if err == services.ErrUserNotFound {
 				http.Redirect(w, r, "/login?error=user_not_found", http.StatusTemporaryRedirect)
 				return
@@ -179,6 +180,24 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			return
 		}
 		http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+	})
+	g.Get("/logout", func(w http.ResponseWriter, r *http.Request) {
+		user := getUser(r)
+
+		cookie, _ := r.Cookie("aws-login-cookie")
+		if cookie != nil {
+			cookie.MaxAge = -1
+			http.SetCookie(w, cookie)
+		}
+		// add redirect after
+		vals := url.Values{}
+		vals.Add("redirect_url","http://localhost:3000")
+		for _, idp := range authSvcs {
+			if user.LoginType == idp.Name() {
+				http.Redirect(w, r, idp.LogoutUrl() + "?"+vals.Encode(), http.StatusTemporaryRedirect)
+				return
+			}
+		}
 	})
 	return r
 }
