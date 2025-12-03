@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"log/slog"
@@ -16,9 +15,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/aws"
 	"github.com/chrisdd2/aws-login/services"
-	"github.com/chrisdd2/aws-login/storage"
+	sg "github.com/chrisdd2/aws-login/storage"
+	"github.com/chrisdd2/aws-login/webui"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/metrics"
 )
 
 func must(err error) {
@@ -64,7 +65,7 @@ func main() {
 
 	// storage setup
 	assert(appCfg.StorageType == "memory", "only memory storage support atm")
-	storage := must2(storage.NewJsonBackend(appCfg.StorageFile))
+	storage := must2(sg.NewJsonBackend(appCfg.StorageFile))
 
 	exitSignal := make(chan os.Signal, 10)
 	signal.Notify(exitSignal, os.Interrupt, syscall.SIGTERM)
@@ -111,25 +112,78 @@ func main() {
 	// 	ClientSecret: appCfg.GithubClientSecret,
 	// 	ClientId:     appCfg.GithubClientId,
 	// }
+	idp := must2(services.NewOpenId(ctx, "http://localhost:8080/realms/grafana", "http://localhost:8090/oauth2/idpresponse", "awslogin", "x8CQn6u68os9NbJOHX2nQpkMdIxcfx40"))
+	log.Println(idp.RedirectUrl())
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Logger)
+	r.Use(metrics.Collector(metrics.CollectorOpts{
+		Host:  false,
+		Proto: true,
+		Skip: func(r *http.Request) bool {
+			return r.Method != "OPTIONS"
+		},
+	}))
+
+	r.Handle("/metrics", metrics.Handler())
 
 	// api := api.V1Api()
 	// r.Mount("/api", api)
 
-	h := http.FileServer(http.Dir("webui"))
-	r.Mount("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		headers := []any{}
-		for k := range r.Header {
-			if strings.HasPrefix(k, "Hx-") {
-				headers = append(headers, k, r.Header.Get(k))
-			}
-		}
-		slog.Info("headers", headers...)
-		h.ServeHTTP(w, r)
-	}))
+	r.Mount("/", webui.Router(token, idp))
+
+	// key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	// jwks := goidc.JSONWebKeySet{
+	// 	Keys: []goidc.JSONWebKey{{
+	// 		KeyID:     "key_id",
+	// 		Key:       key,
+	// 		Algorithm: "RS256",
+	// 	}},
+	// }
+	// policy := goidc.NewPolicy("main", func(r *http.Request, c *goidc.Client, as *goidc.AuthnSession) bool {
+	// 	return true
+	// }, func(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession) (goidc.AuthnStatus, error) {
+	// 	ctx := r.Context()
+	// 	authorization, found := strings.CutPrefix("Bearer ", r.Header.Get("Authorization"))
+	// 	if !found {
+	// 		return goidc.StatusFailure, errors.New("missing authorization token")
+	// 	}
+	// 	info, err := token.Validate(ctx, authorization)
+	// 	if err != nil {
+	// 		return goidc.StatusFailure, err
+	// 	}
+	// 	_, err = storage.GetUser(ctx, info.Id)
+	// 	if err != nil {
+	// 		return goidc.StatusFailure, err
+	// 	}
+	// 	client, err := storage.GetOAuthClient(ctx, as.ClientID)
+	// 	if err != nil {
+	// 		return goidc.StatusFailure, err
+	// 	}
+	// 	roles := []string{}
+	// 	for _, acc := range client.Accounts {
+	// 		nextToken := (*string)(nil)
+	// 		for {
+	// 			seq, token, err := storage.ListRolePermissions(ctx,acc,info.Id,nextToken)
+	// 			if err !=nil {
+	// 				return goidc.StatusFailure,nil
+	// 			}
+	// 			for role := range seq{
+	// 			}
+	// 		}
+	// 	}
+	// 	as.AdditionalUserInfoClaims
+	// 	as.AdditionalUserInfoClaims
+	// })
+	// op, _ := provider.New(
+	// 	goidc.ProfileOpenID,
+	// 	"http://localhost:8090",
+	// 	func(_ context.Context) (goidc.JSONWebKeySet, error) {
+	// 		return jwks, nil
+	// 	},
+	// 	provider.WithPolicies(policy))
+	// r.Mount("/oidc", op.Handler())
 
 	logger.Info("listening", "address", appCfg.ListenAddr, "url", fmt.Sprintf("http:/%s", appCfg.ListenAddr))
 	must(http.ListenAndServe(appCfg.ListenAddr, r))

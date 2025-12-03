@@ -12,11 +12,13 @@ type RolePermissionType int
 type AccountPermissionType int
 
 const (
-	RolePermissionLogin = RolePermissionType(iota)
+	RolePermissionInvalid = 0
+	RolePermissionLogin   = RolePermissionType(iota) + 1
 	RolePermissionCredential
 	RolePermissionGrant
 
-	AccountPermissionBootstrap = AccountPermissionType(iota)
+	AccountPermissionInvalid   = 0
+	AccountPermissionBootstrap = AccountPermissionType(iota) + 1
 	AccountPermissionStatus
 )
 
@@ -65,6 +67,13 @@ type User struct {
 	Email     string `json:"email,omitempty"`
 	Tags      string `json:"tags,omitempty"`
 	Superuser bool   `json:"superuser,omitempty"`
+}
+
+type OAuthClient struct {
+	ClientId     string   `json:"client_id,omitempty" sg:"id"`
+	ClientSecret string   `json:"client_secret,omitempty"`
+	Accounts     []string `json:"accounts,omitempty"`
+	RedirectUrls []string `json:"redirect_urls,omitempty"`
 }
 
 func DeveloperRoleDefinition(accountId string, roleName string) *Role {

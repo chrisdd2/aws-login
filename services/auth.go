@@ -1,18 +1,38 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
+
+	"github.com/chrisdd2/aws-login/storage"
+	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/oauth2"
 )
+
+type RolePermissionClaim struct {
+	RoleName   string
+	Account    int
+	AccessType storage.RolePermissionType
+}
+
+type AuthInfo struct {
+	Username   string
+	Email      string
+	RoleClaims []RolePermissionClaim
+}
 
 type AuthService interface {
 	RedirectUrl() string
 	CallbackEndpoint() string
-	CallbackHandler(r *http.Request) (*UserInfo, error)
+	CallbackHandler(r *http.Request) (*AuthInfo, error)
 }
 
 const (
@@ -53,7 +73,7 @@ func (g *GithubService) CallbackEndpoint() string {
 
 var ErrCannotFindEmail error = errors.New("unable to determine github email")
 
-func (g *GithubService) CallbackHandler(r *http.Request) (*UserInfo, error) {
+func (g *GithubService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 	code := r.URL.Query().Get("code")
 	url := generateGithubAccessToken(g.ClientId, g.ClientSecret, code)
 	token := struct {
@@ -88,7 +108,7 @@ func (g *GithubService) CallbackHandler(r *http.Request) (*UserInfo, error) {
 	if userEmail == "" {
 		return nil, ErrCannotFindEmail
 	}
-	return &UserInfo{Username: loginInfo.Login, Email: userEmail}, nil
+	return &AuthInfo{Username: loginInfo.Login, Email: userEmail}, nil
 }
 
 func fetchJsonAuthed(url string, accessToken string, v any) error {
@@ -113,4 +133,159 @@ func getWrapped(url string, headers map[string]string, expected int, v any) erro
 		return errors.Join(err, fmt.Errorf("getWrapped [%s]", string(data)))
 	}
 	return json.NewDecoder(resp.Body).Decode(v)
+}
+
+type OpenIdService struct {
+	provider *oidc.Provider
+	verifier *oidc.IDTokenVerifier
+	oauthCfg *oauth2.Config
+
+	roleClaimsKey string
+}
+
+func NewOpenId(ctx context.Context, providerUrl string, redirectUrl string, clientId string, clientSecret string) (*OpenIdService, error) {
+
+	provider, err := oidc.NewProvider(ctx, providerUrl)
+	if err != nil {
+		return nil, fmt.Errorf("oidc.NewProvider %w", err)
+	}
+	verifier := provider.VerifierContext(ctx, &oidc.Config{
+		ClientID: clientId,
+	})
+	cfg := oauth2.Config{
+		ClientID:     clientId,
+		ClientSecret: clientSecret,
+		RedirectURL:  redirectUrl,
+		Endpoint:     provider.Endpoint(),
+		Scopes: []string{
+			oidc.ScopeOpenID,
+			"email",
+			"profile",
+			"roles",
+		},
+	}
+	return &OpenIdService{
+		oauthCfg: &cfg,
+		verifier: verifier,
+		provider: provider,
+	}, nil
+}
+
+func (g *OpenIdService) SetRoleClaimsKey(key string) {
+	g.roleClaimsKey = key
+}
+
+func (g *OpenIdService) RedirectUrl() string {
+	return g.oauthCfg.AuthCodeURL("")
+}
+
+func (g *OpenIdService) CallbackEndpoint() string {
+	return "/oauth2/idpresponse"
+}
+func (g *OpenIdService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
+	ctx := r.Context()
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		return nil, errors.New("query.Get [missing code parameter]")
+	}
+	token, err := g.oauthCfg.Exchange(ctx, code)
+	if err != nil {
+		return nil, fmt.Errorf("oauth2.Exchange %w", err)
+	}
+	idTokenRaw, ok := token.Extra("id_token").(string)
+	if !ok {
+		return nil, errors.New("token.Extra [missing id_token in token]")
+	}
+	idToken, err := g.verifier.Verify(ctx, idTokenRaw)
+	if err != nil {
+		return nil, fmt.Errorf("oidc.Verify %w", err)
+	}
+
+	type realmAccess struct {
+		Roles []string `json:"roles"`
+	}
+	type accessClaims struct {
+		RealmAccess    realmAccess    `json:"realm_access"`
+		ResourceAccess map[string]any `json:"resource_access"`
+		AwsRoles       []string       `json:"aws_roles"`
+	}
+	type Claims struct {
+		jwt.MapClaims
+		accessClaims
+	}
+	claims := Claims{}
+	_, _, err = jwt.NewParser().ParseUnverified(token.AccessToken, &claims)
+	if err != nil {
+		return nil, fmt.Errorf("token.ParseUnverified %w", err)
+	}
+	if err := idToken.Claims(&claims.MapClaims); err != nil {
+		return nil, fmt.Errorf("idToken.Claims %w", err)
+	}
+
+	// user info
+	email, _ := claims.MapClaims["email"].(string)
+	username, _ := claims.MapClaims["name"].(string)
+	preferred_username, _ := claims.MapClaims["preferred_username"].(string)
+	if preferred_username != "" {
+		username = preferred_username
+	}
+	if username == "" {
+		username = email
+	}
+	// parse role claims
+	roleClaims := make([]RolePermissionClaim, 0, len(claims.accessClaims.AwsRoles))
+	for _, role := range claims.accessClaims.AwsRoles {
+		claim := parseRoleAttribute(role)
+		if ValidateAWSAccountID(claim.Account) && claim.AccessType != storage.RolePermissionInvalid && claim.RoleName != "" {
+			roleClaims = append(roleClaims, claim)
+		}
+	}
+	return &AuthInfo{
+		Email:      claims.MapClaims["email"].(string),
+		Username:   username,
+		RoleClaims: roleClaims,
+	}, nil
+
+}
+
+func parseRoleAttribute(attr string) RolePermissionClaim {
+	claim := RolePermissionClaim{}
+	for pair := range strings.SplitSeq(attr, ";") {
+		k, v, found := strings.Cut(pair, ":")
+		if !found {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		fmt.Println(k, v)
+		switch k {
+		case "access_type":
+			claim.AccessType = rolePermissionFromString(v)
+		case "account":
+			claim.Account, _ = strconv.Atoi(v)
+		case "role_name":
+			claim.RoleName = v
+		}
+	}
+	return claim
+}
+
+func rolePermissionFromString(permission string) storage.RolePermissionType {
+	fmt.Println(permission)
+	permission = strings.ToLower(permission)
+	switch permission {
+	case "grant":
+		return storage.RolePermissionGrant
+	case "assume":
+		return storage.RolePermissionLogin
+	case "credential":
+		return storage.RolePermissionCredential
+	}
+	return storage.RolePermissionInvalid
+}
+
+func debugPrint(claims jwt.MapClaims) {
+	for k, v := range claims {
+		fmt.Println(k, "=", v)
+	}
 }

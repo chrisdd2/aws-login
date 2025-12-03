@@ -21,6 +21,7 @@ var (
 	ErrAccountPermissionNotFound = errors.New("AccountPermission does not exist")
 	ErrAccountNotFound           = errors.New("Account does not exist")
 	ErrUserNotFound              = errors.New("User does not exist")
+	ErrOAuthClientNotFound       = errors.New("OAuthClient does not exist")
 )
 
 const (
@@ -53,6 +54,11 @@ type Service interface {
 	PutUser(ctx context.Context, user *User, del bool) (*User, error)
 	GetUserByName(ctx context.Context, name string) (*User, error)
 
+	GetOAuthClient(ctx context.Context, id string) (*OAuthClient, error)
+	GetOAuthClients(ctx context.Context, id ...string) ([]*OAuthClient, error)
+	ListOAuthClients(ctx context.Context, nextToken *string) (iter.Seq[*OAuthClient], *string, error)
+	PutOAuthClient(ctx context.Context, oauthclient *OAuthClient, del bool) (*OAuthClient, error)
+
 	Close() error
 }
 
@@ -77,6 +83,7 @@ type jsonSerializableFields struct {
 	AccountPermissions []*AccountPermission `json:"accountpermissions,omitempty"`
 	Accounts           []*Account           `json:"accounts,omitempty"`
 	Users              []*User              `json:"users,omitempty"`
+	OAuthClients       []*OAuthClient       `json:"oauthclients,omitempty"`
 }
 
 func NewJsonBackend(fileName string) (Service, error) {
@@ -101,6 +108,7 @@ func (j *jsonSerializableFields) sortSlices() {
 	j.AccountPermissions = slices.SortedFunc(slices.Values(j.AccountPermissions), func(u1, u2 *AccountPermission) int { return cmp.Compare(u1.UserId, u2.UserId) })
 	j.Accounts = slices.SortedFunc(slices.Values(j.Accounts), func(u1, u2 *Account) int { return cmp.Compare(u1.Id, u2.Id) })
 	j.Users = slices.SortedFunc(slices.Values(j.Users), func(u1, u2 *User) int { return cmp.Compare(u1.Id, u2.Id) })
+	j.OAuthClients = slices.SortedFunc(slices.Values(j.OAuthClients), func(u1, u2 *OAuthClient) int { return cmp.Compare(u1.ClientId, u2.ClientId) })
 }
 
 func (j *JsonBackend) lock() {
@@ -451,4 +459,63 @@ func (j *JsonBackend) GetUserByName(ctx context.Context, name string) (*User, er
 		}
 	}
 	return nil, ErrUserNotFound
+}
+
+func (j *JsonBackend) GetOAuthClient(ctx context.Context, id string) (*OAuthClient, error) {
+	for _, v := range j.OAuthClients {
+		if id == v.ClientId {
+			return v, nil
+		}
+	}
+	return nil, ErrOAuthClientNotFound
+}
+func (j *JsonBackend) GetOAuthClients(ctx context.Context, id ...string) ([]*OAuthClient, error) {
+	ret := []*OAuthClient{}
+	for _, v := range j.OAuthClients {
+		for _, z := range id {
+			if z == v.ClientId {
+				ret = append(ret, v)
+				break
+			}
+		}
+	}
+	return ret, nil
+}
+func (j *JsonBackend) ListOAuthClients(ctx context.Context, nextToken *string) (iter.Seq[*OAuthClient], *string, error) {
+	startPos, endPos, nextToken, err := parsePaginationToken(nextToken, len(j.OAuthClients), pageSize)
+	if err != nil {
+		return nil, nil, err
+	}
+	return func(yield func(*OAuthClient) bool) {
+		for i := startPos; i < endPos; i++ {
+			item := j.OAuthClients[i]
+			if !yield(item) {
+				break
+			}
+		}
+	}, nextToken, nil
+}
+
+func (j *JsonBackend) PutOAuthClient(ctx context.Context, oauthclient *OAuthClient, del bool) (*OAuthClient, error) {
+	j.lock()
+	defer j.unlock()
+	if del {
+		j.OAuthClients = slices.DeleteFunc(j.OAuthClients, func(v *OAuthClient) bool {
+			return oauthclient.ClientId == v.ClientId
+		})
+		return oauthclient, nil
+	}
+	idx := slices.IndexFunc(j.OAuthClients, func(v *OAuthClient) bool {
+		return oauthclient.ClientId == v.ClientId
+	})
+	if idx != -1 {
+		oauthclient.ClientId = j.OAuthClients[idx].ClientId
+		j.OAuthClients[idx] = oauthclient
+	} else {
+		if oauthclient.ClientId == "" {
+			oauthclient.ClientId = uuid.NewString()
+		}
+		j.OAuthClients = append(j.OAuthClients, oauthclient)
+	}
+	return oauthclient, nil
 }

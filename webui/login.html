@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AwsLogin - Sign In</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 dark:from-[#1a1a2e] dark:to-[#16213e] transition-colors duration-300">
+    <div class="w-full max-w-md relative">
+        <button class="absolute top-4 right-4 cursor-pointer p-2 rounded bg-transparent border-none z-10 text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors" id="darkModeToggle" aria-label="Toggle dark mode">
+            <i class="fas fa-moon" id="darkModeIcon"></i>
+        </button>
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-2xl dark:shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-8" id="loginCard">
+            <div class="text-center mb-6">
+                <h1 class="text-2xl font-bold mb-2 text-gray-900 dark:text-white" id="loginTitle">AWS Login</h1>
+                <p class="text-sm text-gray-600 dark:text-gray-300" id="loginSubtitle">Sign in to your account</p>
+            </div>
+            
+            <form id="loginForm" action="/login?type=userpass" method="post">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2 text-gray-700 dark:text-white" id="usernameLabel">Username</label>
+                    <div class="relative">
+                        <input class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" type="text" placeholder="Enter your username" id="username" required>
+                        <span class="absolute left-3 top-2.5 text-gray-400">
+                            <i class="fas fa-user"></i>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <label class="block text-sm font-medium mb-2 text-gray-700 dark:text-white" id="passwordLabel">Password</label>
+                    <div class="relative">
+                        <input class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" type="password" placeholder="Enter your password" id="password" required>
+                        <span class="absolute left-3 top-2.5 text-gray-400">
+                            <i class="fas fa-lock"></i>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <button class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2" type="submit">
+                        <i class="fas fa-sign-in-alt"></i>
+                        <span>Sign In</span>
+                    </button>
+                </div>
+            </form>
+
+            <div class="border-t border-gray-200 dark:border-gray-700 my-6"></div>
+
+            <div class="mt-4">
+                <a href="/login?type=keycloak" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
+                    <i class="fas fa-key"></i>
+                    <span>Sign with Keycloak</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script src="/htmx.js"></script>
+</body>
+</html>

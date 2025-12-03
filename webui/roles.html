@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AwsLogin - Roles</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="min-h-screen flex flex-col bg-gradient-to-br from-indigo-500 to-purple-600 dark:from-[#1a1a2e] dark:to-[#16213e] transition-colors duration-300">
+    <!-- Top Navigation Bar -->
+    <nav class="bg-white/95 dark:bg-[#1a1a2e]/95 backdrop-blur-lg shadow-lg dark:shadow-[0_2px_10px_rgba(0,0,0,0.5)] transition-all duration-300" id="mainNavbar" role="navigation" aria-label="main navigation">
+        <div class="container mx-auto px-4">
+            <div class="flex items-center justify-between h-16">
+                <a class="flex items-center gap-2 font-bold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" href="/" id="navbarBrand">
+                    <i class="fas fa-cloud"></i>
+                    <span>AWS Login</span>
+                </a>
+                <div class="flex items-center gap-4">
+                    <button class="cursor-pointer p-2 rounded bg-transparent border-none hover:bg-black/5 dark:hover:bg-white/10 transition-colors text-gray-700 dark:text-white" id="darkModeToggle" aria-label="Toggle dark mode">
+                        <i class="fas fa-moon" id="darkModeIcon"></i>
+                    </button>
+                    <div class="flex items-center gap-2" id="userIndicator">
+                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold" id="userAvatar">
+                            <i class="fas fa-user text-sm"></i>
+                        </div>
+                        <span class="text-gray-700 dark:text-white" id="userName">Loading...</span>
+                        <span class="text-green-500">
+                            <i class="fas fa-circle text-xs"></i>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="flex-1 p-8 flex flex-col items-center">
+        <div class="w-full max-w-6xl bg-white dark:bg-gray-800 rounded-lg shadow-2xl dark:shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-8 transition-all duration-300" id="contentCard">
+            <div class="mb-6">
+                <h1 class="text-2xl font-bold mb-2 text-gray-900 dark:text-white" id="pageTitle">Available Roles</h1>
+                <p class="text-sm text-gray-600 dark:text-gray-300" id="pageSubtitle">Select a role to access AWS resources</p>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full border-collapse" id="rolesTable">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-700">
+                            <th class="text-left py-3 px-4 font-semibold text-gray-700 dark:text-white">Account</th>
+                            <th class="text-left py-3 px-4 font-semibold text-gray-700 dark:text-white">Role</th>
+                            <th class="text-right py-3 px-4 font-semibold text-gray-700 dark:text-white w-[1%] whitespace-nowrap">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rolesTableBody" class="[&>tr:nth-child(even)]:bg-gray-50 dark:[&>tr:nth-child(even)]:bg-gray-700/50 [&>tr:hover]:bg-gray-100 dark:[&>tr:hover]:bg-gray-700">
+                        <tr class="border-b border-gray-200 dark:border-gray-700">
+                            <td class="py-3 px-4 text-gray-900 dark:text-white">123456789012</td>
+                            <td class="py-3 px-4 text-gray-900 dark:text-white">DeveloperRole</td>
+                            <td class="py-3 px-4 text-right whitespace-nowrap">
+                                <div class="flex gap-2 justify-end">
+                                    <a href="/console?account=123456789012&role=DeveloperRole" target="_blank" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
+                                        <i class="fas fa-external-link-alt text-xs"></i>
+                                        <span>Console</span>
+                                    </a>
+                                    <a href="/credentials?account=123456789012&role=DeveloperRole" class="bg-blue-500 hover:bg-blue-600 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
+                                        <i class="fas fa-download text-xs"></i>
+                                        <span>Credentials</span>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr class="border-b border-gray-200 dark:border-gray-700">
+                            <td class="py-3 px-4 text-gray-900 dark:text-white">987654321098</td>
+                            <td class="py-3 px-4 text-gray-900 dark:text-white">AdminRole</td>
+                            <td class="py-3 px-4 text-right whitespace-nowrap">
+                                <div class="flex gap-2 justify-end">
+                                    <a href="/console?account=987654321098&role=AdminRole" target="_blank" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
+                                        <i class="fas fa-external-link-alt text-xs"></i>
+                                        <span>Console</span>
+                                    </a>
+                                    <a href="/credentials?account=987654321098&role=AdminRole" class="bg-blue-500 hover:bg-blue-600 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
+                                        <i class="fas fa-download text-xs"></i>
+                                        <span>Credentials</span>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <nav class="hidden mt-6" id="paginationContainer" role="navigation" aria-label="pagination">
+                <div class="flex items-center justify-center gap-2">
+                    <button class="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed" id="prevPage" onclick="changePage(-1)">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <ul class="flex gap-1" id="paginationList">
+                        <!-- Pagination numbers will be generated here -->
+                    </ul>
+                    <button class="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed" id="nextPage" onclick="changePage(1)">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Bottom Footer Bar -->
+    <footer class="bg-white/95 dark:bg-[#1a1a2e]/95 backdrop-blur-lg shadow-lg dark:shadow-[0_-2px_10px_rgba(0,0,0,0.5)] py-6 transition-all duration-300" id="mainFooter">
+        <div class="container mx-auto px-4 text-center">
+            <p class="font-semibold text-gray-900 dark:text-white mb-1" id="footerText1">
+                <strong>AWS Login</strong> - Secure access to your AWS accounts
+            </p>
+            <p class="text-xs text-gray-600 dark:text-gray-400" id="footerText2">
+                <i class="fas fa-shield-alt mr-1"></i>
+                Your credentials are securely managed
+            </p>
+        </div>
+    </footer>
+
+    <script src="/htmx.js"></script>
+    </body>
+</html>

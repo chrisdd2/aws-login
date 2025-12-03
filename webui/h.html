@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CSS Grid "Table" (no &lt;table&gt;)</title>
+  <style>
+    /* ------- CONFIG ------- */
+    :root{
+      /* set number of columns here */
+      --cols: 4;
+      /* cap column width to ~40 characters (adjust if you want) */
+      --col-cap: 40ch;
+      --gap: 0.5rem;
+      --row-gap: 0.25rem;
+    }
+
+    /* table container (uses ARIA roles for accessibility) */
+    .grid-table{
+      display: grid;
+      grid-template-columns: repeat(var(--cols), max-content);
+      gap: var(--row-gap) var(--gap);
+      align-items: stretch;
+      width: 100%;
+      border-collapse: collapse;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+    }
+
+    /* rows are implicit; each cell is a direct child of the grid
+       To emulate header styling we add a .heading class. */
+
+    .cell{
+      padding: .5rem .75rem;
+      box-sizing: border-box;
+      border: 1px solid #ddd;
+      /* ensure content determines the track width but is capped */
+      min-width: 0; /* allows content to shrink inside the grid track */
+    }
+
+    /* inner wrapper limits width per-column to the cap (40ch by default)
+       and controls wrapping/truncation behaviour. The grid track will size
+       itself to the largest .content in that column (up to the cap). */
+    .cell > .content{
+      display: inline-block;
+      max-width: var(--col-cap);
+      /* choose behaviour you prefer: wrap or ellipsis */
+      white-space: normal;      /* allow wrapping inside the column */
+      overflow-wrap: anywhere;
+    }
+
+    /* header style */
+    .heading{
+      background: #f3f4f6;
+      font-weight: 600;
+    }
+
+    /* subtle row striping using nth-child; adjust if you have headings */
+    .cell:nth-child(n + calc(var(--cols) * 1 + 1)){
+      /* start striping after the first row (assumes first row is header) */
+      /* this selector is just a little visual nicety and can be removed */
+    }
+
+    /* button cells: center the button */
+    .cell.button{
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* make actual buttons consistent size and alignment */
+    .cell.button .btn{
+      padding: .35rem .6rem;
+      border-radius: .375rem;
+      border: 1px solid #bbb;
+      background: #fff;
+      cursor: pointer;
+      white-space: nowrap;
+      font-size: 0.9rem;
+    }
+
+    /* example small responsive behaviour: if the grid is wider than its container,
+       allow it to shrink with scroll on the x-axis */
+    .table-wrap{
+      overflow-x: auto;
+      padding: .25rem;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+    }
+
+    /* optional: make cells look nicer on small screens by switching to flex rows */
+    @media (max-width: 520px){
+      .grid-table{
+        grid-template-columns: 1fr; /* stack columns into single column layout */
+      }
+      .heading{display:none;} /* hide header when stacked - adapt as needed */
+      .cell{border-left:0;border-right:0}
+    }
+  </style>
+</head>
+<body>
+
+<h2>CSS Grid "Table" — no &lt;table&gt; used</h2>
+<p>Columns auto-size to the widest cell in that column, but each cell's content
+is capped at <strong>40ch</strong> (change <code>--col-cap</code> to adjust).
+Button columns are centered. The number of columns is controlled by <code>--cols</code>.</p>
+
+<div class="table-wrap">
+  <!-- set --cols inline if you want a different count for this instance -->
+  <div class="grid-table" role="table" aria-label="Example grid table" style="--cols:4">
+    <!-- Header row (4 columns) -->
+    <div class="cell heading" role="columnheader"><div class="content">Name</div></div>
+    <div class="cell heading" role="columnheader"><div class="content">Email (may be long)</div></div>
+    <div class="cell heading" role="columnheader"><div class="content">Notes</div></div>
+    <div class="cell heading" role="columnheader"><div class="content">Actions</div></div>
+
+    <!-- Row 1 -->
+    <div class="cell" role="cell"><div class="content">Alexandra Verylonglastname</div></div>
+    <div class="cell" role="cell"><div class="content">alex.v@examplecompanydomain.com</div></div>
+    <div class="cell" role="cell"><div class="content">Short note.</div></div>
+    <div class="cell button" role="cell"><button class="btn">Edit</button></div>
+
+    <!-- Row 2 -->
+    <div class="cell" role="cell"><div class="content">Ben</div></div>
+    <div class="cell" role="cell"><div class="content">ben.longemailaddress@verylongsubdomain.example.co.uk</div></div>
+    <div class="cell" role="cell"><div class="content">This is a longer
