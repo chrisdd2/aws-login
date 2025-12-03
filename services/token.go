@@ -5,7 +5,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/chrisdd2/aws-login/storage"
 	sg "github.com/chrisdd2/aws-login/storage"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -32,7 +31,7 @@ type tokenServiceImpl struct {
 	key     any
 }
 
-func NewToken(storage storage.Service, key any) TokenService {
+func NewToken(storage Storage, key any) TokenService {
 	return &tokenServiceImpl{storage, key}
 }
 
@@ -48,14 +47,6 @@ func (t *tokenServiceImpl) signToken(usr UserInfo, expiration time.Duration) (st
 }
 func (a *tokenServiceImpl) Create(ctx context.Context, usr *UserInfo) (string, error) {
 	sgUser, err := a.storage.GetUserByName(ctx, usr.Username)
-	if err == sg.ErrUserNotFound {
-		// create it
-		sgUser, err = a.storage.PutUser(ctx, &sg.User{
-			Name:      usr.Username,
-			Email:     usr.Email,
-			Superuser: false,
-		}, false)
-	}
 	if err != nil {
 		return "", err
 	}

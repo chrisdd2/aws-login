@@ -1,28 +1,30 @@
-package main
+package appconfig
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"strings"
-)
 
-const (
-	StorageTypeSql    = "sql"
-	StorageTypeMemory = "memory"
+	"github.com/goccy/go-yaml"
 )
 
 type AppConfig struct {
 	environmentVariablePrefix string
-	StorageType               string `cfg:"storage_type" default:"memory"`
-	StorageFile               string `cfg:"store_file" default:"store.json"`
-	ListenAddr                string `cfg:"listen_addr" default:"localhost:8090"`
-	SignKey                   string `cfg:"sign_key" default:"somekey" mask:"true"`
-	GenerateRootToken         bool   `cfg:"generate_token" default:"false"`
-	DevelopmentMode           bool   `cfg:"development_mode" default:"false"`
-	DatabaseUrl               string `cfg:"database_url" default:"postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"`
-	GithubClientSecret        string `cfg:"client_secret" mask:"true"`
-	GithubClientId            string `cfg:"client_id"`
+	ListenAddr                string `default:"localhost:8090" json:"listen_addr,omitempty"`
+	SignKey                   string `default:"somekey" mask:"true" json:"sign_key,omitempty"`
+	DevelopmentMode           bool   `default:"false" json:"development_mode,omitempty"`
+	ConfigDirectory           string `default:"config" json:"conf_dir,omitempty"`
+	ConfigUrl                 string `json:"conf_url,omitempty"`
+	GithubClientSecret        string `mask:"true" json:"github_client_secret,omitempty"`
+	GithubClientId            string `json:"github_client_id,omitempty"`
+	OpenIdProviderUrl         string `json:"openid_provider_url,omitempty"`
+	OpenIdRedirectUrl         string `json:"openid_redirect_url,omitempty"`
+	OpenIdClientId            string `json:"openid_client_id,omitempty"`
+	OpenIdClientSecret        string `json:"openid_client_secret,omitempty"`
+	AdminUsername             string `json:"admin_username,omitempty"`
+	AdminPassword             string `json:"admin_password,omitempty"`
 }
 
 func (a *AppConfig) LoadDefaults() error {
@@ -48,7 +50,7 @@ func (a *AppConfig) LoadDefaults() error {
 	return nil
 }
 
-func (a *AppConfig) debugPrint() {
+func (a *AppConfig) DebugPrint() {
 	t := reflect.TypeOf(a).Elem()
 	v := reflect.ValueOf(a).Elem()
 	fmt.Print("AppConfig {\n")
@@ -82,6 +84,9 @@ func (a *AppConfig) LoadFromEnv() error {
 			name = tFld.Tag.Get("cfg")
 		}
 		if name == "" {
+			name = strings.Split(tFld.Tag.Get("json"), ",")[0]
+		}
+		if name == "" {
 			return fmt.Errorf("missing cfg or name tag for field %s", tFld.Name)
 		}
 		envVarName := strings.ToUpper(a.PrefixEnv(name))
@@ -100,6 +105,10 @@ func (a *AppConfig) LoadFromEnv() error {
 		}
 	}
 	return nil
+}
+
+func (a *AppConfig) LoadFromYaml(r io.Reader) error {
+	return yaml.NewDecoder(r).Decode(a)
 }
 
 func (a *AppConfig) PrefixEnv(v string) string {
@@ -121,7 +130,7 @@ func getEnvironmentVariablesWithPrefix(prefix string) map[string]string {
 	return res
 }
 
-func withEnvContext[T any](prefix string, f func() (T, error)) (T, error) {
+func WithEnvContext[T any](prefix string, f func() (T, error)) (T, error) {
 	restore := environmentContext(getEnvironmentVariablesWithPrefix(prefix))
 	defer restore()
 	return f()

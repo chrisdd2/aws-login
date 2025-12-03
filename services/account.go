@@ -10,20 +10,16 @@ import (
 	"time"
 
 	"github.com/chrisdd2/aws-login/aws"
-	"github.com/chrisdd2/aws-login/storage"
-	sg "github.com/chrisdd2/aws-login/storage"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
 
 type AccountService interface {
-	Create(ctx context.Context, awsAccountId int, name string, tags map[string]string) (*sg.Account, error)
-	Save(ctx context.Context, acc *sg.Account) error
 	Deploy(ctx context.Context, userId string, accountId string) error
 }
 
 type accountService struct {
-	storage storage.Service
+	storage Storage
 	aws     aws.AwsApiCaller
 }
 
@@ -143,9 +139,7 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 	if err != nil {
 		return err
 	}
-
-	hasPerm, err := a.storage.HasAccountPermission(ctx, userId, accountId, storage.AccountPermissionBootstrap)
-	if !(user.Superuser || hasPerm) {
+	if !(user.Superuser) {
 		return errors.New("no permission for this action")
 	}
 
@@ -190,23 +184,7 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 		return err
 	}
 
-	err = a.aws.DeployStack(ctx, account.AccountIdStr(), aws.StackName, templateString, nil)
-	if err != nil {
-		return err
-	}
-	// update sync time for logging purposes
-	account.SyncTime = time.Now().UTC()
-	account.SyncBy = userId
-	_, err = a.storage.PutAccount(ctx, account, false)
-	return err
-}
-
-func (a *accountService) Save(ctx context.Context, acc *sg.Account) error {
-	_, err := a.storage.PutAccount(ctx, acc, false)
-	if err != nil {
-		return err
-	}
-	return nil
+	return a.aws.DeployStack(ctx, strconv.Itoa(account.AwsAccountId), aws.StackName, templateString, nil)
 }
 
 func roleLogicalName(roleName string) string {
@@ -223,47 +201,4 @@ func maxSessionDuration(duration time.Duration) string {
 
 func ValidateAWSAccountID(accountID int) bool {
 	return accountID > 100000000000 && accountID <= 999999999999
-}
-
-var ErrInvalidAccountDetails error = errors.New("invalid account details")
-var ErrAccountAlreadyExists error = errors.New("account already exists")
-
-func (a *accountService) Create(ctx context.Context, userId string, acc *sg.Account) (*sg.Account, error) {
-
-	// Permission check
-	user, err := a.storage.GetUser(ctx, userId)
-	if err != nil {
-		return nil, err
-	}
-	if !user.Superuser {
-		return nil, errors.New("only superusers can create accounts")
-	}
-
-	// Account validation
-	if acc.Name == "" || ValidateAWSAccountID(acc.AwsAccountId) {
-		return nil, ErrInvalidAccountDetails
-	}
-	_, err = a.storage.GetAccountByAwsAccountId(ctx, acc.AwsAccountId)
-	if err != sg.ErrAccountNotFound {
-		return nil, ErrAccountAlreadyExists
-	}
-
-	// Commit account
-	acc.UpdateBy = userId
-	acc.UpdateTime = time.Now().UTC()
-	acc, err = a.storage.PutAccount(ctx, acc, false)
-	if err != nil {
-		return nil, err
-	}
-
-	// Add the default roles
-	_, err = a.storage.PutRole(ctx, sg.DeveloperRoleDefinition(acc.Id, sg.DeveloperRole), false)
-	if err != nil {
-		return nil, err
-	}
-	_, err = a.storage.PutRole(ctx, sg.ReadOnlyRoleDefinition(acc.Id, sg.ReadOnlyRole), false)
-	if err != nil {
-		return nil, err
-	}
-	return acc, nil
 }

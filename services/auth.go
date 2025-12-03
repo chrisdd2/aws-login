@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/chrisdd2/aws-login/storage"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/oauth2"
@@ -20,13 +19,12 @@ import (
 type RolePermissionClaim struct {
 	RoleName   string
 	Account    int
-	AccessType storage.RolePermissionType
+	AccessType string
 }
 
 type AuthInfo struct {
-	Username   string
-	Email      string
-	RoleClaims []RolePermissionClaim
+	Username string
+	Email    string
 }
 
 type AuthService interface {
@@ -139,8 +137,6 @@ type OpenIdService struct {
 	provider *oidc.Provider
 	verifier *oidc.IDTokenVerifier
 	oauthCfg *oauth2.Config
-
-	roleClaimsKey string
 }
 
 func NewOpenId(ctx context.Context, providerUrl string, redirectUrl string, clientId string, clientSecret string) (*OpenIdService, error) {
@@ -169,10 +165,6 @@ func NewOpenId(ctx context.Context, providerUrl string, redirectUrl string, clie
 		verifier: verifier,
 		provider: provider,
 	}, nil
-}
-
-func (g *OpenIdService) SetRoleClaimsKey(key string) {
-	g.roleClaimsKey = key
 }
 
 func (g *OpenIdService) RedirectUrl() string {
@@ -232,18 +224,9 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 	if username == "" {
 		username = email
 	}
-	// parse role claims
-	roleClaims := make([]RolePermissionClaim, 0, len(claims.accessClaims.AwsRoles))
-	for _, role := range claims.accessClaims.AwsRoles {
-		claim := parseRoleAttribute(role)
-		if ValidateAWSAccountID(claim.Account) && claim.AccessType != storage.RolePermissionInvalid && claim.RoleName != "" {
-			roleClaims = append(roleClaims, claim)
-		}
-	}
 	return &AuthInfo{
-		Email:      claims.MapClaims["email"].(string),
-		Username:   username,
-		RoleClaims: roleClaims,
+		Email:    claims.MapClaims["email"].(string),
+		Username: username,
 	}, nil
 
 }
@@ -270,18 +253,15 @@ func parseRoleAttribute(attr string) RolePermissionClaim {
 	return claim
 }
 
-func rolePermissionFromString(permission string) storage.RolePermissionType {
+func rolePermissionFromString(permission string) string {
 	fmt.Println(permission)
 	permission = strings.ToLower(permission)
 	switch permission {
-	case "grant":
-		return storage.RolePermissionGrant
-	case "assume":
-		return storage.RolePermissionLogin
-	case "credential":
-		return storage.RolePermissionCredential
+	case "grant", "assume", "credentials":
+		return permission
+	default:
+		return "invalid"
 	}
-	return storage.RolePermissionInvalid
 }
 
 func debugPrint(claims jwt.MapClaims) {

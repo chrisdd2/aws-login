@@ -5,17 +5,15 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"log/slog"
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/aws"
 	"github.com/chrisdd2/aws-login/services"
-	sg "github.com/chrisdd2/aws-login/storage"
 	"github.com/chrisdd2/aws-login/webui"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -46,7 +44,7 @@ func assert(cond bool, msg string) {
 }
 
 func main() {
-	appCfg := AppConfig{}
+	appCfg := appconfig.AppConfig{}
 	appCfg.SetEnvironmentVariablePrefix("APP_")
 	must(appCfg.LoadDefaults())
 	must(appCfg.LoadFromEnv())
@@ -59,28 +57,13 @@ func main() {
 	}
 	slog.SetDefault(logger)
 
-	appCfg.debugPrint()
+	appCfg.DebugPrint()
 
 	ctx := context.Background()
 
-	// storage setup
-	assert(appCfg.StorageType == "memory", "only memory storage support atm")
-	storage := must2(sg.NewJsonBackend(appCfg.StorageFile))
-
-	exitSignal := make(chan os.Signal, 10)
-	signal.Notify(exitSignal, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-exitSignal
-		err := storage.Close()
-		if err != nil {
-			logger.Error("error saving storage", "error", err)
-		}
-		os.Exit(1)
-	}()
-
 	// AWS setup
 	// allow different aws config for the aws user used for permissions in the other accounts
-	stsClient := must2(withEnvContext(appCfg.PrefixEnv("ASSUMER_"), func() (*sts.Client, error) {
+	stsClient := must2(appconfig.WithEnvContext(appCfg.PrefixEnv("ASSUMER_"), func() (*sts.Client, error) {
 		cfg, err := config.LoadDefaultConfig(ctx)
 		if err != nil {
 			return nil, err
@@ -95,23 +78,11 @@ func main() {
 
 	logger.Info("using", "assumer", arn)
 
-	// Authentication
-	token := services.NewToken(storage, []byte(appCfg.SignKey))
-
-	if appCfg.GenerateRootToken {
-		accessToken := must2(token.Create(ctx, &services.UserInfo{
-			Username:  "root",
-			Email:     "root@root",
-			Superuser: true,
-		}))
-		logger.Info("Generated token", "access token", accessToken)
-		logger.Info("login with", "url", fmt.Sprintf("http://%s/login?token=%s", appCfg.ListenAddr, accessToken))
-	}
-
 	// _ = &auth.GithubAuth{
 	// 	ClientSecret: appCfg.GithubClientSecret,
 	// 	ClientId:     appCfg.GithubClientId,
 	// }
+	token := services.NewToken()
 	idp := must2(services.NewOpenId(ctx, "http://localhost:8080/realms/grafana", "http://localhost:8090/oauth2/idpresponse", "awslogin", "x8CQn6u68os9NbJOHX2nQpkMdIxcfx40"))
 	log.Println(idp.RedirectUrl())
 

@@ -20,16 +20,16 @@ import (
 	cfnTypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
-	"github.com/chrisdd2/aws-login/storage"
 
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
 )
 
 // some unique identifiers we might need
 const (
-	StackName    = "aws-login-stack-" + storage.UniqueId
-	OpsRole      = "ops-role-role-" + storage.UniqueId
-	boundaryName = "iam-role-boundary-" + storage.UniqueId
+	UniqueId     = "dde2ab66-f68a-4d3d-a9d5-0a66690c7695"
+	StackName    = "aws-login-stack-" + UniqueId
+	OpsRole      = "ops-role-role-" + UniqueId
+	boundaryName = "iam-role-boundary-" + UniqueId
 	signInUrl    = "https://signin.aws.amazon.com/federation"
 )
 

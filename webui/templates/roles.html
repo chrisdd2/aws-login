@@ -21,10 +21,10 @@
                         <i class="fas fa-moon" id="darkModeIcon"></i>
                     </button>
                     <div class="flex items-center gap-2" id="userIndicator">
-                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold" id="userAvatar">
-                            <i class="fas fa-user text-sm"></i>
+                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm uppercase" id="userAvatar">
+                            {{if .Username}}{{printf "%.1s" .Username}}{{else}}<i class="fas fa-user"></i>{{end}}
                         </div>
-                        <span class="text-gray-700 dark:text-white" id="userName">Loading...</span>
+                        <span class="text-gray-700 dark:text-white" id="userName">{{if .Username}}{{.Username}}{{else}}Loading...{{end}}</span>
                         <span class="text-green-500">
                             <i class="fas fa-circle text-xs"></i>
                         </span>
@@ -52,38 +52,30 @@
                         </tr>
                     </thead>
                     <tbody id="rolesTableBody" class="[&>tr:nth-child(even)]:bg-gray-50 dark:[&>tr:nth-child(even)]:bg-gray-700/50 [&>tr:hover]:bg-gray-100 dark:[&>tr:hover]:bg-gray-700">
+                        {{range .Roles}}
                         <tr class="border-b border-gray-200 dark:border-gray-700">
-                            <td class="py-3 px-4 text-gray-900 dark:text-white">123456789012</td>
-                            <td class="py-3 px-4 text-gray-900 dark:text-white">DeveloperRole</td>
+                            <td class="py-3 px-4 text-gray-900 dark:text-white">
+                                {{if .AccountName}}{{.AccountName}}{{else}}{{.AccountId}}{{end}}
+                            </td>
+                            <td class="py-3 px-4 text-gray-900 dark:text-white">{{.RoleName}}</td>
                             <td class="py-3 px-4 text-right whitespace-nowrap">
                                 <div class="flex gap-2 justify-end">
-                                    <a href="/console?account=123456789012&role=DeveloperRole" target="_blank" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
+                                    {{if .HasConsole}}
+                                    <a href="/console?account={{.AccountId}}&role={{.RoleName}}" target="_blank" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
                                         <i class="fas fa-external-link-alt text-xs"></i>
                                         <span>Console</span>
                                     </a>
-                                    <a href="/credentials?account=123456789012&role=DeveloperRole" class="bg-blue-500 hover:bg-blue-600 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
+                                    {{end}}
+                                    {{if .HasCredentials}}
+                                    <a href="/credentials?account={{.AccountId}}&role={{.RoleName}}" class="bg-blue-500 hover:bg-blue-600 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
                                         <i class="fas fa-download text-xs"></i>
                                         <span>Credentials</span>
                                     </a>
+                                    {{end}}
                                 </div>
                             </td>
                         </tr>
-                        <tr class="border-b border-gray-200 dark:border-gray-700">
-                            <td class="py-3 px-4 text-gray-900 dark:text-white">987654321098</td>
-                            <td class="py-3 px-4 text-gray-900 dark:text-white">AdminRole</td>
-                            <td class="py-3 px-4 text-right whitespace-nowrap">
-                                <div class="flex gap-2 justify-end">
-                                    <a href="/console?account=987654321098&role=AdminRole" target="_blank" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
-                                        <i class="fas fa-external-link-alt text-xs"></i>
-                                        <span>Console</span>
-                                    </a>
-                                    <a href="/credentials?account=987654321098&role=AdminRole" class="bg-blue-500 hover:bg-blue-600 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
-                                        <i class="fas fa-download text-xs"></i>
-                                        <span>Credentials</span>
-                                    </a>
-                                </div>
-                            </td>
-                        </tr>
+                        {{end}}
                     </tbody>
                 </table>
             </div>
