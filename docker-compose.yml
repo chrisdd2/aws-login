@@ -1,45 +1,19 @@
+version: "3.9"
+
 services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: go_app
-    volumes:
-      - ./store.json:/root/store.json:rw  # Mount store.json
-      - ~/.aws:/root/.aws:ro   
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    command:
+      - start-dev
+      - --import-realm
     environment:
-      # To use SQL storage, set APP_DATABASE_URL to a valid Postgres DSN
-      - APP_STORAGE_TYPE=sql
-      - APP_DATABASE_URL=postgres://postgres:postgres@db:5432/postgres?sslmode=disable
-      - APP_CLIENT_ID=< empty >
-      - APP_CLIENT_SECRET=< empty >
-      - APP_LISTEN_ADDR=0.0.0.0:8090
-      - APP_SIGN_KEY=<some key>
-      - APP_GENERATE_TOKEN=1
-      - APP_DEVELOPMENT_MODE=1
-    depends_on:
-      - db
-    networks:
-      - appnet
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
     ports:
-      - "8090:8090"  
-
-  db:
-    image: postgres:latest
-    container_name: postgres_db
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: postgres
+      - "8080:8080"
     volumes:
-      - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    networks:
-      - appnet
-
-networks:
-  appnet:
+      - keycloak_data2:/opt/keycloak/data
+      - ./realm-export:/opt/keycloak/data/import
 
 volumes:
-  pgdata:
+  keycloak_data2:

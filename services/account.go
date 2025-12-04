@@ -19,6 +19,7 @@ import (
 type AccountService interface {
 	Deploy(ctx context.Context, userId string, accountId string) error
 	GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error)
+	ListAccounts(ctx context.Context) ([]*appconfig.Account, error)
 }
 
 type accountService struct {
@@ -213,4 +214,8 @@ func NewAccountService(store Storage, aws aws.AwsApiCaller) AccountService {
 		storage: store,
 		aws:     aws,
 	}
+}
+
+func (a *accountService) ListAccounts(ctx context.Context) ([]*appconfig.Account, error) {
+	return a.storage.ListAccounts(ctx)
 }

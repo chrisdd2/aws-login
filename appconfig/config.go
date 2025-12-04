@@ -15,6 +15,7 @@ type AppConfig struct {
 	ListenAddr                string `default:"localhost:8090" json:"listen_addr,omitempty"`
 	SignKey                   string `default:"somekey" mask:"true" json:"sign_key,omitempty"`
 	DevelopmentMode           bool   `default:"false" json:"development_mode,omitempty"`
+	RootUrl                   string `json:"root_url,omitempty"`
 	ConfigDirectory           string `default:".config" json:"conf_dir,omitempty"`
 	ConfigUrl                 string `json:"conf_url,omitempty"`
 	GithubEnabled             bool   `default:"false" json:"github_enabled"`

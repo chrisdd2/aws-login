@@ -11,7 +11,8 @@ var pages embed.FS
 var pagesTmpls = template.Must(template.ParseFS(pages, "*.html"))
 
 type Navbar struct {
-	Username string
+	Username  string
+	HasDeploy bool
 }
 
 type LoginData struct {
@@ -38,6 +39,20 @@ type RolesData struct {
 	Roles []Role
 }
 
+type Account struct {
+	AccountName string
+	AccountId   int
+}
+
+type DeployData struct {
+	Navbar
+	Accounts []Account
+}
+
 func RolesTemplate(w io.Writer, data RolesData) error {
 	return pagesTmpls.ExecuteTemplate(w, "roles.html", data)
+}
+
+func DeployTemplate(w io.Writer, data DeployData) error {
+	return pagesTmpls.ExecuteTemplate(w, "deploy.html", data)
 }

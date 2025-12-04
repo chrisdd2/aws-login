@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AwsLogin - Deploy</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="min-h-screen flex flex-col bg-gradient-to-br from-indigo-500 to-purple-600 dark:from-[#1a1a2e] dark:to-[#16213e] transition-colors duration-300">
+    <!-- Top Navigation Bar -->
+    <nav class="bg-white/95 dark:bg-[#1a1a2e]/95 backdrop-blur-lg shadow-lg dark:shadow-[0_2px_10px_rgba(0,0,0,0.5)] transition-all duration-300" role="navigation" aria-label="main navigation">
+        <div class="container mx-auto px-4">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center gap-6">
+                    <a class="flex items-center gap-2 font-bold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" href="/">
+                        <i class="fas fa-cloud"></i>
+                        <span>AWS Login</span>
+                    </a>
+                    {{if .HasDeploy}}
+                    <a href="/deploy" class="text-sm font-medium text-indigo-600 dark:text-indigo-300 hover:underline">
+                        Deploy
+                    </a>
+                    {{end}}
+                </div>
+                <div class="flex items-center gap-4">
+                    <button class="cursor-pointer p-2 rounded bg-transparent border-none hover:bg-black/5 dark:hover:bg-white/10 transition-colors text-gray-700 dark:text-white" aria-label="Toggle dark mode">
+                        <i class="fas fa-moon"></i>
+                    </button>
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm uppercase">
+                            {{if .Username}}{{printf "%.1s" .Username}}{{else}}<i class="fas fa-user"></i>{{end}}
+                        </div>
+                        <span class="text-gray-700 dark:text-white">{{if .Username}}{{.Username}}{{else}}Loading...{{end}}</span>
+                        <span class="text-green-500">
+                            <i class="fas fa-circle text-xs"></i>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="flex-1 p-8 flex flex-col items-center">
+        <div class="w-full max-w-5xl bg-white dark:bg-gray-800 rounded-lg shadow-2xl dark:shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-8 transition-all duration-300">
+            <div class="mb-6">
+                <h1 class="text-2xl font-bold mb-2 text-gray-900 dark:text-white">Deploy Changes</h1>
+                <p class="text-sm text-gray-600 dark:text-gray-300">Trigger deployments for the accounts you manage</p>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full border-collapse">
+                    <thead>
+                        <tr class="border-b border-gray-200 dark:border-gray-700">
+                            <th class="text-left py-3 px-4 font-semibold text-gray-700 dark:text-white">Account</th>
+                            <th class="text-right py-3 px-4 font-semibold text-gray-700 dark:text-white w-[1%] whitespace-nowrap">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="[&>tr:nth-child(even)]:bg-gray-50 dark:[&>tr:nth-child(even)]:bg-gray-700/50 [&>tr:hover]:bg-gray-100 dark:[&>tr:hover]:bg-gray-700">
+                        {{range .Accounts}}
+                        <tr class="border-b border-gray-200 dark:border-gray-700">
+                            <td class="py-3 px-4 text-gray-900 dark:text-white">
+                                <span>{{.AccountName}}</span>
+                                <span class="text-xs text-cyan-600 dark:text-cyan-400">({{.AccountId}})</span>
+                            </td>
+                            <td class="py-3 px-4 text-right whitespace-nowrap">
+                                <a href="/account/deploy?account={{.AccountName}}" target="_blank" class="inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-sm py-1.5 px-3 rounded transition-colors">
+                                    <i class="fas fa-rocket text-xs"></i>
+                                    <span>Deploy</span>
+                                </a>
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Footer Bar -->
+    <footer class="bg-white/95 dark:bg-[#1a1a2e]/95 backdrop-blur-lg shadow-lg dark:shadow-[0_-2px_10px_rgba(0,0,0,0.5)] py-6 transition-all duration-300">
+        <div class="container mx-auto px-4 text-center">
+            <p class="font-semibold text-gray-900 dark:text-white mb-1">
+                <strong>AWS Login</strong> - Deploy with confidence
+            </p>
+            <p class="text-xs text-gray-600 dark:text-gray-400">
+                <i class="fas fa-shield-alt mr-1"></i>
+                Deployment actions are audited and secure
+            </p>
+        </div>
+    </footer>
+
+    <script src="/htmx.js"></script>
+</body>
+</html>
+

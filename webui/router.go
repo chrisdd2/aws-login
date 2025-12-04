@@ -35,7 +35,7 @@ func loginErrorString(v string) string {
 	}
 }
 
-func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, adminUsername, adminPassword string) chi.Router {
+func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, adminUsername, adminPassword string, rootUrl string) chi.Router {
 	r := chi.NewRouter()
 
 	r.Get("/login", func(w http.ResponseWriter, r *http.Request) {
@@ -140,7 +140,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			})
 		}
 		data := templates.RolesData{
-			Navbar: templates.Navbar{Username: user.Username},
+			Navbar: templates.Navbar{Username: user.Username, HasDeploy: user.Superuser},
 			Roles:  templateRoles,
 		}
 		if err := templates.RolesTemplate(w, data); err != nil {
@@ -161,18 +161,19 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if !user.Superuser {
-			perms, err := rolesSvc.UserPermissions(ctx, user.Username, role, account)
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				log.Println(err)
-				return
-			}
-			if len(perms) == 0 || !slices.Contains(perms[0].Permissions, "console") {
-				w.WriteHeader(http.StatusUnauthorized)
-				render.JSON(w, r, struct{ Error string }{Error: "no permission to use this role"})
-			}
+		// auth check
+		perms, err := rolesSvc.UserPermissions(ctx, user.Username, role, account)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			log.Println(err)
+			return
 		}
+		if len(perms) == 0 || !slices.Contains(perms[0].Permissions, "console") {
+			w.WriteHeader(http.StatusUnauthorized)
+			render.JSON(w, r, struct{ Error string }{Error: "no permission to use this role"})
+		}
+
+		// do login
 		url, err := rolesSvc.Console(ctx, account, role, user.Username)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -191,12 +192,37 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		}
 		// add redirect after
 		vals := url.Values{}
-		vals.Add("redirect_url","http://localhost:3000")
+		if rootUrl != "" {
+			vals.Add("redirect_url", rootUrl)
+		}
 		for _, idp := range authSvcs {
 			if user.LoginType == idp.Name() {
-				http.Redirect(w, r, idp.LogoutUrl() + "?"+vals.Encode(), http.StatusTemporaryRedirect)
+				http.Redirect(w, r, idp.LogoutUrl()+"?"+vals.Encode(), http.StatusTemporaryRedirect)
 				return
 			}
+		}
+	})
+	g.With(superOnlyMiddleware()).Get("/deploy", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := getUser(r)
+
+		accounts, err := accountSrvc.ListAccounts(ctx)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			log.Println(err)
+			return
+		}
+		templateAccounts := make([]templates.Account, 0, len(accounts))
+		for _, acc := range accounts {
+			templateAccounts = append(templateAccounts, templates.Account{AccountName: acc.Name, AccountId: acc.AwsAccountId})
+		}
+		data := templates.DeployData{
+			Navbar:   templates.Navbar{Username: user.Username, HasDeploy: user.Superuser},
+			Accounts: templateAccounts,
+		}
+		if err := templates.DeployTemplate(w, data); err != nil {
+			log.Println(err)
+			render.Status(r, http.StatusInternalServerError)
 		}
 	})
 	return r
@@ -224,6 +250,20 @@ func guardMiddleware(tokenService services.TokenService) func(next http.Handler)
 				return
 			}
 			r = r.WithContext(context.WithValue(r.Context(), UserCtxKey, info))
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func superOnlyMiddleware() func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user := getUser(r)
+			if !user.Superuser {
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte("only superusers can use this!"))
+				return
+			}
 			next.ServeHTTP(w, r)
 		})
 	}

@@ -80,7 +80,7 @@ func main() {
 
 	logger.Info("using", "assumer", arn)
 
-	storageSvc := &services.Store{}
+	storageSvc := services.NewStaticStore(appCfg.AdminUsername)
 	if appCfg.ConfigDirectory != "" {
 		entries := must2(os.ReadDir(appCfg.ConfigDirectory))
 		for _, entry := range entries {
@@ -88,7 +88,7 @@ func main() {
 				continue
 			}
 			name := filepath.Join(appCfg.ConfigDirectory, entry.Name())
-			o := services.Store{}
+			o := services.NewStaticStore("")
 			log.Printf("loading file [%s]\n", name)
 			f := must2(os.Open(name))
 			if strings.HasSuffix(name, ".yml") {
@@ -97,7 +97,7 @@ func main() {
 				must(o.LoadJson(f))
 			}
 			f.Close()
-			storageSvc = storageSvc.Merge(&o)
+			storageSvc = storageSvc.Merge(o)
 		}
 	}
 	// storageSvc.Accounts = append(storageSvc.Accounts, appconfig.Account{
@@ -158,7 +158,7 @@ func main() {
 
 	r.Handle("/metrics", metrics.Handler())
 
-	r.Mount("/", webui.Router(tokenSvc, idps, roleSvc, accSvc, appCfg.AdminUsername, appCfg.AdminPassword))
+	r.Mount("/", webui.Router(tokenSvc, idps, roleSvc, accSvc, appCfg.AdminUsername, appCfg.AdminPassword, appCfg.RootUrl))
 
 	// api := api.V1Api()
 	// r.Mount("/api", api)

@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+const (
+	RolePermissionInvalid     = "invalid"
+	RolePermissionCredentials = "credential"
+	RolePermissionConsole     = "console"
+)
+
 type InlinePolicy struct {
 	Id       string `json:"id,omitempty"`
 	Document string `json:"document,omitempty"`
