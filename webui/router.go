@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -91,7 +90,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				log.Println(err)
 				render.JSON(w, r, err)
 			}
-			accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, Email: info.Email, LoginType: idp.Name()}, true)
+			accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, Email: info.Email, LoginType: idp.Name(), IdpToken: info.IdpToken}, true)
 			if err == services.ErrUserNotFound {
 				http.Redirect(w, r, "/login?error=user_not_found", http.StatusTemporaryRedirect)
 				return
@@ -185,22 +184,45 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 	g.Get("/logout", func(w http.ResponseWriter, r *http.Request) {
 		user := getUser(r)
 
-		cookie, _ := r.Cookie("aws-login-cookie")
+		cookie, _ := r.Cookie(authCookie)
 		if cookie != nil {
 			cookie.MaxAge = -1
 			http.SetCookie(w, cookie)
 		}
-		// add redirect after
-		vals := url.Values{}
-		if rootUrl != "" {
-			vals.Add("redirect_url", rootUrl)
+		if rootUrl == "" {
+			rootUrl = "/"
 		}
 		for _, idp := range authSvcs {
 			if user.LoginType == idp.Name() {
-				http.Redirect(w, r, idp.LogoutUrl()+"?"+vals.Encode(), http.StatusTemporaryRedirect)
+				http.Redirect(w, r, idp.LogoutUrl(rootUrl, user.IdpToken), http.StatusTemporaryRedirect)
 				return
 			}
 		}
+		// its userpass, redirect to main
+		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+	})
+	g.With(superOnlyMiddleware()).Get("/account/deploy", func(w http.ResponseWriter, r *http.Request) {
+		user := getUser(r)
+		ctx := r.Context()
+		account := r.URL.Query().Get("account")
+		if account == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if err := accountSrvc.Deploy(ctx, user.Username, account); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			log.Println(err)
+			render.JSON(w, r, err)
+		}
+		http.Redirect(w, r, fmt.Sprintf("/account/watch?account=%s", account), http.StatusTemporaryRedirect)
+	})
+	g.With(superOnlyMiddleware()).Get("/account/watch", func(w http.ResponseWriter, r *http.Request) {
+		account := r.URL.Query().Get("account")
+		if account == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Write([]byte("hi"))
 	})
 	g.With(superOnlyMiddleware()).Get("/deploy", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -238,7 +260,7 @@ func getUser(r *http.Request) *services.UserInfo {
 func guardMiddleware(tokenService services.TokenService) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cookie, err := r.Cookie("aws-login-cookie")
+			cookie, err := r.Cookie(authCookie)
 			if err != nil {
 				http.Redirect(w, r, "/login", http.StatusSeeOther)
 				return

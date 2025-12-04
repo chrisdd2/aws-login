@@ -153,7 +153,7 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 		RoleName           string
 		ManagedPolicies    []string
 		Policies           map[string]string
-		MaxSessionDuration string
+		MaxSessionDuration time.Duration
 	}
 
 	roles, err := a.storage.ListRolesForAccount(ctx, accountId)
@@ -173,7 +173,7 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 			RoleName:           item.Name,
 			ManagedPolicies:    item.ManagedPolicies,
 			Policies:           resolvedPolicies,
-			MaxSessionDuration: maxSessionDuration(item.MaxSessionDuration),
+			MaxSessionDuration: item.MaxSessionDuration,
 		})
 	}
 	templateString, err := templateExecuteToString(baseStackTemplate, struct{ Roles []CfnRole }{Roles: cfnroles})

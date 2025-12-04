@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"slices"
 
 	"github.com/chrisdd2/aws-login/appconfig"
@@ -37,11 +38,16 @@ type store struct {
 }
 
 func (s *store) Merge(o *store) *store {
+	adminUsername := s.adminUsername
+	if adminUsername == "" {
+		adminUsername = o.adminUsername
+	}
 	return &store{
-		Users:    slices.Concat(s.Users, o.Users),
-		Accounts: slices.Concat(s.Accounts, o.Accounts),
-		Roles:    slices.Concat(s.Roles, o.Roles),
-		Policies: slices.Concat(s.Policies, o.Policies),
+		Users:         slices.Concat(s.Users, o.Users),
+		Accounts:      slices.Concat(s.Accounts, o.Accounts),
+		Roles:         slices.Concat(s.Roles, o.Roles),
+		Policies:      slices.Concat(s.Policies, o.Policies),
+		adminUsername: adminUsername,
 	}
 }
 func (s *store) LoadYaml(r io.Reader) error {
@@ -109,6 +115,7 @@ func (s *store) GetInlinePolicy(ctx context.Context, id string) (*appconfig.Inli
 	return nil, errors.New("PolicyNotFound")
 }
 func (s *store) GetUser(ctx context.Context, id string) (*appconfig.User, error) {
+	log.Println(id, s.adminUsername)
 	if id == s.adminUsername {
 		return s.createAdminUser(), nil
 	}
@@ -152,6 +159,7 @@ func (s *store) createAdminUser() *appconfig.User {
 		Email:     "admin@admin",
 		Roles:     attachments,
 	}
+	log.Println(*user)
 	s.adminUser = user
 	return user
 

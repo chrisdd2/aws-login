@@ -27,6 +27,9 @@
                     <button class="cursor-pointer p-2 rounded bg-transparent border-none hover:bg-black/5 dark:hover:bg-white/10 transition-colors text-gray-700 dark:text-white" aria-label="Toggle dark mode">
                         <i class="fas fa-moon"></i>
                     </button>
+                    <a href="/logout" class="cursor-pointer p-2 rounded bg-transparent border-none hover:bg-black/5 dark:hover:bg-white/10 transition-colors text-red-500 dark:text-red-400" aria-label="Logout">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </a>
                     <div class="flex items-center gap-2">
                         <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm uppercase">
                             {{if .Username}}{{printf "%.1s" .Username}}{{else}}<i class="fas fa-user"></i>{{end}}

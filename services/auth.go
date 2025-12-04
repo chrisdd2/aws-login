@@ -25,12 +25,13 @@ type RolePermissionClaim struct {
 type AuthInfo struct {
 	Username string
 	Email    string
+	IdpToken string
 }
 
 type AuthService interface {
 	RedirectUrl() string
 	CallbackEndpoint() string
-	LogoutUrl() string
+	LogoutUrl(redirectUrl string, idpToken string) string
 	Name() string
 	CallbackHandler(r *http.Request) (*AuthInfo, error)
 }
@@ -74,7 +75,7 @@ func (g *GithubService) CallbackEndpoint() string {
 func (g *GithubService) Name() string {
 	return "github"
 }
-func (g *GithubService) LogoutUrl() string {
+func (g *GithubService) LogoutUrl(redirectUrl string, idpToken string) string {
 	return "/"
 }
 
@@ -260,6 +261,7 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 	return &AuthInfo{
 		Email:    claims.MapClaims["email"].(string),
 		Username: username,
+		IdpToken: idTokenRaw,
 	}, nil
 
 }
@@ -268,8 +270,11 @@ func (g *OpenIdService) Name() string {
 	return "keycloak"
 }
 
-func (g *OpenIdService) LogoutUrl() string {
-	return g.logoutUrl
+func (g *OpenIdService) LogoutUrl(redirectUrl string, idpToken string) string {
+	values := url.Values{}
+	values.Add("id_token_hint", idpToken)
+	values.Add("post_logout_redirect_uri", redirectUrl)
+	return fmt.Sprintf("%s/?%s", strings.TrimSuffix(g.logoutUrl, "/"), values.Encode())
 }
 func parseRoleAttribute(attr string) RolePermissionClaim {
 	claim := RolePermissionClaim{}
