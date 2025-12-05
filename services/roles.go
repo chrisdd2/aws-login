@@ -16,6 +16,17 @@ type AwsCredentials struct {
 	SessionToken    string `json:"aws_session_token,omitempty"`
 }
 
+func (c AwsCredentials) Format(t string) string {
+	switch t {
+	case "cmd":
+		return fmt.Sprintf("set AWS_ACCESS_KEY_ID=%s\nset AWS_SECRET_ACCESS_KEY=%s\nset AWS_SESSION_TOKEN=%s", c.AccessKeyId, c.SecretAccessKey, c.SessionToken)
+	case "powershell":
+		return fmt.Sprintf("$env:AWS_ACCESS_KEY_ID=\"%s\"\n$env:AWS_SECRET_ACCESS_KEY=\"=%s\"\n$env:AWS_ACCESS_KEY_ID=\"%s\"", c.AccessKeyId, c.SecretAccessKey, c.SessionToken)
+	default: // case "linux":
+		return fmt.Sprintf("export AWS_ACCESS_KEY_ID=%s\nexport AWS_SECRET_ACCESS_KEY=%s\nexport AWS_SESSION_TOKEN=%s", c.AccessKeyId, c.SecretAccessKey, c.SessionToken)
+	}
+}
+
 type RolesService interface {
 	UserPermissions(ctx context.Context, username string, roleName string, accountName string) ([]*appconfig.RoleAttachment, error)
 	RolesForAccount(ctx context.Context, accountName string) ([]*appconfig.RoleAttachment, error)

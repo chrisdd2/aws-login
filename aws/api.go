@@ -26,7 +26,7 @@ import (
 
 // some unique identifiers we might need
 const (
-	UniqueId     = "dde2ab66-f68a-4d3d-a9d5-0a66690c7695"
+	UniqueId     = "8db7bc11-acf5-4c7a-be46-967f44e33028"
 	StackName    = "aws-login-stack-" + UniqueId
 	OpsRole      = "ops-role-role-" + UniqueId
 	boundaryName = "iam-role-boundary-" + UniqueId

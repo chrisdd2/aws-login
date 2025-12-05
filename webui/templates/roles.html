@@ -17,9 +17,9 @@
                         <i class="fas fa-cloud"></i>
                         <span>AWS Login</span>
                     </a>
-                    {{if .HasDeploy}}
-                    <a href="/deploy" class="text-sm font-medium text-indigo-600 dark:text-indigo-300 hover:underline">
-                        Deploy
+                    {{if .HasAdmin}}
+                    <a href="/admin" class="text-sm font-medium text-indigo-600 dark:text-indigo-300 hover:underline">
+                        Admin
                     </a>
                     {{end}}
                 </div>
@@ -77,15 +77,9 @@
                                     </a>
                                     {{end}}
                                     {{if .HasCredentials}}
-                                    <a href="/account/credentials?account={{.AccountName}}&role={{.RoleName}}" class="bg-blue-500 hover:bg-blue-600 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
+                                    <a href="/account/credentials?account={{.AccountName}}&role={{.RoleName}}" download="{{.AccountId}}.txt" class="bg-blue-500 hover:bg-blue-600 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
                                         <i class="fas fa-download text-xs"></i>
                                         <span>Credentials</span>
-                                    </a>
-                                    {{end}}
-                                    {{if .HasDeploy}}
-                                    <a href="/account/deploy?account={{.AccountName}}" target="_blank" class="bg-amber-500 hover:bg-amber-600 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
-                                        <i class="fas fa-rocket text-xs"></i>
-                                        <span>Deploy</span>
                                     </a>
                                     {{end}}
                                 </div>

@@ -25,9 +25,9 @@ type AppConfig struct {
 	OpenIdProviderUrl         string `json:"openid_provider_url,omitempty"`
 	OpenIdRedirectUrl         string `json:"openid_redirect_url,omitempty"`
 	OpenIdClientId            string `json:"openid_client_id,omitempty"`
-	OpenIdClientSecret        string `json:"openid_client_secret,omitempty"`
+	OpenIdClientSecret        string `json:"openid_client_secret,omitempty" mask:"true"`
 	AdminUsername             string `json:"admin_username,omitempty"`
-	AdminPassword             string `json:"admin_password,omitempty"`
+	AdminPassword             string `json:"admin_password,omitempty" mask:"true"`
 }
 
 func (a *AppConfig) LoadDefaults() error {

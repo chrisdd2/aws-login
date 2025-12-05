@@ -11,8 +11,8 @@ var pages embed.FS
 var pagesTmpls = template.Must(template.ParseFS(pages, "*.html"))
 
 type Navbar struct {
-	Username  string
-	HasDeploy bool
+	Username string
+	HasAdmin bool
 }
 
 type LoginData struct {
@@ -44,7 +44,7 @@ type Account struct {
 	AccountId   int
 }
 
-type DeployData struct {
+type AdminData struct {
 	Navbar
 	Accounts []Account
 }
@@ -53,6 +53,6 @@ func RolesTemplate(w io.Writer, data RolesData) error {
 	return pagesTmpls.ExecuteTemplate(w, "roles.html", data)
 }
 
-func DeployTemplate(w io.Writer, data DeployData) error {
-	return pagesTmpls.ExecuteTemplate(w, "deploy.html", data)
+func AdminTemplate(w io.Writer, data AdminData) error {
+	return pagesTmpls.ExecuteTemplate(w, "admin.html", data)
 }

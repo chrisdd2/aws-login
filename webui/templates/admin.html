@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AwsLogin - Deploy</title>
+    <title>AwsLogin - Admin</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -17,9 +17,9 @@
                         <i class="fas fa-cloud"></i>
                         <span>AWS Login</span>
                     </a>
-                    {{if .HasDeploy}}
-                    <a href="/deploy" class="text-sm font-medium text-indigo-600 dark:text-indigo-300 hover:underline">
-                        Deploy
+                    {{if .HasAdmin}}
+                    <a href="/admin" class="text-sm font-medium text-indigo-600 dark:text-indigo-300 hover:underline">
+                        Admin
                     </a>
                     {{end}}
                 </div>
@@ -85,11 +85,11 @@
     <footer class="bg-white/95 dark:bg-[#1a1a2e]/95 backdrop-blur-lg shadow-lg dark:shadow-[0_-2px_10px_rgba(0,0,0,0.5)] py-6 transition-all duration-300">
         <div class="container mx-auto px-4 text-center">
             <p class="font-semibold text-gray-900 dark:text-white mb-1">
-                <strong>AWS Login</strong> - Deploy with confidence
+                <strong>AWS Login</strong> - Secure access to your AWS accounts
             </p>
             <p class="text-xs text-gray-600 dark:text-gray-400">
                 <i class="fas fa-shield-alt mr-1"></i>
-                Deployment actions are audited and secure
+                Your credentials are securely managed
             </p>
         </div>
     </footer>
