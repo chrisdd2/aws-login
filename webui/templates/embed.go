@@ -4,7 +4,12 @@ import (
 	"embed"
 	"html/template"
 	"io"
+
+	"github.com/chrisdd2/aws-login/aws"
 )
+
+//go:embed *.ico
+var Static embed.FS
 
 //go:embed *.html
 var pages embed.FS
@@ -40,13 +45,18 @@ type RolesData struct {
 }
 
 type Account struct {
-	AccountName string
-	AccountId   int
+	AccountName  string
+	AccountId    int
+	UpdateStatus string
 }
 
 type AdminData struct {
 	Navbar
 	Accounts []Account
+}
+type WatchData struct {
+	Navbar
+	Events []aws.StackEvent
 }
 
 func RolesTemplate(w io.Writer, data RolesData) error {
@@ -55,4 +65,7 @@ func RolesTemplate(w io.Writer, data RolesData) error {
 
 func AdminTemplate(w io.Writer, data AdminData) error {
 	return pagesTmpls.ExecuteTemplate(w, "admin.html", data)
+}
+func WatchTemplate(w io.Writer, data WatchData) error {
+	return pagesTmpls.ExecuteTemplate(w, "watch.html", data)
 }

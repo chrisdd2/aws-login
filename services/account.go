@@ -3,8 +3,11 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"text/template"
@@ -18,9 +21,14 @@ import (
 
 type AccountService interface {
 	Deploy(ctx context.Context, userId string, accountId string) error
+	NeedsDeployment(ctx context.Context, accountId string) (bool, error)
+	StackUpdates(ctx context.Context, accountName string, stackId string) ([]aws.StackEvent, error)
+	DestroyStack(ctx context.Context, accountName string) (string, error)
 	GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error)
 	ListAccounts(ctx context.Context) ([]*appconfig.Account, error)
 }
+
+const stackHash = "al:stackHash"
 
 type accountService struct {
 	storage Storage
@@ -147,47 +155,22 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 		return errors.New("no permission for this action")
 	}
 
-	// gather up all the roles that need to be deployed as part of the stack
-	type CfnRole struct {
-		LogicalName        string
-		RoleName           string
-		ManagedPolicies    []string
-		Policies           map[string]string
-		MaxSessionDuration time.Duration
+	templateString, err := generateStackTemplate(ctx, a.storage, accountId)
+	if err != nil {
+		return fmt.Errorf("generateStackTemplate: %w", err)
 	}
-
-	roles, err := a.storage.ListRolesForAccount(ctx, accountId)
-	cfnroles := []CfnRole{}
-	for _, item := range roles {
-		resolvedPolicies := map[string]string{}
-		for name, id := range item.Policies {
-			policy, err := a.storage.GetInlinePolicy(ctx, id)
-			if err != nil {
-				return fmt.Errorf("storage.GetInlinePolicy: %w", err)
-			}
-			resolvedPolicies[name] = policy.Document
-		}
-
-		cfnroles = append(cfnroles, CfnRole{
-			LogicalName:        roleLogicalName(item.Name),
-			RoleName:           item.Name,
-			ManagedPolicies:    item.ManagedPolicies,
-			Policies:           resolvedPolicies,
-			MaxSessionDuration: item.MaxSessionDuration,
-		})
-	}
-	templateString, err := templateExecuteToString(baseStackTemplate, struct{ Roles []CfnRole }{Roles: cfnroles})
+	h, err := generateStackHash(templateString)
 	if err != nil {
 		return err
 	}
 
 	// Deploy the stack
 	account, err := a.storage.GetAccount(ctx, accountId)
+	awsAccountId := strconv.Itoa(account.AwsAccountId)
 	if err != nil {
 		return err
 	}
-
-	return a.aws.DeployStack(ctx, strconv.Itoa(account.AwsAccountId), aws.StackName, templateString, nil)
+	return a.aws.DeployStack(ctx, awsAccountId, aws.StackName, templateString, nil, map[string]string{stackHash: h})
 }
 func (a *accountService) GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error) {
 	return a.storage.GetAccount(ctx, name)
@@ -218,4 +201,103 @@ func NewAccountService(store Storage, aws aws.AwsApiCaller) AccountService {
 
 func (a *accountService) ListAccounts(ctx context.Context) ([]*appconfig.Account, error) {
 	return a.storage.ListAccounts(ctx)
+}
+
+func (a *accountService) NeedsDeployment(ctx context.Context, account string) (bool, error) {
+	acc, err := a.storage.GetAccount(ctx, account)
+	if err != nil {
+		return false, fmt.Errorf("storage.GetAccount: %w", err)
+	}
+	templateString, err := generateStackTemplate(ctx, a.storage, account)
+	if err != nil {
+		return false, fmt.Errorf("generateStackTemplate: %w", err)
+	}
+	currentHash, err := generateStackHash(templateString)
+	if err != nil {
+		return false, err
+	}
+
+	tags, err := a.aws.StackTags(ctx, strconv.Itoa(acc.AwsAccountId), aws.StackName, nil, true)
+	if err == aws.ErrStackNotExist {
+		return true,nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("aws.StackTags: %w", err)
+	}
+	stackHash := tags[stackHash]
+	log.Printf("currentHash=%s\nstackHash%s\n", currentHash, stackHash)
+	return stackHash == currentHash, nil
+}
+func (a *accountService) StackUpdates(ctx context.Context, accountName string, stackId string) ([]aws.StackEvent, error) {
+	acc, err := a.storage.GetAccount(ctx, accountName)
+	if err != nil {
+		return nil, fmt.Errorf("storage.GetAccount: %w", err)
+	}
+	if stackId == "" {
+		stackId = aws.StackName
+	}
+	events, err := a.aws.LatestStackEvents(ctx, acc.AccountId(), stackId)
+	if err != nil {
+		return nil, fmt.Errorf("aws.WatchStackEvents: %w", err)
+	}
+	return events, nil
+}
+
+func generateStackTemplate(ctx context.Context, store Storage, account string) (string, error) {
+	// gather up all the roles that need to be deployed as part of the stack
+	type CfnRole struct {
+		LogicalName        string
+		RoleName           string
+		ManagedPolicies    []string
+		Policies           map[string]string
+		MaxSessionDuration time.Duration
+	}
+
+	roles, err := store.ListRolesForAccount(ctx, account)
+	cfnroles := []CfnRole{}
+	for _, item := range roles {
+		resolvedPolicies := map[string]string{}
+		for name, id := range item.Policies {
+			policy, err := store.GetInlinePolicy(ctx, id)
+			if err != nil {
+				return "", fmt.Errorf("storage.GetInlinePolicy: %w", err)
+			}
+			resolvedPolicies[name] = policy.Document
+		}
+
+		cfnroles = append(cfnroles, CfnRole{
+			LogicalName:        roleLogicalName(item.Name),
+			RoleName:           item.Name,
+			ManagedPolicies:    item.ManagedPolicies,
+			Policies:           resolvedPolicies,
+			MaxSessionDuration: item.MaxSessionDuration,
+		})
+	}
+	templateString, err := templateExecuteToString(baseStackTemplate, struct{ Roles []CfnRole }{Roles: cfnroles})
+	if err != nil {
+		return "", err
+	}
+	return templateString, nil
+}
+
+func (a *accountService) DestroyStack(ctx context.Context, accountName string) (string, error) {
+	acc, err := a.storage.GetAccount(ctx, accountName)
+	if err != nil {
+		return "", fmt.Errorf("storage.GetAccount: %w", err)
+	}
+	stackId, err := a.aws.DestroyStack(ctx, acc.AccountId(), aws.StackName)
+	if err != nil {
+		return "", fmt.Errorf("aws.DestroyStack: %w", err)
+	}
+	return stackId, nil
+
+}
+
+func generateStackHash(templateString string) (string, error) {
+	h := sha256.New()
+	_, err := h.Write([]byte(templateString))
+	if err != nil {
+		return "", fmt.Errorf("sha256.Write: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
 }

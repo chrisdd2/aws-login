@@ -6,6 +6,7 @@
     <title>AwsLogin - Admin</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta http-equiv="refresh" content="5">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
 </head>
 <body class="min-h-screen flex flex-col bg-gradient-to-br from-indigo-500 to-purple-600 dark:from-[#1a1a2e] dark:to-[#16213e] transition-colors duration-300">
@@ -47,42 +48,36 @@
 
     <!-- Main Content -->
     <div class="flex-1 p-8 flex flex-col items-center">
-        <div class="w-full max-w-5xl bg-white dark:bg-gray-800 rounded-lg shadow-2xl dark:shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-8 transition-all duration-300">
-            <div class="mb-6">
-                <h1 class="text-2xl font-bold mb-2 text-gray-900 dark:text-white">Deploy Changes</h1>
-                <p class="text-sm text-gray-600 dark:text-gray-300">Trigger deployments for the accounts you manage</p>
-            </div>
+        <div class="w-full max-w-8xl bg-white dark:bg-gray-800 rounded-lg shadow-2xl dark:shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-8 transition-all duration-300">
 
             <div class="overflow-x-auto">
                 <table class="w-full border-collapse">
                     <thead>
                         <tr class="border-b border-gray-200 dark:border-gray-700">
-                            <th class="text-left py-3 px-4 font-semibold text-gray-700 dark:text-white">Account</th>
-                            <th class="text-left py-3 px-4 font-semibold text-gray-700 dark:text-white whitespace-nowrap">Status</th>
-                            <th class="text-right py-3 px-4 font-semibold text-gray-700 dark:text-white w-[1%] whitespace-nowrap">Action</th>
+                            <th class="text-left py-3 px-4 font-semibold text-gray-700 dark:text-white">EventTime</th>
+                            <th class="text-left py-3 px-4 font-semibold text-gray-700 dark:text-white whitespace-nowrap">ResourceId</th>
+                            <th class="text-left py-3 px-4 font-semibold text-gray-700 dark:text-white whitespace-nowrap">ResourceType</th>
+                            <th class="text-left py-3 px-4 font-semibold text-gray-700 dark:text-white whitespace-nowrap">ResourceStatusReason</th>
+                            <th class="text-left py-3 px-4 font-semibold text-gray-700 dark:text-white whitespace-nowrap">ResourceStatus</th>
                         </tr>
                     </thead>
                     <tbody class="[&>tr:nth-child(even)]:bg-gray-50 dark:[&>tr:nth-child(even)]:bg-gray-700/50 [&>tr:hover]:bg-gray-100 dark:[&>tr:hover]:bg-gray-700">
-                        {{range .Accounts}}
+                        {{range .Events}}
                         <tr class="border-b border-gray-200 dark:border-gray-700">
-                            <td class="py-3 px-4 text-gray-900 dark:text-white">
-                                <span>{{.AccountName}}</span>
-                                <span class="text-xs text-cyan-600 dark:text-cyan-400">({{.AccountId}})</span>
+                            <td class="py-3 px-4 text-gray-900 dark:text-white text-nowrap">
+                                <span>{{.EventTime.Format "2006-01-02 15:04:05"}}</span>
                             </td>
-                            <td class="py-3 px-4 text-gray-900 dark:text-white text-nowrap">{{.UpdateStatus}}</td>
-                            <td class="py-3 px-4 text-right whitespace-nowrap">
-                                <a href="/account/deploy?account={{.AccountName}}" target="_blank" class="inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-sm py-1.5 px-3 rounded transition-colors">
-                                    <i class="fas fa-rocket text-xs"></i>
-                                    <span>Deploy</span>
-                                </a>
-                                <a href="/account/watch?account={{.AccountName}}" target="_blank" class="inline-flex items-center gap-1.5 bg-indigo-500 hover:bg-indigo-600 text-white text-sm py-1.5 px-3 rounded transition-colors">
-                                    <i class="fas fa-magnifying-glass text-xs"></i>
-                                    <span>Stack Updates</span>
-                                </a>
-                                <a href="/account/destroy?account={{.AccountName}}" target="_blank" class="inline-flex items-center gap-1.5 bg-red-500 hover:bg-red-600 text-white text-sm py-1.5 px-3 rounded transition-colors">
-                                    <i class="fas fa-trash-can text-xs"></i>
-                                    <span>Destroy</span>
-                                </a>
+                            <td class="py-3 px-4 text-gray-900 dark:text-white text-nowrap">
+                                <span>{{.ResourceId}}</span>
+                            </td>
+                            <td class="py-3 px-4 text-gray-900 dark:text-white text-nowrap">
+                                <span>{{.ResourceType}}</span>
+                            </td>
+                            <td class="py-3 px-4 text-gray-900 dark:text-white text-wrap">
+                                <span>{{.ResourceStatusReason}}</span>
+                            </td>
+                            <td class="py-3 px-4 text-{{.Color}}-300 text-nowrap">
+                                <span>{{.ResourceStatus}}</span>
                             </td>
                         </tr>
                         {{end}}
@@ -108,4 +103,5 @@
     <script src="/htmx.js"></script>
 </body>
 </html>
+
 

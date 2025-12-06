@@ -2,6 +2,7 @@ package webui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -36,7 +37,9 @@ func loginErrorString(v string) string {
 
 func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, adminUsername, adminPassword string, rootUrl string) chi.Router {
 	r := chi.NewRouter()
-
+	r.Get("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, templates.Static, "faveicon.ico")
+	})
 	r.Get("/login", func(w http.ResponseWriter, r *http.Request) {
 		loginType := r.URL.Query().Get("type")
 		for _, idp := range authSvcs {
@@ -57,7 +60,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			}{Name: idp.Name(), Desc: fmt.Sprintf("Sign in with %s", prettyName)})
 		}
 		if err := templates.LoginTemplate(w, data); err != nil {
-			render.Status(r, http.StatusInternalServerError)
+			sendError(w, r, err)
 		}
 	})
 	r.Post("/login", func(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +79,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			return
 		}
 		if err := templates.LoginTemplate(w, templates.LoginData{ErrorString: loginErrorString("")}); err != nil {
-			render.Status(r, http.StatusInternalServerError)
+			sendError(w, r, err)
 		}
 	})
 
@@ -86,9 +89,8 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			ctx := r.Context()
 			info, err := idp.CallbackHandler(r)
 			if err != nil {
-				render.Status(r, http.StatusUnauthorized)
-				log.Println(err)
-				render.JSON(w, r, err)
+				sendUnathorized(w, r, err)
+				return
 			}
 			accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, Email: info.Email, LoginType: idp.Name(), IdpToken: info.IdpToken}, true)
 			if err == services.ErrUserNotFound {
@@ -96,9 +98,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				return
 			}
 			if err != nil {
-				render.Status(r, http.StatusUnauthorized)
-				log.Println(err)
-				render.JSON(w, r, err)
+				sendUnathorized(w, r, err)
 				return
 			}
 			sendAccessToken(w, r, accessToken)
@@ -117,17 +117,14 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			roles, err = rolesSvc.UserPermissions(ctx, user.Username, "", "")
 		}
 		if err != nil {
-			render.Status(r, http.StatusInternalServerError)
-			log.Println(err)
-			render.JSON(w, r, err)
+			sendError(w, r, err)
+			return
 		}
 		templateRoles := make([]templates.Role, 0, len(roles))
 		for _, role := range roles {
 			acc, err := accountSrvc.GetFromAccountName(ctx, role.AccountName)
 			if err != nil {
-				render.Status(r, http.StatusInternalServerError)
-				log.Println(err)
-				render.JSON(w, r, err)
+				sendError(w, r, err)
 				return
 			}
 			templateRoles = append(templateRoles, templates.Role{
@@ -143,8 +140,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			Roles:  templateRoles,
 		}
 		if err := templates.RolesTemplate(w, data); err != nil {
-			log.Println(err)
-			render.Status(r, http.StatusInternalServerError)
+			sendError(w, r, err)
 		}
 	}
 	g.Get("/", mainHandler)
@@ -163,20 +159,18 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		// auth check
 		perms, err := rolesSvc.UserPermissions(ctx, user.Username, role, account)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			log.Println(err)
+			sendError(w, r, err)
 			return
 		}
 		if len(perms) == 0 || !slices.Contains(perms[0].Permissions, appconfig.RolePermissionConsole) {
-			w.WriteHeader(http.StatusUnauthorized)
-			render.JSON(w, r, struct{ Error string }{Error: "no permission to use this role"})
+			sendUnathorized(w, r, errors.New("no permission to use this role"))
+			return
 		}
 
 		// do login
 		url, err := rolesSvc.Console(ctx, account, role, user.Username)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			log.Println(err)
+			sendError(w, r, err)
 			return
 		}
 		http.Redirect(w, r, url, http.StatusTemporaryRedirect)
@@ -196,21 +190,18 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		// auth check
 		perms, err := rolesSvc.UserPermissions(ctx, user.Username, role, account)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			log.Println(err)
+			sendError(w, r, err)
 			return
 		}
 		if len(perms) == 0 || !slices.Contains(perms[0].Permissions, appconfig.RolePermissionCredentials) {
-			w.WriteHeader(http.StatusUnauthorized)
-			render.JSON(w, r, struct{ Error string }{Error: "no permission to use this role"})
+			sendUnathorized(w, r, errors.New("no permission to use this role"))
 			return
 		}
 
 		// do login
 		creds, err := rolesSvc.Credentials(ctx, account, role, user.Username)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			log.Println(err)
+			sendError(w, r, err)
 			return
 		}
 
@@ -248,19 +239,49 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			return
 		}
 		if err := accountSrvc.Deploy(ctx, user.Username, account); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			log.Println(err)
-			render.JSON(w, r, err)
+			sendError(w, r, err)
+			return
 		}
 		http.Redirect(w, r, fmt.Sprintf("/account/watch?account=%s", account), http.StatusTemporaryRedirect)
 	})
 	g.With(superOnlyMiddleware()).Get("/account/watch", func(w http.ResponseWriter, r *http.Request) {
-		account := r.URL.Query().Get("account")
+		ctx := r.Context()
+		user := getUser(r)
+		query := r.URL.Query()
+		account := query.Get("account")
 		if account == "" {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		w.Write([]byte("hi"))
+		stackId := query.Get("stackId")
+		events, err := accountSrvc.StackUpdates(ctx, account, stackId)
+		if err != nil {
+			sendError(w, r, err)
+			return
+		}
+		if err := templates.WatchTemplate(w, templates.WatchData{
+			Navbar: templates.Navbar{Username: user.Username, HasAdmin: user.Superuser},
+			Events: events,
+		}); err != nil {
+			sendError(w, r, err)
+		}
+
+	})
+	g.With(superOnlyMiddleware()).Get("/account/destroy", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		query := r.URL.Query()
+		account := query.Get("account")
+		if account == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		stackId, err := accountSrvc.DestroyStack(ctx, account)
+		if err != nil {
+			sendError(w, r, err)
+			return
+		}
+		http.Redirect(w, r, fmt.Sprintf("/account/watch?account=%s?stackId=%s", account, stackId), http.StatusTemporaryRedirect)
+
 	})
 	g.With(superOnlyMiddleware()).Get("/admin", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -268,23 +289,29 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 
 		accounts, err := accountSrvc.ListAccounts(ctx)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			log.Println(err)
+			sendError(w, r, err)
 			return
 		}
 		templateAccounts := make([]templates.Account, 0, len(accounts))
 		for _, acc := range accounts {
-			templateAccounts = append(templateAccounts, templates.Account{AccountName: acc.Name, AccountId: acc.AwsAccountId})
+			status := "Deployment up to date"
+			needsDeployment, err := accountSrvc.NeedsDeployment(ctx, acc.Name)
+			if err != nil {
+				status = fmt.Sprintf("error getting status: %s", err.Error())
+			} else if needsDeployment {
+				status = "Needs deployment"
+			}
+			templateAccounts = append(templateAccounts, templates.Account{AccountName: acc.Name, AccountId: acc.AwsAccountId, UpdateStatus: status})
 		}
 		data := templates.AdminData{
 			Navbar:   templates.Navbar{Username: user.Username, HasAdmin: user.Superuser},
 			Accounts: templateAccounts,
 		}
 		if err := templates.AdminTemplate(w, data); err != nil {
-			log.Println(err)
-			render.Status(r, http.StatusInternalServerError)
+			sendError(w, r, err)
 		}
 	})
+
 	return r
 }
 
@@ -320,8 +347,7 @@ func superOnlyMiddleware() func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user := getUser(r)
 			if !user.Superuser {
-				w.WriteHeader(http.StatusUnauthorized)
-				w.Write([]byte("only superusers can use this!"))
+				sendUnathorized(w, r, errors.New("only superusers can use this!"))
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -340,4 +366,20 @@ func sendAccessToken(w http.ResponseWriter, r *http.Request, accessToken string)
 	}
 	http.SetCookie(w, &cookie)
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+}
+
+func sendUnathorized(w http.ResponseWriter, r *http.Request, err error) {
+	w.WriteHeader(http.StatusUnauthorized)
+	log.Println(err)
+	render.JSON(w, r, struct {
+		Error string `json:"error"`
+	}{err.Error()})
+}
+
+func sendError(w http.ResponseWriter, r *http.Request, err error) {
+	w.WriteHeader(http.StatusInternalServerError)
+	log.Println(err)
+	render.JSON(w, r, struct {
+		Error string `json:"error"`
+	}{err.Error()})
 }

@@ -2,6 +2,7 @@ package appconfig
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -44,4 +45,8 @@ type Account struct {
 	Name         string `json:"friendly_name,omitempty"`
 	AwsAccountId int    `json:"aws_account_id,omitempty"`
 	Enabled      bool   `json:"enabled,omitempty"`
+}
+
+func (a Account) AccountId() string {
+	return strconv.Itoa(a.AwsAccountId)
 }
