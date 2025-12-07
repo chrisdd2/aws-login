@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -41,7 +42,8 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		http.ServeFileFS(w, r, templates.Static, "faveicon.ico")
 	})
 	r.Get("/login", func(w http.ResponseWriter, r *http.Request) {
-		loginType := r.URL.Query().Get("type")
+		query := r.URL.Query()
+		loginType := query.Get("type")
 		for _, idp := range authSvcs {
 			if idp.Name() != loginType {
 				continue
@@ -49,7 +51,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			http.Redirect(w, r, idp.RedirectUrl(), http.StatusTemporaryRedirect)
 			return
 		}
-		errorParam := r.URL.Query().Get("error")
+		errorParam := query.Get("error")
 		data := templates.LoginData{ErrorString: loginErrorString(errorParam)}
 		for _, idp := range authSvcs {
 			name := idp.Name()
@@ -71,7 +73,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			password := r.Form.Get("password")
 			if !(username == adminUsername && password == adminPassword) {
 				log.Println(username, password)
-				http.Redirect(w, r, "/login?error=wrong_credentials", http.StatusSeeOther)
+				redirectWithParams(w, r, "/login", map[string]string{"error": "wrong_credentials"}, http.StatusSeeOther)
 				return
 			}
 			accessToken, _ := tokenSvc.Create(r.Context(), &services.UserInfo{Username: username, Email: "admin@admin", Superuser: true, LoginType: "userpass"}, false)
@@ -94,7 +96,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			}
 			accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, Email: info.Email, LoginType: idp.Name(), IdpToken: info.IdpToken}, true)
 			if err == services.ErrUserNotFound {
-				http.Redirect(w, r, "/login?error=user_not_found", http.StatusTemporaryRedirect)
+				redirectWithParams(w, r, "/login", map[string]string{"error": "user_not_found"}, http.StatusSeeOther)
 				return
 			}
 			if err != nil {
@@ -105,7 +107,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		})
 
 	}
-	g := r.With(guardMiddleware(tokenSvc))
+	loggedIn := r.With(guardMiddleware(tokenSvc))
 	mainHandler := func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := getUser(r)
@@ -143,74 +145,9 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			sendError(w, r, err)
 		}
 	}
-	g.Get("/", mainHandler)
-	g.Post("/", mainHandler)
-	g.Get("/account/console", func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		user := getUser(r)
-
-		query := r.URL.Query()
-		account := query.Get("account")
-		role := query.Get("role")
-		if account == "" || role == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		// auth check
-		perms, err := rolesSvc.UserPermissions(ctx, user.Username, role, account)
-		if err != nil {
-			sendError(w, r, err)
-			return
-		}
-		if len(perms) == 0 || !slices.Contains(perms[0].Permissions, appconfig.RolePermissionConsole) {
-			sendUnathorized(w, r, errors.New("no permission to use this role"))
-			return
-		}
-
-		// do login
-		url, err := rolesSvc.Console(ctx, account, role, user.Username)
-		if err != nil {
-			sendError(w, r, err)
-			return
-		}
-		http.Redirect(w, r, url, http.StatusTemporaryRedirect)
-	})
-	g.Get("/account/credentials", func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		user := getUser(r)
-
-		query := r.URL.Query()
-		account := query.Get("account")
-		format := query.Get("format")
-		role := query.Get("role")
-		if account == "" || role == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		// auth check
-		perms, err := rolesSvc.UserPermissions(ctx, user.Username, role, account)
-		if err != nil {
-			sendError(w, r, err)
-			return
-		}
-		if len(perms) == 0 || !slices.Contains(perms[0].Permissions, appconfig.RolePermissionCredentials) {
-			sendUnathorized(w, r, errors.New("no permission to use this role"))
-			return
-		}
-
-		// do login
-		creds, err := rolesSvc.Credentials(ctx, account, role, user.Username)
-		if err != nil {
-			sendError(w, r, err)
-			return
-		}
-
-		if format == "" {
-			format = "linux"
-		}
-		render.PlainText(w, r, creds.Format(format))
-	})
-	g.Get("/logout", func(w http.ResponseWriter, r *http.Request) {
+	loggedIn.Get("/", mainHandler)
+	loggedIn.Post("/", mainHandler)
+	loggedIn.Get("/logout", func(w http.ResponseWriter, r *http.Request) {
 		user := getUser(r)
 
 		cookie, _ := r.Cookie(authCookie)
@@ -230,60 +167,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		// its userpass, redirect to main
 		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 	})
-	g.With(superOnlyMiddleware()).Get("/account/deploy", func(w http.ResponseWriter, r *http.Request) {
-		user := getUser(r)
-		ctx := r.Context()
-		account := r.URL.Query().Get("account")
-		if account == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if err := accountSrvc.Deploy(ctx, user.Username, account); err != nil {
-			sendError(w, r, err)
-			return
-		}
-		http.Redirect(w, r, fmt.Sprintf("/account/watch?account=%s", account), http.StatusTemporaryRedirect)
-	})
-	g.With(superOnlyMiddleware()).Get("/account/watch", func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		user := getUser(r)
-		query := r.URL.Query()
-		account := query.Get("account")
-		if account == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		stackId := query.Get("stackId")
-		events, err := accountSrvc.StackUpdates(ctx, account, stackId)
-		if err != nil {
-			sendError(w, r, err)
-			return
-		}
-		if err := templates.WatchTemplate(w, templates.WatchData{
-			Navbar: templates.Navbar{Username: user.Username, HasAdmin: user.Superuser},
-			Events: events,
-		}); err != nil {
-			sendError(w, r, err)
-		}
-
-	})
-	g.With(superOnlyMiddleware()).Get("/account/destroy", func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		query := r.URL.Query()
-		account := query.Get("account")
-		if account == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		stackId, err := accountSrvc.DestroyStack(ctx, account)
-		if err != nil {
-			sendError(w, r, err)
-			return
-		}
-		http.Redirect(w, r, fmt.Sprintf("/account/watch?account=%s?stackId=%s", account, stackId), http.StatusTemporaryRedirect)
-
-	})
-	g.With(superOnlyMiddleware()).Get("/admin", func(w http.ResponseWriter, r *http.Request) {
+	loggedIn.With(superOnlyMiddleware()).Get("/admin", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := getUser(r)
 
@@ -294,14 +178,12 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		}
 		templateAccounts := make([]templates.Account, 0, len(accounts))
 		for _, acc := range accounts {
-			status := "Deployment up to date"
-			needsDeployment, err := accountSrvc.NeedsDeployment(ctx, acc.Name)
+			status, err := accountSrvc.DeploymentStatus(ctx, acc.Name)
 			if err != nil {
-				status = fmt.Sprintf("error getting status: %s", err.Error())
-			} else if needsDeployment {
-				status = "Needs deployment"
+				sendError(w, r, err)
+				return
 			}
-			templateAccounts = append(templateAccounts, templates.Account{AccountName: acc.Name, AccountId: acc.AwsAccountId, UpdateStatus: status})
+			templateAccounts = append(templateAccounts, templates.Account{AccountName: acc.Name, AccountId: acc.AwsAccountId, UpdateStatus: deploymentStatusMessage(status)})
 		}
 		data := templates.AdminData{
 			Navbar:   templates.Navbar{Username: user.Username, HasAdmin: user.Superuser},
@@ -311,7 +193,128 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			sendError(w, r, err)
 		}
 	})
+	loggedIn.Route("/account", func(r chi.Router) {
+		r.Get("/console", func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			user := getUser(r)
 
+			query := r.URL.Query()
+			account := query.Get("account")
+			role := query.Get("role")
+			if account == "" || role == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			// auth check
+			perms, err := rolesSvc.UserPermissions(ctx, user.Username, role, account)
+			if err != nil {
+				sendError(w, r, err)
+				return
+			}
+			if len(perms) == 0 || !slices.Contains(perms[0].Permissions, appconfig.RolePermissionConsole) {
+				sendUnathorized(w, r, errors.New("no permission to use this role"))
+				return
+			}
+
+			// do login
+			url, err := rolesSvc.Console(ctx, account, role, user.Username)
+			if err != nil {
+				sendError(w, r, err)
+				return
+			}
+			http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+		})
+		r.Get("/credentials", func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			user := getUser(r)
+
+			query := r.URL.Query()
+			account := query.Get("account")
+			format := query.Get("format")
+			role := query.Get("role")
+			if account == "" || role == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			// auth check
+			perms, err := rolesSvc.UserPermissions(ctx, user.Username, role, account)
+			if err != nil {
+				sendError(w, r, err)
+				return
+			}
+			if len(perms) == 0 || !slices.Contains(perms[0].Permissions, appconfig.RolePermissionCredentials) {
+				sendUnathorized(w, r, errors.New("no permission to use this role"))
+				return
+			}
+
+			// do login
+			creds, err := rolesSvc.Credentials(ctx, account, role, user.Username)
+			if err != nil {
+				sendError(w, r, err)
+				return
+			}
+
+			if format == "" {
+				format = "linux"
+			}
+			render.PlainText(w, r, creds.Format(format))
+		})
+
+		g := r.With(superOnlyMiddleware())
+		g.Get("/deploy", func(w http.ResponseWriter, r *http.Request) {
+			user := getUser(r)
+			ctx := r.Context()
+			account := r.URL.Query().Get("account")
+			if account == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if err := accountSrvc.Deploy(ctx, user.Username, account); err != nil {
+				sendError(w, r, err)
+				return
+			}
+			redirectWithParams(w, r, "/account/watch", map[string]string{"account": account}, http.StatusTemporaryRedirect)
+		})
+		g.Get("/watch", func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			user := getUser(r)
+			query := r.URL.Query()
+			account := query.Get("account")
+			if account == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			stackId := query.Get("stackId")
+			events, err := accountSrvc.StackUpdates(ctx, account, stackId)
+			if err != nil {
+				sendError(w, r, err)
+				return
+			}
+			if err := templates.WatchTemplate(w, templates.WatchData{
+				Navbar: templates.Navbar{Username: user.Username, HasAdmin: user.Superuser},
+				Events: events,
+			}); err != nil {
+				sendError(w, r, err)
+			}
+
+		})
+		g.Get("/destroy", func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			query := r.URL.Query()
+			account := query.Get("account")
+			if account == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			stackId, err := accountSrvc.DestroyStack(ctx, account)
+			if err != nil {
+				sendError(w, r, err)
+				return
+			}
+			redirectWithParams(w, r, "/account/watch", map[string]string{"account": account, "stackId": stackId}, http.StatusTemporaryRedirect)
+		})
+
+	})
 	return r
 }
 
@@ -332,8 +335,8 @@ func guardMiddleware(tokenService services.TokenService) func(next http.Handler)
 			}
 			info, err := tokenService.Validate(r.Context(), cookie.Value)
 			if err != nil {
-				http.Redirect(w, r, "/login?error=invalid_cookie", http.StatusSeeOther)
 				log.Println(err)
+				redirectWithParams(w, r, "/login", map[string]string{"error": "invalid_cookie"}, http.StatusSeeOther)
 				return
 			}
 			r = r.WithContext(context.WithValue(r.Context(), UserCtxKey, info))
@@ -382,4 +385,23 @@ func sendError(w http.ResponseWriter, r *http.Request, err error) {
 	render.JSON(w, r, struct {
 		Error string `json:"error"`
 	}{err.Error()})
+}
+
+func deploymentStatusMessage(d services.DeploymentStatus) string {
+	if d.StackExists {
+		if d.NeedsUpdate {
+			return "Needs sync"
+		} else {
+			return "Up to date"
+		}
+	}
+	return "Needs first deployment"
+}
+
+func redirectWithParams(w http.ResponseWriter, r *http.Request, redirectUrl string, params map[string]string, statusCode int) {
+	vals := url.Values{}
+	for k, v := range params {
+		vals.Add(k, v)
+	}
+	http.Redirect(w, r, fmt.Sprintf("%s?%s", redirectUrl, vals.Encode()), statusCode)
 }

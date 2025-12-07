@@ -19,9 +19,14 @@ import (
 	"golang.org/x/text/language"
 )
 
+type DeploymentStatus struct {
+	StackExists bool
+	NeedsUpdate bool
+}
+
 type AccountService interface {
 	Deploy(ctx context.Context, userId string, accountId string) error
-	NeedsDeployment(ctx context.Context, accountId string) (bool, error)
+	DeploymentStatus(ctx context.Context, accountId string) (DeploymentStatus, error)
 	StackUpdates(ctx context.Context, accountName string, stackId string) ([]aws.StackEvent, error)
 	DestroyStack(ctx context.Context, accountName string) (string, error)
 	GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error)
@@ -203,42 +208,46 @@ func (a *accountService) ListAccounts(ctx context.Context) ([]*appconfig.Account
 	return a.storage.ListAccounts(ctx)
 }
 
-func (a *accountService) NeedsDeployment(ctx context.Context, account string) (bool, error) {
-	acc, err := a.storage.GetAccount(ctx, account)
+func (a *accountService) DeploymentStatus(ctx context.Context, accountName string) (DeploymentStatus, error) {
+	status := DeploymentStatus{}
+	acc, err := a.storage.GetAccount(ctx, accountName)
 	if err != nil {
-		return false, fmt.Errorf("storage.GetAccount: %w", err)
+		return status, fmt.Errorf("storage.GetAccount: %w", err)
 	}
-	templateString, err := generateStackTemplate(ctx, a.storage, account)
+	templateString, err := generateStackTemplate(ctx, a.storage, acc.Name)
 	if err != nil {
-		return false, fmt.Errorf("generateStackTemplate: %w", err)
+		return status, fmt.Errorf("generateStackTemplate: %w", err)
 	}
 	currentHash, err := generateStackHash(templateString)
 	if err != nil {
-		return false, err
+		return status, err
 	}
 
 	tags, err := a.aws.StackTags(ctx, strconv.Itoa(acc.AwsAccountId), aws.StackName, nil, true)
 	if err == aws.ErrStackNotExist {
-		return true,nil
+		status.StackExists = false
+		return status, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("aws.StackTags: %w", err)
+		return status, fmt.Errorf("aws.StackTags: %w", err)
 	}
+	status.StackExists = true
 	stackHash := tags[stackHash]
 	log.Printf("currentHash=%s\nstackHash%s\n", currentHash, stackHash)
-	return stackHash == currentHash, nil
+	status.NeedsUpdate = stackHash == currentHash
+	return status, nil
 }
 func (a *accountService) StackUpdates(ctx context.Context, accountName string, stackId string) ([]aws.StackEvent, error) {
 	acc, err := a.storage.GetAccount(ctx, accountName)
 	if err != nil {
-		return nil, fmt.Errorf("storage.GetAccount: %w", err)
+		return nil, fmt.Errorf("accountService.StackUpdates: storage.GetAccount: %w", err)
 	}
 	if stackId == "" {
 		stackId = aws.StackName
 	}
 	events, err := a.aws.LatestStackEvents(ctx, acc.AccountId(), stackId)
 	if err != nil {
-		return nil, fmt.Errorf("aws.WatchStackEvents: %w", err)
+		return nil, fmt.Errorf("accountService.StackUpdates: aws.WatchStackEvents: %w", err)
 	}
 	return events, nil
 }
@@ -283,11 +292,11 @@ func generateStackTemplate(ctx context.Context, store Storage, account string) (
 func (a *accountService) DestroyStack(ctx context.Context, accountName string) (string, error) {
 	acc, err := a.storage.GetAccount(ctx, accountName)
 	if err != nil {
-		return "", fmt.Errorf("storage.GetAccount: %w", err)
+		return "", fmt.Errorf("accountService.DestroyStack: storage.GetAccount: %w", err)
 	}
 	stackId, err := a.aws.DestroyStack(ctx, acc.AccountId(), aws.StackName)
 	if err != nil {
-		return "", fmt.Errorf("aws.DestroyStack: %w", err)
+		return "", fmt.Errorf("accountService.DestroyStack: aws.DestroyStack: %w", err)
 	}
 	return stackId, nil
 
