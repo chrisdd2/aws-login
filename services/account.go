@@ -245,7 +245,7 @@ func (a *accountService) StackUpdates(ctx context.Context, accountName string, s
 	if stackId == "" {
 		stackId = aws.StackName
 	}
-	events, err := a.aws.LatestStackEvents(ctx, acc.AccountId(), stackId)
+	events, err := a.aws.TopStackEvents(ctx, acc.AccountId(), stackId)
 	if err != nil {
 		return nil, fmt.Errorf("accountService.StackUpdates: aws.WatchStackEvents: %w", err)
 	}

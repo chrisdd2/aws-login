@@ -6,10 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"iter"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -49,17 +47,17 @@ type StackEvent struct {
 }
 
 func (s StackEvent) Color() string {
-	if strings.Contains(s.ResourceStatus, "COMPLETE") && strings.Contains(s.ResourceStatus, "IN_PROGRESS") {
-		return "indigo"
-	}
-	if strings.Contains(s.ResourceStatus, "COMPLETE") {
-		return "green"
-	}
-	if strings.Contains(s.ResourceStatus, "IN_PROGRESS") {
+	switch cfnTypes.ResourceStatus(s.ResourceStatus) {
+	case cfnTypes.ResourceStatusCreateInProgress, cfnTypes.ResourceStatusDeleteInProgress, cfnTypes.ResourceStatusImportInProgress, cfnTypes.ResourceStatusUpdateInProgress, cfnTypes.ResourceStatusImportRollbackInProgress, cfnTypes.ResourceStatusExportRollbackInProgress, cfnTypes.ResourceStatusUpdateRollbackInProgress, cfnTypes.ResourceStatusRollbackInProgress, cfnTypes.ResourceStatusExportInProgress:
 		return "yellow"
-	}
-	if strings.Contains(s.ResourceStatus, "FAILED") {
+	case cfnTypes.ResourceStatusCreateComplete, cfnTypes.ResourceStatusDeleteComplete, cfnTypes.ResourceStatusDeleteSkipped, cfnTypes.ResourceStatusUpdateComplete, cfnTypes.ResourceStatusImportComplete, cfnTypes.ResourceStatusExportComplete:
+		return "green"
+	case cfnTypes.ResourceStatusCreateFailed, cfnTypes.ResourceStatusDeleteFailed, cfnTypes.ResourceStatusUpdateFailed, cfnTypes.ResourceStatusImportFailed, cfnTypes.ResourceStatusExportFailed, cfnTypes.ResourceStatusExportRollbackFailed, cfnTypes.ResourceStatusImportRollbackFailed, cfnTypes.ResourceStatusImportRollbackComplete, cfnTypes.ResourceStatusExportRollbackComplete, cfnTypes.ResourceStatusUpdateRollbackComplete, cfnTypes.ResourceStatusUpdateRollbackFailed, cfnTypes.ResourceStatusRollbackComplete, cfnTypes.ResourceStatusRollbackFailed:
 		return "red"
+	}
+	switch cfnTypes.StackStatus(s.ResourceStatus) {
+	case cfnTypes.StackStatusUpdateRollbackCompleteCleanupInProgress, cfnTypes.StackStatusUpdateCompleteCleanupInProgress:
+		return "indigo"
 	}
 	return "grey"
 }
@@ -73,8 +71,7 @@ type AwsApiCaller interface {
 		err error)
 	DeployStack(ctx context.Context, account string, stackName string, templateText string, params map[string]string, tags map[string]string) error
 	DestroyStack(ctx context.Context, account string, stackName string) (stackId string, error error)
-	LatestStackEvents(ctx context.Context, account string, stackName string) ([]StackEvent, error)
-	WatchStackEvents(ctx context.Context, account string, stackName string) (iter.Seq2[[]StackEvent, error], error)
+	TopStackEvents(ctx context.Context, account string, stackName string) ([]StackEvent, error)
 	StackTags(ctx context.Context, account string, stackName string, tags map[string]string, readOnly bool) (map[string]string, error)
 	GenerateSigninUrl(ctx context.Context, roleArn string, sessionName string, redirectUrl string) (string, error)
 }
@@ -144,51 +141,6 @@ func (a *apiImpl) DestroyStack(ctx context.Context, account string, stackName st
 	}
 	return "", ErrInvalidCfnResponse
 }
-func (a *apiImpl) WatchStackEvents(ctx context.Context, account string, stackName string) (iter.Seq2[[]StackEvent, error], error) {
-	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(account, OpsRole))
-	if err != nil {
-		return nil, err
-	}
-
-	cfnCl := cloudformation.NewFromConfig(cfg)
-	getStackEvents := func(latestEventTime time.Time) ([]StackEvent, time.Time, error) {
-		events := []StackEvent{}
-		resp, err := cfnCl.DescribeStackEvents(ctx, &cloudformation.DescribeStackEventsInput{
-			StackName: &stackName,
-		})
-		if err != nil {
-			return nil, latestEventTime, err
-		}
-		// its reverse order so reverse it for the user
-		for _, ev := range slices.Backward(resp.StackEvents) {
-			evTime := aws.ToTime(ev.Timestamp).UTC()
-			if !evTime.After(latestEventTime) {
-				continue
-			}
-			events = append(events, StackEvent{
-				EventTime:            evTime,
-				ResourceId:           aws.ToString(ev.LogicalResourceId),
-				ResourceType:         aws.ToString(ev.ResourceType),
-				ResourceStatus:       aws.ToString((*string)(&ev.ResourceStatus)),
-				ResourceStatusReason: aws.ToString(ev.ResourceStatusReason),
-			})
-			latestEventTime = evTime
-		}
-		return events, latestEventTime.UTC(), nil
-	}
-
-	return func(yield func([]StackEvent, error) bool) {
-		latestTime := time.Time{}
-		for {
-			events, t, err := getStackEvents(latestTime)
-			if !yield(events, err) {
-				break
-			}
-			latestTime = t
-		}
-	}, nil
-}
-
 func (a *apiImpl) DeployStack(ctx context.Context, account string, stackName string, templateText string, params map[string]string, tags map[string]string) error {
 	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(account, OpsRole))
 	if err != nil {
@@ -335,7 +287,7 @@ func assumeRole(ctx context.Context, stsCl *sts.Client, roleArn string) (aws.Con
 func getStack(ctx context.Context, cfnCl *cloudformation.Client, stackName string) (cfnTypes.Stack, error) {
 	resp, err := cfnCl.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: &stackName})
 	if isStackMissingErr(err) {
-		return cfnTypes.Stack{},ErrStackNotExist
+		return cfnTypes.Stack{}, ErrStackNotExist
 	}
 	if err != nil {
 		return cfnTypes.Stack{}, fmt.Errorf("cfn.DescribeStacks: %w", err)
@@ -369,7 +321,12 @@ func (a *apiImpl) StackTags(ctx context.Context, account string, stackName strin
 		{ParameterKey: aws.String("ManagementRoleArn"), ParameterValue: &a.arn},
 		{ParameterKey: aws.String("PermissionBoundaryName"), ParameterValue: aws.String(boundaryName)},
 	}
-	_, err = cfnCl.UpdateStack(ctx, &cloudformation.UpdateStackInput{UsePreviousTemplate: aws.Bool(true), Tags: cfnTags, StackName: &stackName, Parameters: cfnParams, Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam}})
+	_, err = cfnCl.UpdateStack(ctx, &cloudformation.UpdateStackInput{
+		UsePreviousTemplate: aws.Bool(true),
+		Tags:                cfnTags, StackName: &stackName,
+		Parameters:   cfnParams,
+		Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam},
+	})
 	if isStackMissingErr(err) {
 		return nil, ErrStackNotExist
 	}
@@ -381,7 +338,7 @@ func (a *apiImpl) StackTags(ctx context.Context, account string, stackName strin
 
 }
 
-func (a *apiImpl) LatestStackEvents(ctx context.Context, account string, stackName string) ([]StackEvent, error) {
+func (a *apiImpl) TopStackEvents(ctx context.Context, account string, stackName string) ([]StackEvent, error) {
 	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(account, OpsRole))
 	if err != nil {
 		return nil, err
