@@ -20,8 +20,9 @@ import (
 )
 
 type DeploymentStatus struct {
-	StackExists bool
-	NeedsUpdate bool
+	StackExists    bool
+	NeedsUpdate    bool
+	NeedsBootstrap bool
 }
 
 type AccountService interface {
@@ -31,6 +32,7 @@ type AccountService interface {
 	DestroyStack(ctx context.Context, accountName string) (string, error)
 	GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error)
 	ListAccounts(ctx context.Context) ([]*appconfig.Account, error)
+	BootstrapTemplate(ctx context.Context, accountName string) (string, error)
 }
 
 const stackHash = "al:stackHash"
@@ -171,11 +173,11 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 
 	// Deploy the stack
 	account, err := a.storage.GetAccount(ctx, accountId)
-	awsAccountId := strconv.Itoa(account.AwsAccountId)
 	if err != nil {
 		return err
 	}
-	return a.aws.DeployStack(ctx, awsAccountId, aws.StackName, templateString, nil, map[string]string{stackHash: h})
+	awsAccountId := strconv.Itoa(account.AwsAccountId)
+	return a.aws.DeployStack(ctx, account.Name, awsAccountId, aws.StackName.Value(accountId), templateString, nil, map[string]string{stackHash: h})
 }
 func (a *accountService) GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error) {
 	return a.storage.GetAccount(ctx, name)
@@ -209,7 +211,11 @@ func (a *accountService) ListAccounts(ctx context.Context) ([]*appconfig.Account
 }
 
 func (a *accountService) DeploymentStatus(ctx context.Context, accountName string) (DeploymentStatus, error) {
-	status := DeploymentStatus{}
+	status := DeploymentStatus{
+		StackExists:    true,
+		NeedsUpdate:    false,
+		NeedsBootstrap: false,
+	}
 	acc, err := a.storage.GetAccount(ctx, accountName)
 	if err != nil {
 		return status, fmt.Errorf("storage.GetAccount: %w", err)
@@ -223,18 +229,25 @@ func (a *accountService) DeploymentStatus(ctx context.Context, accountName strin
 		return status, err
 	}
 
-	tags, err := a.aws.StackTags(ctx, strconv.Itoa(acc.AwsAccountId), aws.StackName, nil, true)
-	if err == aws.ErrStackNotExist {
+	tags, err := a.aws.StackTags(ctx, accountName, strconv.Itoa(acc.AwsAccountId), aws.StackName.Value(accountName), nil, true)
+	if errors.Is(err, aws.ErrStackNotExist) {
 		status.StackExists = false
+		return status, nil
+	}
+	if errors.Is(err, aws.ErrNotAuthorized) {
+		status.StackExists = false
+		status.NeedsBootstrap = true
 		return status, nil
 	}
 	if err != nil {
 		return status, fmt.Errorf("aws.StackTags: %w", err)
 	}
-	status.StackExists = true
 	stackHash := tags[stackHash]
-	log.Printf("currentHash=%s\nstackHash%s\n", currentHash, stackHash)
-	status.NeedsUpdate = stackHash == currentHash
+	status.NeedsUpdate = stackHash != currentHash
+	log.Println(stackHash)
+	log.Println(currentHash)
+	log.Println(stackHash == currentHash)
+
 	return status, nil
 }
 func (a *accountService) StackUpdates(ctx context.Context, accountName string, stackId string) ([]aws.StackEvent, error) {
@@ -243,9 +256,9 @@ func (a *accountService) StackUpdates(ctx context.Context, accountName string, s
 		return nil, fmt.Errorf("accountService.StackUpdates: storage.GetAccount: %w", err)
 	}
 	if stackId == "" {
-		stackId = aws.StackName
+		stackId = aws.StackName.Value(accountName)
 	}
-	events, err := a.aws.TopStackEvents(ctx, acc.AccountId(), stackId)
+	events, err := a.aws.TopStackEvents(ctx, accountName, acc.AccountId(), stackId)
 	if err != nil {
 		return nil, fmt.Errorf("accountService.StackUpdates: aws.WatchStackEvents: %w", err)
 	}
@@ -294,7 +307,7 @@ func (a *accountService) DestroyStack(ctx context.Context, accountName string) (
 	if err != nil {
 		return "", fmt.Errorf("accountService.DestroyStack: storage.GetAccount: %w", err)
 	}
-	stackId, err := a.aws.DestroyStack(ctx, acc.AccountId(), aws.StackName)
+	stackId, err := a.aws.DestroyStack(ctx, accountName, acc.AccountId(), aws.StackName.Value(accountName))
 	if err != nil {
 		return "", fmt.Errorf("accountService.DestroyStack: aws.DestroyStack: %w", err)
 	}
@@ -309,4 +322,90 @@ func generateStackHash(templateString string) (string, error) {
 		return "", fmt.Errorf("sha256.Write: %w", err)
 	}
 	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
+}
+
+var bootstrapStackTempalte = template.Must(template.New("bootstrap-stack").Parse(`
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  aws-login Bootstrap
+  Creates an IAM role with scoped CloudFormation and IAM permissions.
+  The role will be used to setup the account.
+
+Parameters:
+  AwsLoginPrincipal:
+    Type: String
+    Description: ARN of the IAM user or role that can assume this admin role
+    Default: {{.Principal}}
+
+  TargetStackName:
+    Type: String
+    Description: Name of the CloudFormation stack this role will manage
+    Default: {{.TargetStackName}}
+
+Resources:
+  OpsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: {{.OpsRoleName}}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref AwsLoginPrincipal
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StackAndIAMManagement
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AllowSpecificStackOperations
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                Resource: !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${TargetStackName}/*
+
+              - Sid: AllowFullIAMViaCloudFormation
+                Effect: Allow
+                Action: "iam:*"
+                Resource: "*"
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+
+              - Sid: AllowPassRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: "*"
+
+      MaxSessionDuration: 43200
+
+Outputs:
+  OpsRoleArn:
+    Description: ARN of the management role
+    Value: !GetAtt OpsRole.Arn`))
+
+func (a *accountService) BootstrapTemplate(ctx context.Context, accountName string) (string, error) {
+	_, err := a.storage.GetAccount(ctx, accountName)
+	if err != nil {
+		return "", fmt.Errorf("accountService.BootstrapTemplate: storage.GetAccount: %w", err)
+	}
+	_, arn, err := a.aws.WhoAmI(ctx)
+	if err != nil {
+		return "", fmt.Errorf("accountService.BootstrapTemplate: aws.WhoAmi: %w", err)
+	}
+	log.Println(arn)
+	return templateExecuteToString(bootstrapStackTempalte, struct {
+		TargetStackName string
+		Principal       string
+		OpsRoleName     string
+	}{
+		TargetStackName: aws.StackName.Value(accountName),
+		Principal:       arn,
+		OpsRoleName:     aws.OpsRole.Value(accountName),
+	})
 }

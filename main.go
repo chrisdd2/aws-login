@@ -100,35 +100,45 @@ func main() {
 			storageSvc = storageSvc.Merge(o)
 		}
 	}
-	// storageSvc.Accounts = append(storageSvc.Accounts, appconfig.Account{
-	// 	Name:         "main",
-	// 	AwsAccountId: 992885815868,
-	// 	Enabled:      true,
-	// })
+	log.Printf("found [%d] accounts\n", len(storageSvc.Accounts))
+	// storageSvc = services.NewStaticStore(appCfg.AdminUsername)
+	// attachments := []appconfig.RoleAttachment{}
+	// for i := range 100 {
+	// 	accountName := fmt.Sprintf("main-%d", i)
+	// 	storageSvc.Accounts = append(storageSvc.Accounts, appconfig.Account{
+	// 		Name:         accountName,
+	// 		AwsAccountId: 992885815868 + i,
+	// 		Enabled:      true,
+	// 	})
+	// 	uniqueid := uuid.NewString()
+	// 	devRoleName := fmt.Sprintf("developer-role-%s", uniqueid)
+	// 	roRoleName := fmt.Sprintf("read-only-role-%s", uniqueid)
+	// 	storageSvc.Roles = append(storageSvc.Roles, appconfig.Role{
+	// 		Name:               devRoleName,
+	// 		MaxSessionDuration: time.Hour * 8,
+	// 		Enabled:            true,
+	// 		AssociatedAccounts: []string{accountName},
+	// 		ManagedPolicies:    []string{"arn:aws:iam::aws:policy/AdministratorAccess"},
+	// 	})
+	// 	storageSvc.Roles = append(storageSvc.Roles, appconfig.Role{
+	// 		Name:               roRoleName,
+	// 		MaxSessionDuration: time.Hour * 8,
+	// 		Enabled:            true,
+	// 		AssociatedAccounts: []string{accountName},
+	// 		ManagedPolicies:    []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"},
+	// 	})
+	// 	attachments = append(attachments,
+	// 		appconfig.RoleAttachment{RoleName: devRoleName, AccountName: accountName, Permissions: []string{"console"}},
+	// 		appconfig.RoleAttachment{RoleName: roRoleName, AccountName: accountName, Permissions: []string{"credential", "console"}},
+	// 	)
+	// }
 	// storageSvc.Users = append(storageSvc.Users, appconfig.User{
 	// 	Name:      "chrisdd2",
 	// 	Email:     "chris.damianidis2@gmail.com",
 	// 	Superuser: true,
-	// 	Roles: []appconfig.RoleAttachment{
-	// 		{RoleName: "developer-role", AccountName: "main", Permissions: []string{"console"}},
-	// 		{RoleName: "readonly-role", AccountName: "main", Permissions: []string{"credential", "console"}},
-	// 	},
+	// 	Roles:     attachments,
 	// })
-	// storageSvc.Roles = append(storageSvc.Roles, appconfig.Role{
-	// 	Name:               "developer-role",
-	// 	MaxSessionDuration: time.Hour * 8,
-	// 	Enabled:            true,
-	// 	AssociatedAccounts: []string{"main"},
-	// 	ManagedPolicies:    []string{"arn:aws:iam::aws:policy/AdministratorAccess"},
-	// })
-	// storageSvc.Roles = append(storageSvc.Roles, appconfig.Role{
-	// 	Name:               "readonly-role",
-	// 	MaxSessionDuration: time.Hour * 8,
-	// 	Enabled:            true,
-	// 	AssociatedAccounts: []string{"main"},
-	// 	ManagedPolicies:    []string{"arn:aws:iam::aws:policy/ReadOnlyAccess"},
-	// })
-	// f := must2(os.Create(".config/test.yml"))
+	// f := must2(os.Create(".config/test_bench.yml"))
 	// f.Write(must2(yaml.Marshal(&storageSvc)))
 	// f.Close()
 

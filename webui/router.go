@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chrisdd2/aws-login/appconfig"
@@ -37,6 +38,7 @@ func loginErrorString(v string) string {
 }
 
 func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, adminUsername, adminPassword string, rootUrl string) chi.Router {
+
 	r := chi.NewRouter()
 	r.Get("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, templates.Static, "faveicon.ico")
@@ -167,6 +169,8 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		// its userpass, redirect to main
 		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 	})
+
+	statusCache := StatusCache{accountsSvc: accountSrvc, in: sync.Map{}}
 	loggedIn.With(superOnlyMiddleware()).Get("/admin", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := getUser(r)
@@ -178,7 +182,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		}
 		templateAccounts := make([]templates.Account, 0, len(accounts))
 		for _, acc := range accounts {
-			status, err := accountSrvc.DeploymentStatus(ctx, acc.Name)
+			status, err := statusCache.Status(ctx, acc.Name)
 			if err != nil {
 				sendError(w, r, err)
 				return
@@ -188,6 +192,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				AccountId:    acc.AwsAccountId,
 				UpdateStatus: deploymentStatusMessage(status),
 				HasStack:     status.StackExists,
+				HasDeploy:    !status.NeedsBootstrap,
 			})
 		}
 		data := templates.AdminData{
@@ -266,6 +271,30 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		})
 
 		g := r.With(superOnlyMiddleware())
+		r.Get("/bootstrap_template", func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			account := r.URL.Query().Get("account")
+			if account == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			templateString, err := accountSrvc.BootstrapTemplate(ctx, account)
+			if err != nil {
+				sendError(w, r, err)
+				return
+			}
+			render.PlainText(w, r, templateString)
+		})
+		r.Get("/status", func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			account := r.URL.Query().Get("account")
+			if account == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			statusCache.Refresh(ctx, account)
+			http.Redirect(w, r, "/admin", http.StatusTemporaryRedirect)
+		})
 		g.Get("/deploy", func(w http.ResponseWriter, r *http.Request) {
 			user := getUser(r)
 			ctx := r.Context()
@@ -279,6 +308,8 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				return
 			}
 			redirectWithParams(w, r, "/account/watch", map[string]string{"account": account}, http.StatusTemporaryRedirect)
+			// refreh cache
+			statusCache.Refresh(ctx, account)
 		})
 		g.Get("/watch", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -317,6 +348,8 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				return
 			}
 			redirectWithParams(w, r, "/account/watch", map[string]string{"account": account, "stackId": stackId}, http.StatusTemporaryRedirect)
+			// refreh cache
+			statusCache.Refresh(ctx, account)
 		})
 
 	})
@@ -397,6 +430,9 @@ func sendError(w http.ResponseWriter, r *http.Request, err error) {
 }
 
 func deploymentStatusMessage(d services.DeploymentStatus) string {
+	if d.NeedsBootstrap {
+		return "Needs bootstrap (manual)"
+	}
 	if d.StackExists {
 		if d.NeedsUpdate {
 			return "Needs sync"
@@ -413,4 +449,26 @@ func redirectWithParams(w http.ResponseWriter, r *http.Request, redirectUrl stri
 		vals.Add(k, v)
 	}
 	http.Redirect(w, r, fmt.Sprintf("%s?%s", redirectUrl, vals.Encode()), statusCode)
+}
+
+type StatusCache struct {
+	accountsSvc services.AccountService
+	in          sync.Map
+}
+
+func (s *StatusCache) Status(ctx context.Context, accountName string) (services.DeploymentStatus, error) {
+	statusV, ok := s.in.Load(accountName)
+	if ok {
+		return statusV.(services.DeploymentStatus), nil
+	}
+	return s.Refresh(ctx, accountName)
+}
+
+func (s *StatusCache) Refresh(ctx context.Context, accountName string) (services.DeploymentStatus, error) {
+	status, err := s.accountsSvc.DeploymentStatus(ctx, accountName)
+	if err != nil {
+		return services.DeploymentStatus{}, err
+	}
+	s.in.Store(accountName, status)
+	return status, err
 }

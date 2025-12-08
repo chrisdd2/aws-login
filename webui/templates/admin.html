@@ -68,9 +68,20 @@
                             </td>
                             <td class="py-3 px-4 text-gray-900 dark:text-white text-nowrap">{{.UpdateStatus}}</td>
                             <td class="py-3 px-4 text-right whitespace-nowrap">
+                                {{ if .HasDeploy }}
                                 <a href="/account/deploy?account={{.AccountName}}" target="_blank" class="inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-sm py-1.5 px-3 rounded transition-colors">
                                     <i class="fas fa-rocket text-xs"></i>
                                     <span>Deploy</span>
+                                </a>
+                                {{ else }}
+                                <a href="/account/bootstrap_template?account={{.AccountName}}" target="_blank" download class="inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-sm py-1.5 px-3 rounded transition-colors">
+                                    <i class="fas fa-rocket text-xs"></i>
+                                    <span>Bootstrap template</span>
+                                </a>
+                                {{ end }}
+                                <a href="/account/status?account={{.AccountName}}" class="inline-flex items-center gap-1.5 bg-indigo-500 hover:bg-indigo-600 text-white text-sm py-1.5 px-3 rounded transition-colors">
+                                    <i class="fas fa-arrows-rotate text-xs"></i>
+                                    <span>Refresh status</span>
                                 </a>
                                 {{ if .HasStack }}
                                 <a href="/account/watch?account={{.AccountName}}" target="_blank" class="inline-flex items-center gap-1.5 bg-indigo-500 hover:bg-indigo-600 text-white text-sm py-1.5 px-3 rounded transition-colors">

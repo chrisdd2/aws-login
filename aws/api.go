@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -24,16 +25,16 @@ import (
 
 // some unique identifiers we might need
 const (
-	UniqueId     = "8db7bc11-acf5-4c7a-be46-967f44e33028"
-	StackName    = "aws-login-stack-" + UniqueId
-	OpsRole      = "ops-role-role-" + UniqueId
-	boundaryName = "iam-role-boundary-" + UniqueId
+	StackName    = AccountIdentifier("aws-login-stack-%s")
+	OpsRole      = AccountIdentifier("ops-role-role-%s")
+	boundaryName = AccountIdentifier("iam-role-boundary-%s")
 	signInUrl    = "https://signin.aws.amazon.com/federation"
 )
 
 var (
 	ErrInvalidCfnResponse = errors.New("invalid response from cfn api")
 	ErrStackNotExist      = errors.New("stack doesn't exist")
+	ErrNotAuthorized      = errors.New("management role doesn't exist or missing permissions")
 	// one working day, unless you slave away
 	DefaultSessionDuration = int32((time.Hour * 8).Seconds())
 )
@@ -69,10 +70,10 @@ type AwsApiCaller interface {
 		SecretAccessKey string,
 		SessionToken string,
 		err error)
-	DeployStack(ctx context.Context, account string, stackName string, templateText string, params map[string]string, tags map[string]string) error
-	DestroyStack(ctx context.Context, account string, stackName string) (stackId string, error error)
-	TopStackEvents(ctx context.Context, account string, stackName string) ([]StackEvent, error)
-	StackTags(ctx context.Context, account string, stackName string, tags map[string]string, readOnly bool) (map[string]string, error)
+	DeployStack(ctx context.Context, accountName string, accountId string, stackName string, templateText string, params map[string]string, tags map[string]string) error
+	DestroyStack(ctx context.Context, accountName string, accountId string, stackName string) (stackId string, error error)
+	TopStackEvents(ctx context.Context, accountName string, accountId string, stackName string) ([]StackEvent, error)
+	StackTags(ctx context.Context, accountName string, accountId string, stackName string, tags map[string]string, readOnly bool) (map[string]string, error)
 	GenerateSigninUrl(ctx context.Context, roleArn string, sessionName string, redirectUrl string) (string, error)
 }
 type apiImpl struct {
@@ -122,8 +123,8 @@ func (a *apiImpl) GetCredentials(
 		aws.ToString(resp.Credentials.SessionToken), nil
 }
 
-func (a *apiImpl) DestroyStack(ctx context.Context, account string, stackName string) (stackId string, err error) {
-	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(account, OpsRole))
+func (a *apiImpl) DestroyStack(ctx context.Context, accountName string, accountId string, stackName string) (stackId string, err error) {
+	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(accountId, OpsRole.Value(accountName)))
 	if err != nil {
 		return "", err
 	}
@@ -144,8 +145,8 @@ func (a *apiImpl) DestroyStack(ctx context.Context, account string, stackName st
 	}
 	return "", ErrInvalidCfnResponse
 }
-func (a *apiImpl) DeployStack(ctx context.Context, account string, stackName string, templateText string, params map[string]string, tags map[string]string) error {
-	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(account, OpsRole))
+func (a *apiImpl) DeployStack(ctx context.Context, accountName string, accountId string, stackName string, templateText string, params map[string]string, tags map[string]string) error {
+	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(accountId, OpsRole.Value(accountName)))
 	if err != nil {
 		return err
 	}
@@ -154,7 +155,7 @@ func (a *apiImpl) DeployStack(ctx context.Context, account string, stackName str
 		params = map[string]string{}
 	}
 	params["ManagementRoleArn"] = a.arn
-	params["PermissionBoundaryName"] = boundaryName
+	params["PermissionBoundaryName"] = boundaryName.Value(accountName)
 	return updateStack(ctx, cfnCl, stackName, templateText, params, tags)
 }
 
@@ -193,7 +194,12 @@ func updateStack(ctx context.Context, cfnCl *cloudformation.Client, stackName st
 		}
 		return nil
 	}
-	_, err = cfnCl.CreateStack(ctx, &cloudformation.CreateStackInput{StackName: &stackName, TemplateBody: &templateString, Parameters: cfnParams, Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam}})
+	_, err = cfnCl.CreateStack(ctx, &cloudformation.CreateStackInput{
+		StackName:    &stackName,
+		TemplateBody: &templateString,
+		Parameters:   cfnParams,
+		Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam},
+		Tags:         cfnTags})
 	return err
 }
 
@@ -233,7 +239,6 @@ func (a *apiImpl) GenerateSigninUrl(ctx context.Context, roleArn string, session
 	if err != nil {
 		return "", err
 	}
-
 	// construct signin url
 	values = url.Values{
 		"Action":      []string{"login"},
@@ -284,6 +289,18 @@ func assumeRole(ctx context.Context, stsCl *sts.Client, roleArn string) (aws.Con
 	if err != nil {
 		return aws.Config{}, err
 	}
+	// sanity check for assume role permissions
+	if _, err := sts.NewFromConfig(cfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{}); err != nil {
+		// check if its an authorization error
+		log.Println(err)
+		var o *smithy.GenericAPIError
+		if errors.As(err, &o) {
+			if o.Code == "AccessDenied" && strings.Contains(o.Message, "sts:AssumeRole") {
+				return cfg, ErrNotAuthorized
+			}
+		}
+		return cfg, err
+	}
 	return cfg, nil
 }
 
@@ -301,8 +318,8 @@ func getStack(ctx context.Context, cfnCl *cloudformation.Client, stackName strin
 	return resp.Stacks[0], nil
 }
 
-func (a *apiImpl) StackTags(ctx context.Context, account string, stackName string, tags map[string]string, readOnly bool) (map[string]string, error) {
-	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(account, OpsRole))
+func (a *apiImpl) StackTags(ctx context.Context, accountName string, accountId string, stackName string, tags map[string]string, readOnly bool) (map[string]string, error) {
+	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(accountId, OpsRole.Value(accountName)))
 	if err != nil {
 		return nil, fmt.Errorf("assumeRole: %w", err)
 	}
@@ -322,7 +339,7 @@ func (a *apiImpl) StackTags(ctx context.Context, account string, stackName strin
 	cfnTags := mapToTags(tags)
 	cfnParams := []cfnTypes.Parameter{
 		{ParameterKey: aws.String("ManagementRoleArn"), ParameterValue: &a.arn},
-		{ParameterKey: aws.String("PermissionBoundaryName"), ParameterValue: aws.String(boundaryName)},
+		{ParameterKey: aws.String("PermissionBoundaryName"), ParameterValue: aws.String(boundaryName.Value(accountName))},
 	}
 	_, err = cfnCl.UpdateStack(ctx, &cloudformation.UpdateStackInput{
 		UsePreviousTemplate: aws.Bool(true),
@@ -337,12 +354,12 @@ func (a *apiImpl) StackTags(ctx context.Context, account string, stackName strin
 		return nil, err
 	}
 	// read again
-	return a.StackTags(ctx, account, stackName, nil, true)
+	return a.StackTags(ctx, accountName, accountId, stackName, nil, true)
 
 }
 
-func (a *apiImpl) TopStackEvents(ctx context.Context, account string, stackName string) ([]StackEvent, error) {
-	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(account, OpsRole))
+func (a *apiImpl) TopStackEvents(ctx context.Context, accountName string, accountId string, stackName string) ([]StackEvent, error) {
+	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(accountId, OpsRole.Value(accountName)))
 	if err != nil {
 		return nil, err
 	}
@@ -371,4 +388,10 @@ func mapToTags(tags map[string]string) []cfnTypes.Tag {
 		ret = append(ret, cfnTypes.Tag{Key: &k, Value: &v})
 	}
 	return ret
+}
+
+type AccountIdentifier string
+
+func (a AccountIdentifier) Value(accountName string) string {
+	return fmt.Sprintf(string(a), accountName)
 }

@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"strings"
 
-	"gopkg.in/yaml.v2"
+	"sigs.k8s.io/yaml"
 )
 
 type AppConfig struct {
@@ -111,7 +111,11 @@ func (a *AppConfig) LoadFromEnv() error {
 }
 
 func (a *AppConfig) LoadFromYaml(r io.Reader) error {
-	return yaml.NewDecoder(r).Decode(a)
+	bytes, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	return yaml.Unmarshal(bytes, a)
 }
 
 func (a *AppConfig) PrefixEnv(v string) string {
