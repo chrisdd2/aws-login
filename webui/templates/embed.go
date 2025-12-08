@@ -48,6 +48,7 @@ type Account struct {
 	AccountName  string
 	AccountId    int
 	UpdateStatus string
+	HasStack bool
 }
 
 type AdminData struct {

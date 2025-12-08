@@ -183,7 +183,12 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				sendError(w, r, err)
 				return
 			}
-			templateAccounts = append(templateAccounts, templates.Account{AccountName: acc.Name, AccountId: acc.AwsAccountId, UpdateStatus: deploymentStatusMessage(status)})
+			templateAccounts = append(templateAccounts, templates.Account{
+				AccountName:  acc.Name,
+				AccountId:    acc.AwsAccountId,
+				UpdateStatus: deploymentStatusMessage(status),
+				HasStack:     status.StackExists,
+			})
 		}
 		data := templates.AdminData{
 			Navbar:   templates.Navbar{Username: user.Username, HasAdmin: user.Superuser},
@@ -323,7 +328,11 @@ type userCtxKey struct{}
 var UserCtxKey = userCtxKey{}
 
 func getUser(r *http.Request) *services.UserInfo {
-	return r.Context().Value(UserCtxKey).(*services.UserInfo)
+	usr, ok := r.Context().Value(UserCtxKey).(*services.UserInfo)
+	if !ok {
+		return &services.UserInfo{}
+	}
+	return usr
 }
 func guardMiddleware(tokenService services.TokenService) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
