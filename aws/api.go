@@ -136,6 +136,9 @@ func (a *apiImpl) DestroyStack(ctx context.Context, account string, stackName st
 		return "", err
 	}
 	_, err = cfnCl.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: &stackName})
+	if err != nil {
+		return "", fmt.Errorf("cloudformation.DeleteStack: %w", err)
+	}
 	if len(resp.Stacks) > 0 && resp.Stacks[0].StackId != nil {
 		return *resp.Stacks[0].StackId, nil
 	}
