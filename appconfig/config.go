@@ -13,6 +13,7 @@ import (
 type AppConfig struct {
 	environmentVariablePrefix string
 	ListenAddr                string `default:"localhost:8090" json:"listen_addr,omitempty"`
+	MetrisAddr                string `default:"localhost:8099" json:"metrics_addr,omitempty"`
 	SignKey                   string `default:"somekey" mask:"true" json:"sign_key,omitempty"`
 	DevelopmentMode           bool   `default:"false" json:"development_mode,omitempty"`
 	RootUrl                   string `json:"root_url,omitempty"`

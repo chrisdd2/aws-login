@@ -102,11 +102,18 @@ func main() {
 		},
 	}))
 
-	r.Handle("/metrics", metrics.Handler())
-
 	r.Mount("/", webui.Router(tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg.AdminUsername, appCfg.AdminPassword, appCfg.RootUrl))
 
-	logger.Info("listening", "address", appCfg.ListenAddr, "url", fmt.Sprintf("http:/%s", appCfg.ListenAddr))
+	metricsRouter := chi.NewRouter()
+	metricsRouter.Handle("/metrics", metrics.Handler())
+	go func() {
+		slog.Info("metrics", "address", appCfg.MetrisAddr)
+		if err := http.ListenAndServe(appCfg.MetrisAddr, metricsRouter); err != nil {
+			slog.Error("metrics", "err", err)
+		}
+	}()
+
+	slog.Info("http", "address", appCfg.ListenAddr, "url", fmt.Sprintf("http:/%s", appCfg.ListenAddr))
 	must(http.ListenAndServe(appCfg.ListenAddr, r))
 
 }
