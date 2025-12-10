@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -20,6 +21,18 @@ type UserInfo struct {
 	Superuser bool
 	LoginType string
 	IdpToken  string
+}
+
+func (u UserInfo) DebugPrint() {
+	fmt.Println("{")
+	fmt.Println("\tId:", u.Id)
+	fmt.Println("\tUsername:", u.Username)
+	fmt.Println("\tEmail :", u.Email)
+	fmt.Println("\tSuperuse:", u.Superuser)
+	fmt.Println("\tLoginType:", u.LoginType)
+	fmt.Println("\tIdpToken:", u.IdpToken)
+	fmt.Println("}")
+
 }
 
 type UserClaims struct {

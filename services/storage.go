@@ -28,7 +28,7 @@ type Storage interface {
 	ListAccounts(ctx context.Context) ([]*appconfig.Account, error)
 }
 
-type store struct {
+type Store struct {
 	Users         []appconfig.User         `json:"users,omitempty"`
 	Accounts      []appconfig.Account      `json:"accounts,omitempty"`
 	Roles         []appconfig.Role         `json:"roles,omitempty"`
@@ -37,35 +37,47 @@ type store struct {
 	adminUser     *appconfig.User
 }
 
-func (s *store) Merge(o *store) *store {
+func (s *Store) Reset() {
+	s.Users = nil
+	s.Accounts = nil
+	s.Roles = nil
+	s.Policies = nil
+}
+
+func (s *Store) Merge(o *Store, inPlace bool) *Store {
 	adminUsername := s.adminUsername
 	if adminUsername == "" {
 		adminUsername = o.adminUsername
 	}
-	return &store{
-		Users:         slices.Concat(s.Users, o.Users),
-		Accounts:      slices.Concat(s.Accounts, o.Accounts),
-		Roles:         slices.Concat(s.Roles, o.Roles),
-		Policies:      slices.Concat(s.Policies, o.Policies),
-		adminUsername: adminUsername,
+	var ret *Store
+	if inPlace {
+		ret = s
+		s.adminUsername = adminUsername
+	} else {
+		ret = &Store{adminUsername: adminUsername}
 	}
+	ret.Users = slices.Concat(s.Users, o.Users)
+	ret.Accounts = slices.Concat(s.Accounts, o.Accounts)
+	ret.Roles = slices.Concat(s.Roles, o.Roles)
+	ret.Policies = slices.Concat(s.Policies, o.Policies)
+	return ret
 }
-func (s *store) LoadYaml(r io.Reader) error {
+func (s *Store) LoadYaml(r io.Reader) error {
 	buf, err := io.ReadAll(r)
 	if err != nil {
 		return err
 	}
 	return yaml.Unmarshal(buf, s)
 }
-func (s *store) LoadJson(r io.Reader) error {
+func (s *Store) LoadJson(r io.Reader) error {
 	return json.NewDecoder(r).Decode(&s)
 }
 
-func NewStaticStore(adminUsername string) *store {
-	return &store{adminUsername: adminUsername}
+func NewStaticStore(adminUsername string) *Store {
+	return &Store{adminUsername: adminUsername}
 }
 
-func (s *store) GetAccount(ctx context.Context, name string) (*appconfig.Account, error) {
+func (s *Store) GetAccount(ctx context.Context, name string) (*appconfig.Account, error) {
 	idx := slices.IndexFunc(s.Accounts, func(acc appconfig.Account) bool {
 		return name == acc.Name
 	})
@@ -75,7 +87,7 @@ func (s *store) GetAccount(ctx context.Context, name string) (*appconfig.Account
 	return nil, errors.New("AccountNotFound")
 }
 
-func (s *store) ListRolesForAccount(ctx context.Context, accountName string) ([]*appconfig.Role, error) {
+func (s *Store) ListRolesForAccount(ctx context.Context, accountName string) ([]*appconfig.Role, error) {
 	roles := []*appconfig.Role{}
 	for _, role := range s.Roles {
 		if accountName == "" || slices.Contains(role.AssociatedAccounts, accountName) {
@@ -84,7 +96,7 @@ func (s *store) ListRolesForAccount(ctx context.Context, accountName string) ([]
 	}
 	return roles, nil
 }
-func (s *store) ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]*appconfig.RoleAttachment, error) {
+func (s *Store) ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]*appconfig.RoleAttachment, error) {
 	if userName == "" {
 		return nil, errors.New("username must be provided")
 	}
@@ -105,7 +117,7 @@ func (s *store) ListRolePermissions(ctx context.Context, userName string, roleNa
 	}
 	return ats, nil
 }
-func (s *store) GetInlinePolicy(ctx context.Context, id string) (*appconfig.InlinePolicy, error) {
+func (s *Store) GetInlinePolicy(ctx context.Context, id string) (*appconfig.InlinePolicy, error) {
 	idx := slices.IndexFunc(s.Policies, func(acc appconfig.InlinePolicy) bool {
 		return id == acc.Id
 	})
@@ -114,7 +126,7 @@ func (s *store) GetInlinePolicy(ctx context.Context, id string) (*appconfig.Inli
 	}
 	return nil, errors.New("PolicyNotFound")
 }
-func (s *store) GetUser(ctx context.Context, id string) (*appconfig.User, error) {
+func (s *Store) GetUser(ctx context.Context, id string) (*appconfig.User, error) {
 	log.Println(id, s.adminUsername)
 	if id == s.adminUsername {
 		return s.createAdminUser(), nil
@@ -128,7 +140,7 @@ func (s *store) GetUser(ctx context.Context, id string) (*appconfig.User, error)
 	return nil, ErrUserNotFound
 }
 
-func (s *store) GetRole(ctx context.Context, name string) (*appconfig.Role, error) {
+func (s *Store) GetRole(ctx context.Context, name string) (*appconfig.Role, error) {
 	idx := slices.IndexFunc(s.Roles, func(acc appconfig.Role) bool {
 		return name == acc.Name
 	})
@@ -138,7 +150,7 @@ func (s *store) GetRole(ctx context.Context, name string) (*appconfig.Role, erro
 	return nil, errors.New("RoleNotFound")
 }
 
-func (s *store) createAdminUser() *appconfig.User {
+func (s *Store) createAdminUser() *appconfig.User {
 	if s.adminUser != nil {
 		return s.adminUser
 	}
@@ -165,7 +177,7 @@ func (s *store) createAdminUser() *appconfig.User {
 
 }
 
-func (s *store) ListAccounts(ctx context.Context) ([]*appconfig.Account, error) {
+func (s *Store) ListAccounts(ctx context.Context) ([]*appconfig.Account, error) {
 	ret := make([]*appconfig.Account, 0, len(s.Accounts))
 	for _, acc := range s.Accounts {
 		ret = append(ret, &acc)
