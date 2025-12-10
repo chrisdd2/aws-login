@@ -59,7 +59,7 @@ func main() {
 
 	// AWS setup
 	// allow different aws config for the aws user used for permissions in the other accounts
-	awsContext := must2(appconfig.WithEnvContext(appCfg.PrefixEnv("ASSUMER_"), func() (awsSdk.Config, error) {
+	assumerConfig := must2(appconfig.WithEnvContext(appCfg.PrefixEnv("ASSUMER_"), func() (awsSdk.Config, error) {
 		cfg, err := config.LoadDefaultConfig(ctx)
 		if err != nil {
 			return cfg, err
@@ -67,14 +67,24 @@ func main() {
 		return cfg, nil
 	}))
 
-	stsClient := sts.NewFromConfig(awsContext)
+	stsClient := sts.NewFromConfig(assumerConfig)
 	awsApi := must2(aws.NewAwsApi(ctx, stsClient))
 	// check which user it is
 	_, arn := must3(awsApi.WhoAmI(ctx))
 
-	slog.Info("aws", "principal", arn)
+	slog.Info("aws", "principal", arn, "user", "assumer")
 
-	storageSvc := services.NewStaticStore(&appCfg, awsContext)
+	s3Config := must2(appconfig.WithEnvContext(appCfg.PrefixEnv("S3_"), func() (awsSdk.Config, error) {
+		cfg, err := config.LoadDefaultConfig(ctx)
+		if err != nil {
+			return cfg, err
+		}
+		return cfg, nil
+	}))
+
+	slog.Info("aws", "principal", arn, "user", "s3")
+
+	storageSvc := services.NewStaticStore(&appCfg, s3Config)
 	must(storageSvc.Reload(ctx))
 	slog.Info("found", "accounts", len(storageSvc.Accounts), "users", len(storageSvc.Users), "roles", len(storageSvc.Roles))
 
