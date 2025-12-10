@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"text/template"
@@ -244,10 +243,6 @@ func (a *accountService) DeploymentStatus(ctx context.Context, accountName strin
 	}
 	stackHash := tags[stackHash]
 	status.NeedsUpdate = stackHash != currentHash
-	log.Println(stackHash)
-	log.Println(currentHash)
-	log.Println(stackHash == currentHash)
-
 	return status, nil
 }
 func (a *accountService) StackUpdates(ctx context.Context, accountName string, stackId string) ([]aws.StackEvent, error) {
@@ -398,7 +393,6 @@ func (a *accountService) BootstrapTemplate(ctx context.Context, accountName stri
 	if err != nil {
 		return "", fmt.Errorf("accountService.BootstrapTemplate: aws.WhoAmi: %w", err)
 	}
-	log.Println(arn)
 	return templateExecuteToString(bootstrapStackTempalte, struct {
 		TargetStackName string
 		Principal       string

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"slices"
@@ -21,19 +20,21 @@ import (
 
 const authCookie = "aws-login-cookie"
 
-func loginErrorString(v string) string {
-	if v == "" {
+func loginErrorString(queryParams url.Values) string {
+
+	errorValue := queryParams.Get("error")
+	if errorValue == "" {
 		return ""
 	}
-	switch v {
+	switch errorValue {
 	case "invalid_cookie":
 		return "Authentication cookie is invalid, log out and retry"
 	case "user_not_found":
-		return "User not found in database.\nContact an administrator"
+		return fmt.Sprintf("User [%s] not found in database.\nContact an administrator", queryParams.Get("username"))
 	case "wrong_credentials":
 		return "Invalid username/password"
 	default:
-		return "Interval server error"
+		return fmt.Sprintf("Interval server error [%s]", queryParams.Get("message"))
 	}
 }
 
@@ -53,8 +54,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			http.Redirect(w, r, idp.RedirectUrl(), http.StatusTemporaryRedirect)
 			return
 		}
-		errorParam := query.Get("error")
-		data := templates.LoginData{ErrorString: loginErrorString(errorParam)}
+		data := templates.LoginData{ErrorString: loginErrorString(query)}
 		for _, idp := range authSvcs {
 			name := idp.Name()
 			prettyName := strings.ToUpper(name[0:1]) + name[1:]
@@ -68,13 +68,13 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		}
 	})
 	r.Post("/login", func(w http.ResponseWriter, r *http.Request) {
-		loginType := r.URL.Query().Get("type")
+		urlParams := r.URL.Query()
+		loginType := urlParams.Get("type")
 		if loginType == "userpass" {
 			r.ParseForm()
 			username := r.Form.Get("username")
 			password := r.Form.Get("password")
 			if !(username == adminUsername && password == adminPassword) {
-				log.Println(username, password)
 				redirectWithParams(w, r, "/login", map[string]string{"error": "wrong_credentials"}, http.StatusSeeOther)
 				return
 			}
@@ -82,7 +82,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			sendAccessToken(w, r, accessToken)
 			return
 		}
-		if err := templates.LoginTemplate(w, templates.LoginData{ErrorString: loginErrorString("")}); err != nil {
+		if err := templates.LoginTemplate(w, templates.LoginData{ErrorString: loginErrorString(urlParams)}); err != nil {
 			sendError(w, r, err)
 		}
 	})
@@ -98,7 +98,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			}
 			accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, Email: info.Email, LoginType: idp.Name(), IdpToken: info.IdpToken}, true)
 			if err == services.ErrUserNotFound {
-				redirectWithParams(w, r, "/login", map[string]string{"error": "user_not_found"}, http.StatusSeeOther)
+				redirectWithParams(w, r, "/login", map[string]string{"error": "user_not_found", "username": info.Username}, http.StatusSeeOther)
 				return
 			}
 			if err != nil {
@@ -377,8 +377,7 @@ func guardMiddleware(tokenService services.TokenService) func(next http.Handler)
 			}
 			info, err := tokenService.Validate(r.Context(), cookie.Value)
 			if err != nil {
-				log.Println(err)
-				redirectWithParams(w, r, "/login", map[string]string{"error": "invalid_cookie"}, http.StatusSeeOther)
+				redirectWithParams(w, r, "/login", map[string]string{"error": "invalid_cookie", "message": err.Error()}, http.StatusSeeOther)
 				return
 			}
 			r = r.WithContext(context.WithValue(r.Context(), UserCtxKey, info))
@@ -415,7 +414,6 @@ func sendAccessToken(w http.ResponseWriter, r *http.Request, accessToken string)
 
 func sendUnathorized(w http.ResponseWriter, r *http.Request, err error) {
 	w.WriteHeader(http.StatusUnauthorized)
-	log.Println(err)
 	render.JSON(w, r, struct {
 		Error string `json:"error"`
 	}{err.Error()})
@@ -423,7 +421,6 @@ func sendUnathorized(w http.ResponseWriter, r *http.Request, err error) {
 
 func sendError(w http.ResponseWriter, r *http.Request, err error) {
 	w.WriteHeader(http.StatusInternalServerError)
-	log.Println(err)
 	render.JSON(w, r, struct {
 		Error string `json:"error"`
 	}{err.Error()})

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -292,7 +291,6 @@ func assumeRole(ctx context.Context, stsCl *sts.Client, roleArn string) (aws.Con
 	// sanity check for assume role permissions
 	if _, err := sts.NewFromConfig(cfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{}); err != nil {
 		// check if its an authorization error
-		log.Println(err)
 		var o *smithy.GenericAPIError
 		if errors.As(err, &o) {
 			if o.Code == "AccessDenied" && strings.Contains(o.Message, "sts:AssumeRole") {

@@ -127,7 +127,6 @@ func (s *Store) GetInlinePolicy(ctx context.Context, id string) (*appconfig.Inli
 	return nil, errors.New("PolicyNotFound")
 }
 func (s *Store) GetUser(ctx context.Context, id string) (*appconfig.User, error) {
-	log.Println(id, s.adminUsername)
 	if id == s.adminUsername {
 		return s.createAdminUser(), nil
 	}
@@ -171,7 +170,6 @@ func (s *Store) createAdminUser() *appconfig.User {
 		Email:     "admin@admin",
 		Roles:     attachments,
 	}
-	log.Println(*user)
 	s.adminUser = user
 	return user
 
