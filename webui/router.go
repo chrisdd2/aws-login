@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"slices"
@@ -38,7 +39,7 @@ func loginErrorString(queryParams url.Values) string {
 	}
 }
 
-func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, adminUsername, adminPassword string, rootUrl string) chi.Router {
+func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, storageSvc services.Storage, adminUsername, adminPassword string, rootUrl string) chi.Router {
 
 	r := chi.NewRouter()
 	r.Get("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
@@ -171,37 +172,47 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 	})
 
 	statusCache := StatusCache{accountsSvc: accountSrvc, in: sync.Map{}}
-	loggedIn.With(superOnlyMiddleware()).Get("/admin", func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		user := getUser(r)
+	loggedIn.With(superOnlyMiddleware()).Route("/admin", func(r chi.Router) {
+		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			user := getUser(r)
 
-		accounts, err := accountSrvc.ListAccounts(ctx)
-		if err != nil {
-			sendError(w, r, err)
-			return
-		}
-		templateAccounts := make([]templates.Account, 0, len(accounts))
-		for _, acc := range accounts {
-			status, err := statusCache.Status(ctx, acc.Name)
+			accounts, err := accountSrvc.ListAccounts(ctx)
 			if err != nil {
 				sendError(w, r, err)
 				return
 			}
-			templateAccounts = append(templateAccounts, templates.Account{
-				AccountName:  acc.Name,
-				AccountId:    acc.AwsAccountId,
-				UpdateStatus: deploymentStatusMessage(status),
-				HasStack:     status.StackExists,
-				HasDeploy:    !status.NeedsBootstrap,
-			})
-		}
-		data := templates.AdminData{
-			Navbar:   templates.Navbar{Username: user.Username, HasAdmin: user.Superuser},
-			Accounts: templateAccounts,
-		}
-		if err := templates.AdminTemplate(w, data); err != nil {
-			sendError(w, r, err)
-		}
+			templateAccounts := make([]templates.Account, 0, len(accounts))
+			for _, acc := range accounts {
+				status, err := statusCache.Status(ctx, acc.Name)
+				if err != nil {
+					sendError(w, r, err)
+					return
+				}
+				templateAccounts = append(templateAccounts, templates.Account{
+					AccountName:  acc.Name,
+					AccountId:    acc.AwsAccountId,
+					UpdateStatus: deploymentStatusMessage(status),
+					HasStack:     status.StackExists,
+					HasDeploy:    !status.NeedsBootstrap,
+				})
+			}
+			data := templates.AdminData{
+				Navbar:   templates.Navbar{Username: user.Username, HasAdmin: user.Superuser},
+				Accounts: templateAccounts,
+			}
+			if err := templates.AdminTemplate(w, data); err != nil {
+				sendError(w, r, err)
+			}
+		})
+		r.Get("/reloadconfig", func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			if err := storageSvc.Reload(ctx); err != nil {
+				sendError(w, r, err)
+			}
+			log.Println("reloaded config")
+			http.Redirect(w, r, "/admin", http.StatusTemporaryRedirect)
+		})
 	})
 	loggedIn.Route("/account", func(r chi.Router) {
 		r.Get("/console", func(w http.ResponseWriter, r *http.Request) {

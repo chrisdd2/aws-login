@@ -6,8 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/chrisdd2/aws-login/appconfig"
 
 	"sigs.k8s.io/yaml"
@@ -25,15 +32,18 @@ type Storage interface {
 	GetUser(ctx context.Context, name string) (*appconfig.User, error)
 	GetAccount(ctx context.Context, id string) (*appconfig.Account, error)
 	ListAccounts(ctx context.Context) ([]*appconfig.Account, error)
+
+	Reload(ctx context.Context) error
 }
 
 type Store struct {
-	Users         []appconfig.User         `json:"users,omitempty"`
-	Accounts      []appconfig.Account      `json:"accounts,omitempty"`
-	Roles         []appconfig.Role         `json:"roles,omitempty"`
-	Policies      []appconfig.InlinePolicy `json:"policies,omitempty"`
-	adminUsername string
-	adminUser     *appconfig.User
+	Users     []appconfig.User         `json:"users,omitempty"`
+	Accounts  []appconfig.Account      `json:"accounts,omitempty"`
+	Roles     []appconfig.Role         `json:"roles,omitempty"`
+	Policies  []appconfig.InlinePolicy `json:"policies,omitempty"`
+	adminUser *appconfig.User
+	s3Cl      *s3.Client
+	cfg       *appconfig.AppConfig
 }
 
 func (s *Store) Reset() {
@@ -44,16 +54,21 @@ func (s *Store) Reset() {
 }
 
 func (s *Store) Merge(o *Store, inPlace bool) *Store {
-	adminUsername := s.adminUsername
-	if adminUsername == "" {
-		adminUsername = o.adminUsername
+	cfg := s.cfg
+	if cfg == nil {
+		cfg = o.cfg
+	}
+	s3Cl := s.s3Cl
+	if s3Cl == nil {
+		s3Cl = o.s3Cl
 	}
 	var ret *Store
 	if inPlace {
 		ret = s
-		s.adminUsername = adminUsername
+		s.cfg = cfg
+		s.s3Cl = s3Cl
 	} else {
-		ret = &Store{adminUsername: adminUsername}
+		ret = &Store{cfg: cfg, s3Cl: s3Cl}
 	}
 	ret.Users = slices.Concat(s.Users, o.Users)
 	ret.Accounts = slices.Concat(s.Accounts, o.Accounts)
@@ -72,8 +87,8 @@ func (s *Store) LoadJson(r io.Reader) error {
 	return json.NewDecoder(r).Decode(&s)
 }
 
-func NewStaticStore(adminUsername string) *Store {
-	return &Store{adminUsername: adminUsername}
+func NewStaticStore(cfg *appconfig.AppConfig, awsCfg aws.Config) *Store {
+	return &Store{cfg: cfg, s3Cl: s3.NewFromConfig(awsCfg)}
 }
 
 func (s *Store) GetAccount(ctx context.Context, name string) (*appconfig.Account, error) {
@@ -126,7 +141,7 @@ func (s *Store) GetInlinePolicy(ctx context.Context, id string) (*appconfig.Inli
 	return nil, errors.New("PolicyNotFound")
 }
 func (s *Store) GetUser(ctx context.Context, id string) (*appconfig.User, error) {
-	if id == s.adminUsername {
+	if id == s.cfg.AdminUsername {
 		return s.createAdminUser(), nil
 	}
 	idx := slices.IndexFunc(s.Users, func(acc appconfig.User) bool {
@@ -164,7 +179,7 @@ func (s *Store) createAdminUser() *appconfig.User {
 		}
 	}
 	user := &appconfig.User{
-		Name:      s.adminUsername,
+		Name:      s.cfg.AdminUsername,
 		Superuser: true,
 		Email:     "admin@admin",
 		Roles:     attachments,
@@ -180,4 +195,71 @@ func (s *Store) ListAccounts(ctx context.Context) ([]*appconfig.Account, error) 
 		ret = append(ret, &acc)
 	}
 	return ret, nil
+}
+
+func (s *Store) Reload(ctx context.Context) error {
+	ret := &Store{}
+	if s.cfg.ConfigDirectory != "" {
+		entries, err := os.ReadDir(s.cfg.ConfigDirectory)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			name := filepath.Join(s.cfg.ConfigDirectory, entry.Name())
+			if entry.IsDir() {
+				continue
+			}
+			if !strings.HasSuffix(name, ".yml") {
+				continue
+			}
+			o := Store{}
+			f, err := os.Open(name)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			log.Printf("loading file [%s]\n", name)
+			if err := o.LoadYaml(f); err != nil {
+				return err
+			}
+			ret = ret.Merge(&o, false)
+		}
+	} else if s.cfg.ConfigUrl != "" {
+		if !strings.HasPrefix(s.cfg.ConfigUrl, "s3://") {
+			return errors.New("only s3 urls support for config files")
+		}
+		s3Url, err := url.Parse(s.cfg.ConfigUrl)
+		if err != nil {
+			return err
+		}
+		bucket, path := s3Url.Hostname(), s3Url.Path
+		pages := s3.NewListObjectsV2Paginator(s.s3Cl, &s3.ListObjectsV2Input{Bucket: &bucket, Prefix: &path})
+		for pages.HasMorePages() {
+			page, err := pages.NextPage(ctx)
+			if err != nil {
+				return err
+			}
+			for _, obj := range page.Contents {
+				name := aws.ToString(obj.Key)
+				if !strings.HasSuffix(name, ".yml") {
+					continue
+				}
+				resp, err := s.s3Cl.GetObject(ctx, &s3.GetObjectInput{Bucket: &bucket, Key: obj.Key})
+				if err != nil {
+					return err
+				}
+				o := Store{}
+				log.Printf("loading file [s3://%s/%s]\n", bucket, name)
+				if err := o.LoadYaml(resp.Body); err != nil {
+					resp.Body.Close()
+					return err
+				}
+				resp.Body.Close()
+				ret = ret.Merge(&o, false)
+			}
+		}
+	}
+	s.Reset()
+	s.Merge(ret, true)
+	return nil
 }
