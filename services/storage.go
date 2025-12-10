@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"slices"
 
 	"github.com/chrisdd2/aws-login/appconfig"
