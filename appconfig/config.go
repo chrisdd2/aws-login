@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"sigs.k8s.io/yaml"
@@ -103,7 +104,8 @@ func (a *AppConfig) LoadFromEnv() error {
 			fld.SetString(envVar)
 		case reflect.Bool:
 			def := strings.ToLower(envVar)
-			fld.SetBool(def != "false" && len(def) > 0)
+			num, _ := strconv.Atoi(def)
+			fld.SetBool(def == "true" || num != 0)
 		default:
 			return fmt.Errorf("unhandled kind %s", k.String())
 		}
