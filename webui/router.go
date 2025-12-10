@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -210,7 +210,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			if err := storageSvc.Reload(ctx); err != nil {
 				sendError(w, r, err)
 			}
-			log.Println("reloaded config")
+			slog.Info("reloaded config", "source", "admin_page")
 			http.Redirect(w, r, "/admin", http.StatusTemporaryRedirect)
 		})
 	})

@@ -38,11 +38,6 @@ func must3[T any, Y any](a T, b Y, err error) (T, Y) {
 	}
 	return a, b
 }
-func assert(cond bool, msg string) {
-	if !cond {
-		log.Fatalln(msg)
-	}
-}
 
 func main() {
 	appCfg := appconfig.AppConfig{}
@@ -77,11 +72,11 @@ func main() {
 	// check which user it is
 	_, arn := must3(awsApi.WhoAmI(ctx))
 
-	logger.Info("using", "assumer", arn)
+	slog.Info("aws", "principal", arn)
 
 	storageSvc := services.NewStaticStore(&appCfg, awsContext)
 	must(storageSvc.Reload(ctx))
-	log.Printf("found [%d] accounts\n", len(storageSvc.Accounts))
+	slog.Info("found", "accounts", len(storageSvc.Accounts), "users", len(storageSvc.Users), "roles", len(storageSvc.Roles))
 
 	tokenSvc := services.NewToken(storageSvc, []byte(appCfg.SignKey))
 	roleSvc := services.NewRoleService(storageSvc, awsApi)
@@ -89,11 +84,11 @@ func main() {
 	idps := []services.AuthService{}
 	if appCfg.GithubEnabled {
 		idps = append(idps, &services.GithubService{ClientSecret: appCfg.GithubClientSecret, ClientId: appCfg.GithubClientId, AuthResponsePath: "/oauth2/github/idpresponse"})
-		log.Println("[github] login enabled")
+		slog.Info("enabled", "auth", "github")
 	}
 	if appCfg.OpenIdEnabled {
 		idps = append(idps, must2(services.NewOpenId(ctx, appCfg.OpenIdProviderUrl, appCfg.OpenIdRedirectUrl, appCfg.OpenIdClientId, appCfg.OpenIdClientSecret)))
-		log.Println("[keycloak] login enabled")
+		slog.Info("enabled", "auth", "keycloak")
 	}
 
 	r := chi.NewRouter()

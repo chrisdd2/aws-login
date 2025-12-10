@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -218,7 +218,7 @@ func (s *Store) Reload(ctx context.Context) error {
 				return err
 			}
 			defer f.Close()
-			log.Printf("loading file [%s]\n", name)
+			slog.Info("load_config", "type", "filesystem", "filename", name)
 			if err := o.LoadYaml(f); err != nil {
 				return err
 			}
@@ -249,7 +249,7 @@ func (s *Store) Reload(ctx context.Context) error {
 					return err
 				}
 				o := Store{}
-				log.Printf("loading file [s3://%s/%s]\n", bucket, name)
+				slog.Info("load_config", "type", "s3", "filename", fmt.Sprintf("s3://%s/%s", bucket, name))
 				if err := o.LoadYaml(resp.Body); err != nil {
 					resp.Body.Close()
 					return err
