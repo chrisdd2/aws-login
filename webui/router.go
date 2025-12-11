@@ -42,9 +42,9 @@ func loginErrorString(queryParams url.Values) string {
 func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, storageSvc services.Storage, adminUsername, adminPassword string, rootUrl string) chi.Router {
 
 	r := chi.NewRouter()
-	r.Get("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFileFS(w, r, templates.Static, "faveicon.ico")
-	})
+	// font awesome ruins me
+	r.Mount("/webfonts", http.FileServerFS(templates.Static))
+	r.Mount("/static", http.FileServerFS(templates.Static))
 	r.Get("/login", func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
 		loginType := query.Get("type")

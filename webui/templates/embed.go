@@ -8,7 +8,7 @@ import (
 	"github.com/chrisdd2/aws-login/aws"
 )
 
-//go:embed *.ico
+//go:embed static webfonts
 var Static embed.FS
 
 //go:embed *.html
