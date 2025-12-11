@@ -2,85 +2,24 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"os"
-	"os/signal"
 
 	"log/slog"
 	"net/http"
 
+	awsSdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
-	"github.com/chrisdd2/aws-login/auth"
+	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/aws"
-	"github.com/chrisdd2/aws-login/storage"
+	"github.com/chrisdd2/aws-login/services"
 	"github.com/chrisdd2/aws-login/webui"
-	"github.com/chrisdd2/aws-login/webui/templates"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/metrics"
 )
-
-func NewMemoryStorage(filename string) (storage.Storage, func(), error) {
-	store := storage.NewMemoryStorage()
-
-	f, err := os.Open(filename)
-	if err != nil {
-		log.Println(err)
-	} else {
-		if err := store.LoadFromReader(f); err != nil {
-			return nil, nil, fmt.Errorf("store.LoadFromReader [%w]", err)
-		}
-	}
-	defer f.Close()
-	flushFunc := func(s *storage.MemoryStorage) {
-		log.Printf("saving storage to [%s]\n", filename)
-		f, err := os.Create(filename)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		if err := s.SaveToWriter(f); err != nil {
-			f.Close()
-			log.Fatalln(err)
-		}
-		f.Close()
-		f, err = os.Open(filename)
-		if err := s.LoadFromReader(f); err != nil {
-			log.Fatalln(err)
-		}
-		defer f.Close()
-	}
-	store.SetFlush(flushFunc)
-	exitSignal := make(chan os.Signal, 10)
-	signal.Notify(exitSignal, os.Interrupt, os.Kill)
-	go func() {
-		<-exitSignal
-		store.Flush()
-		os.Exit(1)
-	}()
-	return store, store.Flush, nil
-}
-
-type storageCtx struct {
-	store    storage.Storage
-	saveFunc func()
-}
-
-func prepareStorage(cfg *AppConfig) (storageCtx, error) {
-	switch cfg.StorageType {
-	case StorageTypeSql:
-		log.Printf("Using SQL storage backend: %s", cfg.DatabaseUrl)
-		store, err := storage.NewSQLStorage(cfg.DatabaseUrl)
-		return storageCtx{store: store, saveFunc: func() {}}, err
-	case StorageTypeMemory:
-		log.Printf("Using in-memory storage backend (MemoryStorage)")
-		store, saveStorage, err := NewMemoryStorage(cfg.StorageFile)
-		return storageCtx{store: store, saveFunc: saveStorage}, err
-	default:
-		return storageCtx{}, fmt.Errorf("unknown storage type %s", cfg.StorageType)
-	}
-}
 
 func must(err error) {
 	if err != nil {
@@ -93,88 +32,102 @@ func must2[T any](a T, err error) T {
 	}
 	return a
 }
+func must3[T any, Y any](a T, b Y, err error) (T, Y) {
+	if err != nil {
+		log.Fatalln(err)
+	}
+	return a, b
+}
 
 func main() {
-	appCfg := AppConfig{}
+	appCfg := appconfig.AppConfig{}
 	appCfg.SetEnvironmentVariablePrefix("APP_")
 	must(appCfg.LoadDefaults())
 	must(appCfg.LoadFromEnv())
 
-	appCfg.debugPrint()
+	var logger *slog.Logger
+	logLvl := slog.LevelInfo
+	if appCfg.DevelopmentMode {
+		logLvl = slog.LevelDebug
+	}
+	if appCfg.DevelopmentMode {
+		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLvl}))
+	} else {
+		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLvl}))
+	}
+	slog.SetDefault(logger)
 
-	storageCtx := must2(prepareStorage(&appCfg))
-	defer storageCtx.saveFunc()
+	appCfg.DebugPrint()
 
+	ctx := context.Background()
+
+	// AWS setup
 	// allow different aws config for the aws user used for permissions in the other accounts
-	stsClient := must2(withEnvContext(appCfg.PrefixEnv("ASSUMER_"), func() (*sts.Client, error) {
-		cfg, err := config.LoadDefaultConfig(context.Background())
+	assumerConfig := must2(appconfig.WithEnvContext(appCfg.PrefixEnv("ASSUMER_"), func() (awsSdk.Config, error) {
+		cfg, err := config.LoadDefaultConfig(ctx)
 		if err != nil {
-			return nil, err
+			return cfg, err
 		}
-		// sts client will be used for most access we require
-		return sts.NewFromConfig(cfg), nil
+		return cfg, nil
 	}))
 
+	stsClient := sts.NewFromConfig(assumerConfig)
+	awsApi := must2(aws.NewAwsApi(ctx, stsClient))
 	// check which user it is
-	stsResp := must2(stsClient.GetCallerIdentity(context.Background(), &sts.GetCallerIdentityInput{}))
-	log.Printf("using assumer [%s]\n", aws.PrincipalFromSts(*stsResp.Arn))
+	_, arn := must3(awsApi.WhoAmI(ctx))
 
-	token := auth.LoginToken{
-		Key: []byte(appCfg.SignKey),
-	}
+	slog.Info("aws", "principal", arn, "user", "assumer")
 
-	authMethod := &auth.GithubAuth{
-		ClientSecret: appCfg.GithubClientSecret,
-		ClientId:     appCfg.GithubClientId,
-	}
-
-	e := echo.New()
-	e.Renderer = &templates.EchoRenderer{}
-
-	// Middleware
-	e.Pre(middleware.AddTrailingSlash())
-	if appCfg.DevelopmentMode {
-		e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
-			Format:           "${time_custom} method=${method}, uri=${uri}, status=${status}\n",
-			CustomTimeFormat: "2006/01/02 15:04:05",
-		}))
-	} else {
-		e.Use(middleware.Logger())
-	}
-	e.Use(middleware.Recover())
-	e.Use(middleware.RequestID())
-
-	e.HTTPErrorHandler = func(err error, c echo.Context) {
-		switch v := err.(type) {
-		case *echo.HTTPError:
-			c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": fmt.Sprint(v.Message),
-			})
-		default:
-			c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": v.Error(),
-			})
-		}
-	}
-
-	webui.Router(e, authMethod, &storage.StorageService{Storage: storageCtx.store}, token, stsClient)
-
-	log.Printf("listening [http://%s]\n", appCfg.ListenAddr)
-
-	if appCfg.GenerateRootToken {
-		accessToken, err := token.SignToken(auth.UserInfo{
-			Username:  "root",
-			Email:     "root@root",
-			Superuser: true,
-		})
+	s3Config := must2(appconfig.WithEnvContext(appCfg.PrefixEnv("S3_"), func() (awsSdk.Config, error) {
+		cfg, err := config.LoadDefaultConfig(ctx)
 		if err != nil {
-			e.StdLogger.Fatalf("failed to generate root token [%s]\n", err)
+			return cfg, err
 		}
-		e.StdLogger.Printf("ROOT access token: %s\n", accessToken)
-		e.StdLogger.Printf("login with http://%s/login?token=%s\n", appCfg.ListenAddr, accessToken)
+		return cfg, nil
+	}))
+
+	slog.Info("aws", "principal", arn, "user", "s3")
+
+	storageSvc := services.NewStaticStore(&appCfg, s3Config)
+	must(storageSvc.Reload(ctx))
+	slog.Info("found", "accounts", len(storageSvc.Accounts), "users", len(storageSvc.Users), "roles", len(storageSvc.Roles))
+
+	tokenSvc := services.NewToken(storageSvc, []byte(appCfg.SignKey))
+	roleSvc := services.NewRoleService(storageSvc, awsApi)
+	accSvc := services.NewAccountService(storageSvc, awsApi)
+	idps := []services.AuthService{}
+	if appCfg.GithubEnabled {
+		idps = append(idps, &services.GithubService{ClientSecret: appCfg.GithubClientSecret, ClientId: appCfg.GithubClientId, AuthResponsePath: "/oauth2/github/idpresponse"})
+		slog.Info("enabled", "auth", "github")
+	}
+	if appCfg.OpenIdEnabled {
+		idps = append(idps, must2(services.NewOpenId(ctx, appCfg.OpenIdProviderUrl, appCfg.OpenIdRedirectUrl, appCfg.OpenIdClientId, appCfg.OpenIdClientSecret)))
+		slog.Info("enabled", "auth", "keycloak")
 	}
 
-	if err := e.Start(appCfg.ListenAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		slog.Error("failed to start server", "error", err)
-	}
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.Logger)
+	r.Use(metrics.Collector(metrics.CollectorOpts{
+		Host:  false,
+		Proto: true,
+		Skip: func(r *http.Request) bool {
+			return r.Method != "OPTIONS"
+		},
+	}))
+
+	r.Mount("/", webui.Router(tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg.AdminUsername, appCfg.AdminPassword, appCfg.RootUrl))
+
+	metricsRouter := chi.NewRouter()
+	metricsRouter.Handle("/metrics", metrics.Handler())
+	go func() {
+		slog.Info("metrics", "address", appCfg.MetrisAddr)
+		if err := http.ListenAndServe(appCfg.MetrisAddr, metricsRouter); err != nil {
+			slog.Error("metrics", "err", err)
+		}
+	}()
+
+	slog.Info("http", "address", appCfg.ListenAddr, "url", fmt.Sprintf("http:/%s", appCfg.ListenAddr))
+	must(http.ListenAndServe(appCfg.ListenAddr, r))
+
 }

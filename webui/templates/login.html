@@ -1,8 +1,70 @@
-{{ define "content"}}
-<div class="max-w-md mx-auto bg-white/90 dark:bg-gray-800/90 shadow-xl rounded-2xl p-8 mt-16 flex flex-col items-center gap-4">
-  <svg xmlns='http://www.w3.org/2000/svg' class='h-12 w-12 text-indigo-400' fill='none' viewBox='0 0 24 24' stroke='currentColor'><path stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M13 16h-1v-4h-1m1-4h.01' /></svg>
-  <h1 class="text-2xl font-extrabold text-indigo-700 dark:text-indigo-300">Login Required</h1>
-  <p class="text-lg text-gray-700 dark:text-gray-200 text-center">Must login to access this page</p>
-</div>
-{{ end}}
-{{ template "layout" .}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AwsLogin - Sign In</title>
+    <script src="/static/tailwind.js"></script>
+    <link rel="stylesheet" href="/static/font-awesome.css">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+</head>
+<body class="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 dark:from-[#1a1a2e] dark:to-[#16213e] transition-colors duration-300">
+    <div class="w-full max-w-md relative">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-2xl dark:shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-8" id="loginCard">
+            <div class="text-center mb-6">
+                <h1 class="text-2xl font-bold mb-2 text-gray-900 dark:text-white" id="loginTitle">AWS Login</h1>
+                <p class="text-sm text-gray-600 dark:text-gray-300" id="loginSubtitle">Sign in to your account</p>
+            </div>
+            
+            {{if .ErrorString}}
+            <div class="mb-4 p-3 bg-red-100 dark:bg-red-900/30 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-300 rounded-lg">
+                <div class="flex items-center gap-2">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <span>{{.ErrorString}}</span>
+                </div>
+            </div>
+            {{end}}
+            
+            <form id="loginForm" action="/login?type=userpass" method="post">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2 text-gray-700 dark:text-white" id="usernameLabel">Username</label>
+                    <div class="relative">
+                        <input class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" type="text" placeholder="Enter your username" id="username" name="username" required>
+                        <span class="absolute left-3 top-2.5 text-gray-400">
+                            <i class="fas fa-user"></i>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <label class="block text-sm font-medium mb-2 text-gray-700 dark:text-white" id="passwordLabel">Password</label>
+                    <div class="relative">
+                        <input class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white dark:border-gray-600" type="password" placeholder="Enter your password" id="password" name="password" required>
+                        <span class="absolute left-3 top-2.5 text-gray-400">
+                            <i class="fas fa-lock"></i>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <button class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2" type="submit">
+                        <i class="fas fa-sign-in-alt"></i>
+                        <span>Sign In</span>
+                    </button>
+                </div>
+            </form>
+
+            <div class="border-t border-gray-200 dark:border-gray-700 my-6"></div>
+
+            {{range .LoginType }}
+            <div class="mt-4">
+                <a href="/login?type={{.Name}}" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
+                    <i class="fas fa-key"></i>
+                    <span>{{.Desc}}</span>
+                </a>
+            </div>
+            {{end}}
+        </div>
+    </div>
+</body>
+</html>

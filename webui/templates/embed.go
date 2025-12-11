@@ -2,119 +2,72 @@ package templates
 
 import (
 	"embed"
-	"errors"
 	"html/template"
 	"io"
-	"io/fs"
-	"time"
 
-	"github.com/chrisdd2/aws-login/auth"
-	"github.com/chrisdd2/aws-login/storage"
-	"github.com/labstack/echo/v4"
+	"github.com/chrisdd2/aws-login/aws"
 )
 
-const layoutFile = "layout.html"
+//go:embed static webfonts
+var Static embed.FS
 
-var (
-	//go:embed *.html
-	embeddedFiles       embed.FS
-	templates           map[string]*template.Template
-	ErrTemplateNotExist error = errors.New("template doesn't exist")
-)
+//go:embed *.html
+var pages embed.FS
+var pagesTmpls = template.Must(template.ParseFS(pages, "*.html"))
 
-func init() {
-	templates = map[string]*template.Template{}
-	files, err := fs.Glob(embeddedFiles, "*.html")
-	if err != nil {
-		panic(err.Error())
+type Navbar struct {
+	Username string
+	HasAdmin bool
+}
+
+type LoginData struct {
+	ErrorString string
+	LoginType   []struct {
+		Name string
+		Desc string
 	}
-	// extra func
-	funcMap := template.FuncMap{
-		"now": func() time.Time {
-			return time.Now().UTC()
-		},
-	}
-	for _, file := range files {
-		if file == layoutFile {
-			continue
-		}
-		t := template.Must(template.New(file).Funcs(funcMap).ParseFS(embeddedFiles, layoutFile))
-		templates[file] = template.Must(t.ParseFS(embeddedFiles, file))
-	}
+}
+
+func LoginTemplate(w io.Writer, data LoginData) error {
+	return pagesTmpls.ExecuteTemplate(w, "login.html", data)
 }
 
 type Role struct {
-	Arn       string
-	AccountId string
-	Name      string
-	CanGrant  bool
-	CanAssume bool
+	AccountId      int
+	AccountName    string
+	RoleName       string
+	HasCredentials bool
+	HasConsole     bool
+}
+type RolesData struct {
+	Navbar
+	Roles []Role
 }
 
-type templateData struct {
-	Title           string
-	LogoutPath      string
-	ProfilePath     string
-	LoginPath       string
-	Logged          bool
-	Users           []storage.User
-	User            *auth.UserInfo
-	Accounts        []storage.Account
-	Permissions     []storage.Permission
-	UserPermissions []struct {
-		Permission storage.Permission
-		User       storage.User
-	}
-	HasNext     bool
-	StartToken  string
-	HasPrevious bool
-	Roles       []Role
-	StackId     string
-
-	Menu []MenuItem
+type Account struct {
+	AccountName  string
+	AccountId    int
+	UpdateStatus string
+	HasStack     bool
+	HasDeploy    bool
 }
 
-func (t *templateData) Account() storage.Account {
-	return t.Accounts[0]
+type AdminData struct {
+	Navbar
+	Accounts []Account
 }
-func (t *templateData) Role() Role {
-	return t.Roles[0]
-}
-
-type MenuItem struct {
-	Label string
-	Path  string
+type WatchData struct {
+	Navbar
+	Events []aws.StackEvent
 }
 
-func TemplateData(user *auth.UserInfo, title string) *templateData {
-	d := templateData{
-		Title:       title,
-		LoginPath:   "/login/",
-		LogoutPath:  "/logout/",
-		ProfilePath: "/profile/",
-		Menu: []MenuItem{
-			{Label: "Accounts", Path: "/accounts/"},
-		},
-		User: user,
-	}
-	if d.User != nil {
-		d.Logged = true
-		if d.User.Superuser {
-			d.Menu = append(d.Menu, MenuItem{
-				Label: "Admin", Path: "/admin",
-			}, MenuItem{Label: "Users", Path: "/users"})
-		}
-	}
-	return &d
+func RolesTemplate(w io.Writer, data RolesData) error {
+	return pagesTmpls.ExecuteTemplate(w, "roles.html", data)
 }
 
-type EchoRenderer struct{}
-
-func (t *EchoRenderer) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
-	c.Response().Header().Add("Content-Type", "text/html; charset=utf-8")
-	tmpl, ok := templates[name]
-	if !ok {
-		return ErrTemplateNotExist
-	}
-	return tmpl.ExecuteTemplate(w, name, data)
+func AdminTemplate(w io.Writer, data AdminData) error {
+	return pagesTmpls.ExecuteTemplate(w, "admin.html", data)
+}
+func WatchTemplate(w io.Writer, data WatchData) error {
+	return pagesTmpls.ExecuteTemplate(w, "watch.html", data)
 }

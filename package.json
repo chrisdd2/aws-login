@@ -1,9 +1,0 @@
-{
-  "devDependencies": {
-    "@tailwindcss/cli": "^4.1.8"
-  },
-  "scripts":{
-    "build":"npx @tailwindcss/cli -i webui/templates/css/app.css -o webui/templates/css/layout.css --map true --minify",
-    "watch":"npx @tailwindcss/cli -i webui/templates/css/app.css -o webui/templates/css/layout.css --map true --watch"
-  }
-}
