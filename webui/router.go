@@ -285,11 +285,12 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		r.Get("/bootstrap_template", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			account := r.URL.Query().Get("account")
+			templateType := r.URL.Query().Get("template_type")
 			if account == "" {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			templateString, err := accountSrvc.BootstrapTemplate(ctx, account)
+			templateString, err := accountSrvc.BootstrapTemplate(ctx, account, templateType == "tf")
 			if err != nil {
 				sendError(w, r, err)
 				return
@@ -432,6 +433,7 @@ func sendUnathorized(w http.ResponseWriter, r *http.Request, err error) {
 
 func sendError(w http.ResponseWriter, r *http.Request, err error) {
 	w.WriteHeader(http.StatusInternalServerError)
+	slog.Debug("http", "error", err)
 	render.JSON(w, r, struct {
 		Error string `json:"error"`
 	}{err.Error()})

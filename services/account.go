@@ -31,7 +31,7 @@ type AccountService interface {
 	DestroyStack(ctx context.Context, accountName string) (string, error)
 	GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error)
 	ListAccounts(ctx context.Context) ([]*appconfig.Account, error)
-	BootstrapTemplate(ctx context.Context, accountName string) (string, error)
+	BootstrapTemplate(ctx context.Context, accountName string, terraform bool) (string, error)
 }
 
 const stackHash = "al:stackHash"
@@ -319,7 +319,7 @@ func generateStackHash(templateString string) (string, error) {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
 }
 
-var bootstrapStackTempalte = template.Must(template.New("bootstrap-stack").Parse(`
+var bootstrapStackTemplateCfn = template.Must(template.New("bootstrap-stack").Parse(`
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   aws-login Bootstrap
@@ -383,8 +383,125 @@ Outputs:
   OpsRoleArn:
     Description: ARN of the management role
     Value: !GetAtt OpsRole.Arn`))
+var bootstrapStackTemplateTerraform = template.Must(template.New("bootstrap-stack-tf").Parse(`
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "6.25.0"
+    }
+  }
+}
 
-func (a *accountService) BootstrapTemplate(ctx context.Context, accountName string) (string, error) {
+provider "aws" {
+  region = "eu-west-1"
+}
+
+variable "aws_login_user" {
+  type        = string
+  default     = "{{.Principal}}"
+  description = "Principal allowed to assume the ops role"
+}
+
+variable "account_name" {
+  type = string
+  default = "{{.AccountName}}"
+  description = "identifier for the account"
+}
+
+locals {
+  ops_role_name = "{{.OpsRoleName}}"
+  stack_name    = "{{.TargetStackName}}"
+  boundary_name    = "iam-role-boundary-${var.account_name}"
+  signInUrl    = "https://signin.aws.amazon.com/federation"
+}
+
+data "aws_region" "current" {}
+data "aws_caller_identity" "current" {}
+
+# -------------------------
+# Trust Policy
+# -------------------------
+data "aws_iam_policy_document" "ops_role_trust_policy" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "AWS"
+      identifiers = [var.aws_login_user]
+    }
+  }
+}
+
+# -------------------------
+# Main ops_role_policy (CFN + IAM access)
+# -------------------------
+data "aws_iam_policy_document" "ops_role_policy" {
+
+  # CloudFormation stack mgmt
+  statement {
+    sid = "AllowManageSpecificStack"
+
+    actions = [
+      "cloudformation:CreateStack",
+      "cloudformation:UpdateStack",
+      "cloudformation:DeleteStack",
+      "cloudformation:DescribeStacks",
+      "cloudformation:DescribeStackEvents"
+    ]
+
+    resources = [
+      "arn:aws:cloudformation:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:stack/${local.stack_name}"
+    ]
+  }
+
+  # Allow IAM actions only when invoked via CloudFormation
+  statement {
+    sid = "AllowFullIAMViaCloudFormation"
+
+    effect = "Allow"
+
+    actions = [
+      "iam:*"
+    ]
+
+    resources = ["*"]
+
+    condition {
+      test     = "ForAnyValue:StringEquals"
+      variable = "aws:CalledVia"
+      values   = ["cloudformation.amazonaws.com"]
+    }
+  }
+
+  # Allow PassRole for CFN-created roles
+  statement {
+    sid = "AllowPassRole"
+    actions = ["iam:PassRole"]
+    resources = ["*"]
+  }
+}
+
+# -------------------------
+# Role & Policy Attachment
+# -------------------------
+resource "aws_iam_role" "ops_role" {
+  name               = local.ops_role_name
+  description        = "Ops role for AWS Login bootstrap"
+  assume_role_policy = data.aws_iam_policy_document.ops_role_trust_policy.json
+}
+
+resource "aws_iam_policy" "ops_role_policy" {
+  name   = "ops_role_policy-${var.account_name}"
+  policy = data.aws_iam_policy_document.ops_role_policy.json
+}
+
+resource "aws_iam_policy_attachment" "ops_role_attach_policy" {
+  name       = "ops-role-policy-attachment"
+  roles      = [aws_iam_role.ops_role.name]
+  policy_arn = aws_iam_policy.ops_role_policy.arn
+}`))
+
+func (a *accountService) BootstrapTemplate(ctx context.Context, accountName string, terraform bool) (string, error) {
 	_, err := a.storage.GetAccount(ctx, accountName)
 	if err != nil {
 		return "", fmt.Errorf("accountService.BootstrapTemplate: storage.GetAccount: %w", err)
@@ -393,13 +510,20 @@ func (a *accountService) BootstrapTemplate(ctx context.Context, accountName stri
 	if err != nil {
 		return "", fmt.Errorf("accountService.BootstrapTemplate: aws.WhoAmi: %w", err)
 	}
-	return templateExecuteToString(bootstrapStackTempalte, struct {
-		TargetStackName string
-		Principal       string
-		OpsRoleName     string
-	}{
-		TargetStackName: aws.StackName.Value(accountName),
-		Principal:       arn,
-		OpsRoleName:     aws.OpsRole.Value(accountName),
-	})
+	tmpl := bootstrapStackTemplateCfn
+	if terraform {
+		tmpl = bootstrapStackTemplateTerraform
+	}
+	return templateExecuteToString(tmpl,
+		struct {
+			TargetStackName string
+			Principal       string
+			OpsRoleName     string
+			AccountName     string
+		}{
+			TargetStackName: aws.StackName.Value(accountName),
+			Principal:       arn,
+			OpsRoleName:     aws.OpsRole.Value(accountName),
+			AccountName:     accountName,
+		})
 }

@@ -46,10 +46,14 @@ func main() {
 	must(appCfg.LoadFromEnv())
 
 	var logger *slog.Logger
+	logLvl := slog.LevelInfo
 	if appCfg.DevelopmentMode {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+		logLvl = slog.LevelDebug
+	}
+	if appCfg.DevelopmentMode {
+		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLvl}))
 	} else {
-		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{}))
+		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLvl}))
 	}
 	slog.SetDefault(logger)
 
