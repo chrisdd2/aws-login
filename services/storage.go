@@ -81,7 +81,7 @@ func (s *Store) LoadYaml(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return yaml.Unmarshal(buf, s)
+	return yaml.Unmarshal(buf, s, yaml.DisallowUnknownFields)
 }
 func (s *Store) LoadJson(r io.Reader) error {
 	return json.NewDecoder(r).Decode(&s)

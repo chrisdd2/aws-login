@@ -136,8 +136,8 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				AccountName:    role.AccountName,
 				AccountId:      acc.AwsAccountId,
 				RoleName:       role.RoleName,
-				HasCredentials: slices.Contains(role.Permissions, "credentials"),
-				HasConsole:     slices.Contains(role.Permissions, "console"),
+				HasCredentials: slices.Contains(role.Permissions, appconfig.RolePermissionCredentials),
+				HasConsole:     slices.Contains(role.Permissions, appconfig.RolePermissionConsole),
 			})
 		}
 		data := templates.RolesData{
