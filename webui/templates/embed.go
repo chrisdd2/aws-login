@@ -36,7 +36,7 @@ func LoginTemplate(w io.Writer, data LoginData) error {
 }
 
 type Role struct {
-	AccountId      int
+	AccountId      string
 	AccountName    string
 	RoleName       string
 	HasCredentials bool
@@ -49,7 +49,7 @@ type RolesData struct {
 
 type Account struct {
 	AccountName  string
-	AccountId    int
+	AccountId    string
 	UpdateStatus string
 	HasStack     bool
 	HasDeploy    bool

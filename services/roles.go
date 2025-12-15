@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 
 	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/aws"
 )
+
+var ErrAccountDisabled = errors.New("account is disabled")
+var ErrRoleDisabled = errors.New("role is disabled")
 
 type AwsCredentials struct {
 	AccessKeyId     string `json:"aws_access_key_id,omitempty"`
@@ -33,8 +37,8 @@ func (c AwsCredentials) Format(t string) string {
 }
 
 type RolesService interface {
-	UserPermissions(ctx context.Context, username string, roleName string, accountName string) ([]*appconfig.RoleAttachment, error)
-	RolesForAccount(ctx context.Context, accountName string) ([]*appconfig.RoleAttachment, error)
+	UserPermissions(ctx context.Context, username string, roleName string, accountName string) ([]*appconfig.RoleUserAttachment, error)
+	RolesForAccount(ctx context.Context, accountName string) ([]string, error)
 	Console(ctx context.Context, accountName string, roleName, sessionName string) (string, error)
 	Credentials(ctx context.Context, accountName string, roleName, sessionName string) (AwsCredentials, error)
 }
@@ -48,24 +52,14 @@ func NewRoleService(store Storage, aws aws.AwsApiCaller) RolesService {
 	return &rolesService{store, aws}
 }
 
-func (r *rolesService) RolesForAccount(ctx context.Context, accountName string) ([]*appconfig.RoleAttachment, error) {
-	roles, err := r.storage.ListRolesForAccount(ctx, accountName)
+func (r *rolesService) RolesForAccount(ctx context.Context, accountName string) ([]string, error) {
+	acc, err := r.storage.GetAccount(ctx, accountName)
 	if err != nil {
 		return nil, err
 	}
-	ret := make([]*appconfig.RoleAttachment, 0, len(roles))
-	for _, role := range roles {
-		for _, associated := range role.AssociatedAccounts {
-			ret = append(ret, &appconfig.RoleAttachment{
-				RoleName:    role.Name,
-				AccountName: associated,
-				Permissions: []string{"credentials", "console"},
-			})
-		}
-	}
-	return ret, nil
+	return acc.Roles, nil
 }
-func (r *rolesService) UserPermissions(ctx context.Context, username string, roleName string, accountName string) ([]*appconfig.RoleAttachment, error) {
+func (r *rolesService) UserPermissions(ctx context.Context, username string, roleName string, accountName string) ([]*appconfig.RoleUserAttachment, error) {
 	return r.storage.ListRolePermissions(ctx, username, roleName, accountName)
 }
 func (r *rolesService) Console(ctx context.Context, accountName string, roleName, sessionName string) (string, error) {
@@ -73,14 +67,21 @@ func (r *rolesService) Console(ctx context.Context, accountName string, roleName
 	if err != nil {
 		return "", fmt.Errorf("storage.GetRole: %w", err)
 	}
-	if !slices.Contains(role.AssociatedAccounts, accountName) {
-		return "", errors.New("account not associated with role")
+	if !role.Enabled {
+		return "", ErrRoleDisabled
 	}
 	acc, err := r.storage.GetAccount(ctx, accountName)
 	if err != nil {
 		return "", fmt.Errorf("storage.GetAccount: %w", err)
 	}
-	arn := role.Arn(acc.AwsAccountId)
+	if !acc.Enabled {
+		return "", ErrAccountDisabled
+	}
+	log.Println(acc.Roles, roleName, slices.Contains(acc.Roles, roleName))
+	if !slices.Contains(acc.Roles, roleName) {
+		return "", errors.New("account not associated with role")
+	}
+	arn := roleArn(roleName, acc.AwsAccountId)
 	url, err := r.aws.GenerateSigninUrl(ctx, arn, sessionName, "https://console.aws.amazon.com/")
 	if err != nil {
 		return "", fmt.Errorf("aws.GenerateSigninUrl: %w", err)
@@ -93,17 +94,27 @@ func (r *rolesService) Credentials(ctx context.Context, accountName string, role
 	if err != nil {
 		return AwsCredentials{}, fmt.Errorf("storage.GetRole: %w", err)
 	}
-	if !slices.Contains(role.AssociatedAccounts, accountName) {
-		return AwsCredentials{}, errors.New("account not associated with role")
+	if !role.Enabled {
+		return AwsCredentials{}, ErrRoleDisabled
 	}
 	acc, err := r.storage.GetAccount(ctx, accountName)
 	if err != nil {
 		return AwsCredentials{}, fmt.Errorf("storage.GetAccount: %w", err)
 	}
-	arn := role.Arn(acc.AwsAccountId)
+	if !acc.Enabled {
+		return AwsCredentials{}, ErrAccountDisabled
+	}
+	if !slices.Contains(acc.Roles, roleName) {
+		return AwsCredentials{}, errors.New("account not associated with role")
+	}
+	arn := roleArn(roleName, acc.AwsAccountId)
 	accessKeyId, secretAccessKey, sessionToken, err := r.aws.GetCredentials(ctx, arn, sessionName)
 	if err != nil {
 		return AwsCredentials{}, fmt.Errorf("aws.GenerateSigninUrl: %w", err)
 	}
 	return AwsCredentials{AccessKeyId: accessKeyId, SecretAccessKey: secretAccessKey, SessionToken: sessionToken}, nil
+}
+
+func roleArn(roleName string, accountId string) string {
+	return fmt.Sprintf("arn:aws:iam::%s:role/%s", accountId, roleName)
 }

@@ -171,12 +171,11 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 	}
 
 	// Deploy the stack
-	account, err := a.storage.GetAccount(ctx, accountId)
+	acc, err := a.storage.GetAccount(ctx, accountId)
 	if err != nil {
 		return err
 	}
-	awsAccountId := strconv.Itoa(account.AwsAccountId)
-	return a.aws.DeployStack(ctx, account.Name, awsAccountId, aws.StackName.Value(accountId), templateString, nil, map[string]string{stackHash: h})
+	return a.aws.DeployStack(ctx, acc.Name, acc.AwsAccountId, aws.StackName.Value(accountId), templateString, nil, map[string]string{stackHash: h})
 }
 func (a *accountService) GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error) {
 	return a.storage.GetAccount(ctx, name)
@@ -228,7 +227,7 @@ func (a *accountService) DeploymentStatus(ctx context.Context, accountName strin
 		return status, err
 	}
 
-	tags, err := a.aws.StackTags(ctx, accountName, strconv.Itoa(acc.AwsAccountId), aws.StackName.Value(accountName), nil, true)
+	tags, err := a.aws.StackTags(ctx, accountName, acc.AwsAccountId, aws.StackName.Value(accountName), nil, true)
 	if errors.Is(err, aws.ErrStackNotExist) {
 		status.StackExists = false
 		return status, nil
@@ -253,7 +252,7 @@ func (a *accountService) StackUpdates(ctx context.Context, accountName string, s
 	if stackId == "" {
 		stackId = aws.StackName.Value(accountName)
 	}
-	events, err := a.aws.TopStackEvents(ctx, accountName, acc.AccountId(), stackId)
+	events, err := a.aws.TopStackEvents(ctx, accountName, acc.AwsAccountId, stackId)
 	if err != nil {
 		return nil, fmt.Errorf("accountService.StackUpdates: aws.WatchStackEvents: %w", err)
 	}
@@ -302,7 +301,7 @@ func (a *accountService) DestroyStack(ctx context.Context, accountName string) (
 	if err != nil {
 		return "", fmt.Errorf("accountService.DestroyStack: storage.GetAccount: %w", err)
 	}
-	stackId, err := a.aws.DestroyStack(ctx, accountName, acc.AccountId(), aws.StackName.Value(accountName))
+	stackId, err := a.aws.DestroyStack(ctx, accountName, acc.AwsAccountId, aws.StackName.Value(accountName))
 	if err != nil {
 		return "", fmt.Errorf("accountService.DestroyStack: aws.DestroyStack: %w", err)
 	}

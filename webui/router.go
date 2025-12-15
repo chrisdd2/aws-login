@@ -56,7 +56,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			http.Redirect(w, r, idp.RedirectUrl(), http.StatusTemporaryRedirect)
 			return
 		}
-		data := templates.LoginData{HasAdminPrompt: hasAdminLogin, ErrorString: loginErrorString(query)}
+		data := templates.LoginData{HasAdminPrompt: hasAdminLogin, AppName: cfg.Name, ErrorString: loginErrorString(query)}
 		for _, idp := range authSvcs {
 			name := idp.Name()
 			prettyName := strings.ToUpper(name[0:1]) + name[1:]
@@ -84,7 +84,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			sendAccessToken(w, r, accessToken)
 			return
 		}
-		if err := templates.LoginTemplate(w, templates.LoginData{HasAdminPrompt: hasAdminLogin, ErrorString: loginErrorString(urlParams)}); err != nil {
+		if err := templates.LoginTemplate(w, templates.LoginData{AppName:cfg.Name,HasAdminPrompt: hasAdminLogin, ErrorString: loginErrorString(urlParams)}); err != nil {
 			sendError(w, r, err)
 		}
 	})
@@ -115,13 +115,9 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 	mainHandler := func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := getUser(r)
-		var roles []*appconfig.RoleAttachment
+		var roles []*appconfig.RoleUserAttachment
 		var err error
-		if user.Superuser {
-			roles, err = rolesSvc.RolesForAccount(ctx, "")
-		} else {
-			roles, err = rolesSvc.UserPermissions(ctx, user.Username, "", "")
-		}
+		roles, err = rolesSvc.UserPermissions(ctx, user.Username, "", "")
 		if err != nil {
 			sendError(w, r, err)
 			return

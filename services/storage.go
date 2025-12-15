@@ -25,7 +25,7 @@ var ErrUserNotFound = errors.New("UserNotFound")
 type Storage interface {
 	ListRolesForAccount(ctx context.Context, accountId string) ([]*appconfig.Role, error)
 
-	ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]*appconfig.RoleAttachment, error)
+	ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]*appconfig.RoleUserAttachment, error)
 	GetInlinePolicy(ctx context.Context, id string) (*appconfig.InlinePolicy, error)
 
 	GetRole(ctx context.Context, name string) (*appconfig.Role, error)
@@ -103,14 +103,18 @@ func (s *Store) GetAccount(ctx context.Context, name string) (*appconfig.Account
 
 func (s *Store) ListRolesForAccount(ctx context.Context, accountName string) ([]*appconfig.Role, error) {
 	roles := []*appconfig.Role{}
+	acc, err := s.GetAccount(ctx, accountName)
+	if err != nil {
+		return nil, err
+	}
 	for _, role := range s.Roles {
-		if accountName == "" || slices.Contains(role.AssociatedAccounts, accountName) {
+		if slices.Contains(acc.Roles, role.Name) {
 			roles = append(roles, &role)
 		}
 	}
 	return roles, nil
 }
-func (s *Store) ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]*appconfig.RoleAttachment, error) {
+func (s *Store) ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]*appconfig.RoleUserAttachment, error) {
 	if userName == "" {
 		return nil, errors.New("username must be provided")
 	}
@@ -123,7 +127,7 @@ func (s *Store) ListRolePermissions(ctx context.Context, userName string, roleNa
 	if user.Superuser {
 		attachments = s.createAdminUser().Roles
 	}
-	ats := []*appconfig.RoleAttachment{}
+	ats := []*appconfig.RoleUserAttachment{}
 	for _, at := range attachments {
 		if (accountName == "" || at.AccountName == accountName) && (roleName == "" || at.RoleName == roleName) {
 			ats = append(ats, &at)
@@ -168,13 +172,13 @@ func (s *Store) createAdminUser() *appconfig.User {
 		return s.adminUser
 	}
 	// make a role attachment for every role available
-	attachments := []appconfig.RoleAttachment{}
-	for _, role := range s.Roles {
-		for _, acc := range role.AssociatedAccounts {
+	attachments := []appconfig.RoleUserAttachment{}
+	for _, acc := range s.Accounts {
+		for _, role := range acc.Roles {
 			attachments = append(attachments,
-				appconfig.RoleAttachment{
-					RoleName:    role.Name,
-					AccountName: acc,
+				appconfig.RoleUserAttachment{
+					RoleName:    role,
+					AccountName: acc.Name,
 					Permissions: []string{appconfig.RolePermissionConsole, appconfig.RolePermissionCredentials}})
 		}
 	}
