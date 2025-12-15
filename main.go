@@ -63,38 +63,20 @@ func main() {
 
 	// AWS setup
 	// allow different aws config for the aws user used for permissions in the other accounts
-	assumerConfig := must2(appconfig.WithEnvContext(appCfg.PrefixEnv("ASSUMER_"), func() (awsSdk.Config, error) {
-		cfg, err := config.LoadDefaultConfig(ctx)
-		if err != nil {
-			return cfg, err
-		}
-		return cfg, nil
-	}))
-
-	stsClient := sts.NewFromConfig(assumerConfig)
-	awsApi := must2(aws.NewAwsApi(ctx, stsClient))
-	// check which user it is
-	_, arn := must3(awsApi.WhoAmI(ctx))
-
+	assumerConfig, arn := must3(awsContext(ctx, "ASSUMER_"))
 	slog.Info("aws", "principal", arn, "user", "assumer")
-
-	s3Config := must2(appconfig.WithEnvContext(appCfg.PrefixEnv("S3_"), func() (awsSdk.Config, error) {
-		cfg, err := config.LoadDefaultConfig(ctx)
-		if err != nil {
-			return cfg, err
-		}
-		return cfg, nil
-	}))
-
+	s3Config, arn := must3(awsContext(ctx, "S3_"))
 	slog.Info("aws", "principal", arn, "user", "s3")
 
 	storageSvc := services.NewStaticStore(&appCfg, s3Config)
 	must(storageSvc.Reload(ctx))
 	slog.Info("found", "accounts", len(storageSvc.Accounts), "users", len(storageSvc.Users), "roles", len(storageSvc.Roles))
 
+	awsApi := must2(aws.NewAwsApi(ctx, sts.NewFromConfig(assumerConfig)))
 	tokenSvc := services.NewToken(storageSvc, []byte(appCfg.SignKey))
 	roleSvc := services.NewRoleService(storageSvc, awsApi)
 	accSvc := services.NewAccountService(storageSvc, awsApi)
+
 	idps := []services.AuthService{}
 	if appCfg.GithubEnabled {
 		idps = append(idps, &services.GithubService{ClientSecret: appCfg.GithubClientSecret, ClientId: appCfg.GithubClientId, AuthResponsePath: "/oauth2/github/idpresponse"})
@@ -130,4 +112,23 @@ func main() {
 	slog.Info("http", "address", appCfg.ListenAddr, "url", fmt.Sprintf("http:/%s", appCfg.ListenAddr))
 	must(http.ListenAndServe(appCfg.ListenAddr, r))
 
+}
+
+func awsContext(ctx context.Context, environmentPrefix string) (awsConfig awsSdk.Config, arn string, err error) {
+	cfg, err := appconfig.WithEnvContext(environmentPrefix, func() (awsSdk.Config, error) {
+		cfg, err := config.LoadDefaultConfig(ctx)
+		if err != nil {
+			return cfg, err
+		}
+		return cfg, nil
+	})
+	if err != nil {
+		return awsConfig, "", err
+	}
+	stsCl := sts.NewFromConfig(cfg)
+	resp, err := stsCl.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		return awsConfig, "", err
+	}
+	return cfg, awsSdk.ToString(resp.Arn), nil
 }
