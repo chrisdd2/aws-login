@@ -39,7 +39,8 @@ func loginErrorString(queryParams url.Values) string {
 	}
 }
 
-func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, storageSvc services.Storage, adminUsername, adminPassword string, rootUrl string) chi.Router {
+func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, storageSvc services.Storage, cfg appconfig.AppConfig) chi.Router {
+	hasAdminLogin := cfg.AdminPassword != "" && cfg.AdminUsername != ""
 
 	r := chi.NewRouter()
 	// font awesome ruins me
@@ -55,7 +56,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			http.Redirect(w, r, idp.RedirectUrl(), http.StatusTemporaryRedirect)
 			return
 		}
-		data := templates.LoginData{ErrorString: loginErrorString(query)}
+		data := templates.LoginData{HasAdminPrompt: hasAdminLogin, ErrorString: loginErrorString(query)}
 		for _, idp := range authSvcs {
 			name := idp.Name()
 			prettyName := strings.ToUpper(name[0:1]) + name[1:]
@@ -75,7 +76,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			r.ParseForm()
 			username := r.Form.Get("username")
 			password := r.Form.Get("password")
-			if !(username == adminUsername && password == adminPassword) {
+			if !(username == cfg.AdminUsername && password == cfg.AdminPassword) {
 				redirectWithParams(w, r, "/login", map[string]string{"error": "wrong_credentials"}, http.StatusSeeOther)
 				return
 			}
@@ -83,7 +84,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			sendAccessToken(w, r, accessToken)
 			return
 		}
-		if err := templates.LoginTemplate(w, templates.LoginData{ErrorString: loginErrorString(urlParams)}); err != nil {
+		if err := templates.LoginTemplate(w, templates.LoginData{HasAdminPrompt: hasAdminLogin, ErrorString: loginErrorString(urlParams)}); err != nil {
 			sendError(w, r, err)
 		}
 	})
@@ -141,7 +142,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			})
 		}
 		data := templates.RolesData{
-			Navbar: templates.Navbar{Username: user.Username, HasAdmin: user.Superuser},
+			Navbar: templates.Navbar{AppName: cfg.Name, Username: user.Username, HasAdmin: user.Superuser},
 			Roles:  templateRoles,
 		}
 		if err := templates.RolesTemplate(w, data); err != nil {
@@ -158,6 +159,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			cookie.MaxAge = -1
 			http.SetCookie(w, cookie)
 		}
+		rootUrl := cfg.RootUrl
 		if rootUrl == "" {
 			rootUrl = "/"
 		}
@@ -198,7 +200,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				})
 			}
 			data := templates.AdminData{
-				Navbar:   templates.Navbar{Username: user.Username, HasAdmin: user.Superuser},
+				Navbar:   templates.Navbar{AppName: cfg.Name, Username: user.Username, HasAdmin: user.Superuser},
 				Accounts: templateAccounts,
 			}
 			if err := templates.AdminTemplate(w, data); err != nil {
@@ -339,7 +341,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				return
 			}
 			if err := templates.WatchTemplate(w, templates.WatchData{
-				Navbar: templates.Navbar{Username: user.Username, HasAdmin: user.Superuser},
+				Navbar: templates.Navbar{AppName: cfg.Name, Username: user.Username, HasAdmin: user.Superuser},
 				Events: events,
 			}); err != nil {
 				sendError(w, r, err)

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AwsLogin - Sign In</title>
+    <title>{{.AppName}} - Sign In</title>
     <script src="/static/tailwind.js"></script>
     <link rel="stylesheet" href="/static/font-awesome.css">
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
@@ -12,7 +12,7 @@
     <div class="w-full max-w-md relative">
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow-2xl dark:shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-8" id="loginCard">
             <div class="text-center mb-6">
-                <h1 class="text-2xl font-bold mb-2 text-gray-900 dark:text-white" id="loginTitle">AWS Login</h1>
+                <h1 class="text-2xl font-bold mb-2 text-gray-900 dark:text-white" id="loginTitle">{{.AppName}}</h1>
                 <p class="text-sm text-gray-600 dark:text-gray-300" id="loginSubtitle">Sign in to your account</p>
             </div>
             
@@ -25,6 +25,7 @@
             </div>
             {{end}}
             
+            {{ if .HasAdminPrompt }}
             <form id="loginForm" action="/login?type=userpass" method="post">
                 <div class="mb-4">
                     <label class="block text-sm font-medium mb-2 text-gray-700 dark:text-white" id="usernameLabel">Username</label>
@@ -53,6 +54,7 @@
                     </button>
                 </div>
             </form>
+            {{ end}}
 
             <div class="border-t border-gray-200 dark:border-gray-700 my-6"></div>
 

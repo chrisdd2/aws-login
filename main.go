@@ -116,7 +116,7 @@ func main() {
 		},
 	}))
 
-	r.Mount("/", webui.Router(tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg.AdminUsername, appCfg.AdminPassword, appCfg.RootUrl))
+	r.Mount("/", webui.Router(tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg))
 
 	metricsRouter := chi.NewRouter()
 	metricsRouter.Handle("/metrics", metrics.Handler())

@@ -30,6 +30,7 @@ type AppConfig struct {
 	OpenIdClientSecret        string `json:"openid_client_secret,omitempty" mask:"true"`
 	AdminUsername             string `json:"admin_username,omitempty"`
 	AdminPassword             string `json:"admin_password,omitempty" mask:"true"`
+	Name                      string `json:"name,omitempty" mask:"true"`
 }
 
 func (a *AppConfig) LoadDefaults() error {

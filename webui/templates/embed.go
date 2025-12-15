@@ -16,13 +16,16 @@ var pages embed.FS
 var pagesTmpls = template.Must(template.ParseFS(pages, "*.html"))
 
 type Navbar struct {
+	AppName  string
 	Username string
 	HasAdmin bool
 }
 
 type LoginData struct {
-	ErrorString string
-	LoginType   []struct {
+	HasAdminPrompt bool
+	AppName        string
+	ErrorString    string
+	LoginType      []struct {
 		Name string
 		Desc string
 	}

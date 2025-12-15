@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AwsLogin - Watch</title>
+    <title>{{.AppName}} - Watch</title>
     <script src="/static/tailwind.js"></script>
     <link rel="stylesheet" href="/static/font-awesome.css">
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
@@ -17,7 +17,7 @@
                 <div class="flex items-center gap-6">
                     <a class="flex items-center gap-2 font-bold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" href="/">
                         <i class="fas fa-cloud"></i>
-                        <span>AWS Login</span>
+                        <span>{{.AppName}}</span>
                     </a>
                     {{if .HasAdmin}}
                     <a href="/admin" class="text-sm font-medium text-indigo-600 dark:text-indigo-300 hover:underline">
@@ -88,7 +88,7 @@
     <footer class="bg-white/95 dark:bg-[#1a1a2e]/95 backdrop-blur-lg shadow-lg dark:shadow-[0_-2px_10px_rgba(0,0,0,0.5)] py-6 transition-all duration-300">
         <div class="container mx-auto px-4 text-center">
             <p class="font-semibold text-gray-900 dark:text-white mb-1">
-                <strong>AWS Login</strong> - Secure access to your AWS accounts
+                <strong>{{.AppName}}</strong> - Secure access to your AWS accounts
             </p>
             <p class="text-xs text-gray-600 dark:text-gray-400">
                 <i class="fas fa-shield-alt mr-1"></i>
