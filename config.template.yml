@@ -1,0 +1,34 @@
+accounts:
+  - aws_account_id: 9XXXXXXXXXXX
+    enabled: true
+    name: main
+    roles:
+      - developer-role-37ab35d9-bcf1-4ae4-b9ad-366f39002e98
+      - read-only-role-37ab35d9-bcf1-4ae4-b9ad-366f39002e98
+roles:
+  - name: developer-role-37ab35d9-bcf1-4ae4-b9ad-366f39002e98
+    enabled: true
+    managed_policies:
+      - arn:aws:iam::aws:policy/AdministratorAccess
+    max_session_duration: 28800000000000
+
+  - name: read-only-role-37ab35d9-bcf1-4ae4-b9ad-366f39002e98
+    enabled: true
+    managed_policies:
+      - arn:aws:iam::aws:policy/ReadOnlyAccess
+    max_session_duration: 28800000000000
+users:
+  - email: user@user.com
+    name: user
+    roles:
+      - account_name: main
+        role_name: developer-role-37ab35d9-bcf1-4ae4-b9ad-366f39002e98
+        permissions:
+          - console
+          - credential
+      - account_name: main
+        role_name: read-only-role-37ab35d9-bcf1-4ae4-b9ad-366f39002e98
+        permissions:
+          - credential
+          - console
+    superuser: false
