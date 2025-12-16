@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -266,4 +267,124 @@ func (s *Store) Reload(ctx context.Context) error {
 	s.Reset()
 	s.Merge(ret, true)
 	return nil
+}
+
+func duplicates[T any](arr []T, selector func(a T) string) error {
+	visited := map[string]struct{}{}
+	for _, a := range arr {
+		v := selector(a)
+		_, ok := visited[v]
+		if !ok {
+			visited[v] = struct{}{}
+			continue
+		}
+		return fmt.Errorf("found duplicate [%s]", v)
+	}
+	return nil
+}
+
+func (s *Store) Validate() error {
+	verifyAccount := func(ctx context.Context, acc appconfig.Account) error {
+		name := strings.TrimSpace(acc.Name)
+		if name == "" {
+			return fmt.Errorf("account name must not be empty")
+		}
+		awsAccountId, err := strconv.Atoi(acc.AwsAccountId)
+		if err != nil {
+			return err
+		}
+		if awsAccountId < 100000000000 || awsAccountId > 999999999999 {
+			// aws account is a 12digit number
+			return fmt.Errorf("invalid account number [%s]", acc.AwsAccountId)
+		}
+		// verify that all roles referred exist
+		for _, role := range acc.Roles {
+			_, err := s.GetRole(ctx, role)
+			if err != nil {
+				return fmt.Errorf("missing role [%s]", role)
+			}
+		}
+		return nil
+	}
+	verifyUser := func(ctx context.Context, u appconfig.User) error {
+		name := strings.TrimSpace(u.Name)
+		if name == "" {
+			return fmt.Errorf("username must not be empty")
+		}
+		for _, a := range u.Roles {
+			_, err := s.GetRole(ctx, a.RoleName)
+			if err != nil {
+				return fmt.Errorf("missing role [%s]", a.RoleName)
+			}
+			_, err = s.GetAccount(ctx, a.AccountName)
+			if err != nil {
+				return fmt.Errorf("missing account [%s]", a.AccountName)
+			}
+		}
+		return nil
+	}
+	verifyRole := func(ctx context.Context, r appconfig.Role) error {
+		name := strings.TrimSpace(r.Name)
+		if name == "" {
+			return fmt.Errorf("rolename must not be empty")
+		}
+		for _, v := range r.Policies {
+			_, err := s.GetInlinePolicy(ctx, v)
+			if err != nil {
+				return fmt.Errorf("missing policy [%s]", v)
+			}
+		}
+		return nil
+	}
+	verifyPolicy := func(p appconfig.InlinePolicy) error {
+		if strings.TrimSpace(p.Id) == "" {
+			return fmt.Errorf("policy id must not be empty")
+		}
+		if strings.TrimSpace(p.Document) == "" {
+			return fmt.Errorf("policy document must not be empty")
+		}
+		return nil
+	}
+	err := errors.Join(
+		duplicates(s.Roles, func(r appconfig.Role) string { return r.Name }),
+		duplicates(s.Accounts, func(r appconfig.Account) string { return r.Name }),
+		duplicates(s.Users, func(r appconfig.User) string { return r.Name }),
+		duplicates(s.Policies, func(r appconfig.InlinePolicy) string { return r.Id }),
+	)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	// verify that roles and accounts to match
+	errs := []error{}
+	for _, acc := range s.Accounts {
+		// validate account id
+		err := verifyAccount(ctx, acc)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: [%w]", acc.Name, err))
+			continue
+		}
+	}
+	for _, user := range s.Users {
+		err := verifyUser(ctx, user)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: [%w]", user.Name, err))
+			continue
+		}
+	}
+	for _, role := range s.Roles {
+		err := verifyRole(ctx, role)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: [%w]", role.Name, err))
+			continue
+		}
+	}
+	for _, policy := range s.Policies {
+		err := verifyPolicy(policy)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: [%w]", policy.Id, err))
+			continue
+		}
+	}
+	return errors.Join(errs...)
 }

@@ -71,6 +71,7 @@ func main() {
 	storageSvc := services.NewStaticStore(&appCfg, s3Config)
 	must(storageSvc.Reload(ctx))
 	slog.Info("found", "accounts", len(storageSvc.Accounts), "users", len(storageSvc.Users), "roles", len(storageSvc.Roles))
+	must(storageSvc.Validate())
 
 	awsApi := must2(aws.NewAwsApi(ctx, sts.NewFromConfig(assumerConfig)))
 	tokenSvc := services.NewToken(storageSvc, []byte(appCfg.SignKey))
