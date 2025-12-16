@@ -36,6 +36,7 @@ type AuthServiceDetails struct {
 type AuthService interface {
 	Details() AuthServiceDetails
 	LogoutUrl(redirectUrl string, idpToken string) string
+	TokenLogin(r *http.Request, tokenString string) (*AuthInfo, error)
 	CallbackHandler(r *http.Request) (*AuthInfo, error)
 }
 
@@ -92,10 +93,14 @@ func (g *GithubService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 	}, http.StatusOK, &token); err != nil {
 		return nil, err
 	}
+	return g.TokenLogin(r, token.AccessToken)
+}
+
+func (g *GithubService) TokenLogin(r *http.Request, tokenString string) (*AuthInfo, error) {
 	loginInfo := struct {
 		Login string `json:"login"`
 	}{}
-	if err := fetchJsonAuthed(GithubUserApiUrl, token.AccessToken, &loginInfo); err != nil {
+	if err := fetchJsonAuthed(GithubUserApiUrl, tokenString, &loginInfo); err != nil {
 		return nil, err
 	}
 	emails := []struct {
@@ -103,7 +108,7 @@ func (g *GithubService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 		Verified bool   `json:"verified,omitempty"`
 		Primary  bool   `json:"primary,omitempty"`
 	}{}
-	if err := fetchJsonAuthed(GIthubUserEmailApiUrl, token.AccessToken, &emails); err != nil {
+	if err := fetchJsonAuthed(GIthubUserEmailApiUrl, tokenString, &emails); err != nil {
 		return nil, err
 	}
 	userEmail := ""
@@ -272,4 +277,8 @@ func (g *OpenIdService) LogoutUrl(redirectUrl string, idpToken string) string {
 	values.Add("id_token_hint", idpToken)
 	values.Add("post_logout_redirect_uri", redirectUrl)
 	return fmt.Sprintf("%s/?%s", strings.TrimSuffix(g.logoutUrl, "/"), values.Encode())
+}
+
+func (g *OpenIdService) TokenLogin(r *http.Request, tokenString string) (*AuthInfo, error) {
+	return nil, fmt.Errorf("not implemented")
 }

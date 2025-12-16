@@ -12,6 +12,7 @@ import (
 	awsSdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/chrisdd2/aws-login/api"
 	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/aws"
 	"github.com/chrisdd2/aws-login/services"
@@ -99,6 +100,7 @@ func main() {
 		},
 	}))
 
+	r.Mount("/api", api.V1Api(accSvc, idps, roleSvc, tokenSvc))
 	r.Mount("/", webui.Router(tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg))
 
 	metricsRouter := chi.NewRouter()
