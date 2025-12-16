@@ -225,20 +225,13 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			// auth check
-			perms, err := rolesSvc.UserPermissions(ctx, user.Username, role, account)
-			if err != nil {
-				sendError(w, r, err)
-				return
-			}
-			if len(perms) == 0 || !slices.Contains(perms[0].Permissions, appconfig.RolePermissionConsole) {
-				sendUnathorized(w, r, errors.New("no permission to use this role"))
-				return
-			}
 
-			// do login
 			url, err := rolesSvc.Console(ctx, account, role, user.Username)
 			if err != nil {
+				if errors.Is(err, services.ErrRoleUnauthorized) {
+					sendUnathorized(w, r, err)
+					return
+				}
 				sendError(w, r, err)
 				return
 			}
@@ -256,20 +249,13 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			// auth check
-			perms, err := rolesSvc.UserPermissions(ctx, user.Username, role, account)
-			if err != nil {
-				sendError(w, r, err)
-				return
-			}
-			if len(perms) == 0 || !slices.Contains(perms[0].Permissions, appconfig.RolePermissionCredentials) {
-				sendUnathorized(w, r, errors.New("no permission to use this role"))
-				return
-			}
 
-			// do login
 			creds, err := rolesSvc.Credentials(ctx, account, role, user.Username)
 			if err != nil {
+				if errors.Is(err, services.ErrRoleUnauthorized) {
+					sendUnathorized(w, r, err)
+					return
+				}
 				sendError(w, r, err)
 				return
 			}
