@@ -50,20 +50,20 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		query := r.URL.Query()
 		loginType := query.Get("type")
 		for _, idp := range authSvcs {
-			if idp.Name() != loginType {
+			if idp.Details().Name != loginType {
 				continue
 			}
-			http.Redirect(w, r, idp.RedirectUrl(), http.StatusTemporaryRedirect)
+			http.Redirect(w, r, idp.Details().RedirectUrl, http.StatusTemporaryRedirect)
 			return
 		}
 		data := templates.LoginData{HasAdminPrompt: hasAdminLogin, AppName: cfg.Name, ErrorString: loginErrorString(query)}
 		for _, idp := range authSvcs {
-			name := idp.Name()
+			name := idp.Details().Name
 			prettyName := strings.ToUpper(name[0:1]) + name[1:]
 			data.LoginType = append(data.LoginType, struct {
 				Name string
 				Desc string
-			}{Name: idp.Name(), Desc: fmt.Sprintf("Sign in with %s", prettyName)})
+			}{Name: idp.Details().Name, Desc: fmt.Sprintf("Sign in with %s", prettyName)})
 		}
 		if err := templates.LoginTemplate(w, data); err != nil {
 			sendError(w, r, err)
@@ -84,21 +84,22 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			sendAccessToken(w, r, accessToken)
 			return
 		}
-		if err := templates.LoginTemplate(w, templates.LoginData{AppName:cfg.Name,HasAdminPrompt: hasAdminLogin, ErrorString: loginErrorString(urlParams)}); err != nil {
+		if err := templates.LoginTemplate(w, templates.LoginData{AppName: cfg.Name, HasAdminPrompt: hasAdminLogin, ErrorString: loginErrorString(urlParams)}); err != nil {
 			sendError(w, r, err)
 		}
 	})
 
 	for _, idp := range authSvcs {
 		// idp response
-		r.HandleFunc(idp.CallbackEndpoint(), func(w http.ResponseWriter, r *http.Request) {
+		details := idp.Details()
+		r.HandleFunc(details.Endpoint, func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			info, err := idp.CallbackHandler(r)
 			if err != nil {
 				sendUnathorized(w, r, err)
 				return
 			}
-			accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, Email: info.Email, LoginType: idp.Name(), IdpToken: info.IdpToken}, true)
+			accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, Email: info.Email, LoginType: details.Name, IdpToken: info.IdpToken}, true)
 			if err == services.ErrUserNotFound {
 				redirectWithParams(w, r, "/login", map[string]string{"error": "user_not_found", "username": info.Username}, http.StatusSeeOther)
 				return
@@ -160,7 +161,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			rootUrl = "/"
 		}
 		for _, idp := range authSvcs {
-			if user.LoginType == idp.Name() {
+			if user.LoginType == idp.Details().Name {
 				http.Redirect(w, r, idp.LogoutUrl(rootUrl, user.IdpToken), http.StatusTemporaryRedirect)
 				return
 			}

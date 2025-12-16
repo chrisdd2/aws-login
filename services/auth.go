@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -28,11 +27,15 @@ type AuthInfo struct {
 	IdpToken string
 }
 
+type AuthServiceDetails struct {
+	RedirectUrl string
+	Endpoint    string
+	Name        string
+}
+
 type AuthService interface {
-	RedirectUrl() string
-	CallbackEndpoint() string
+	Details() AuthServiceDetails
 	LogoutUrl(redirectUrl string, idpToken string) string
-	Name() string
 	CallbackHandler(r *http.Request) (*AuthInfo, error)
 }
 
@@ -51,7 +54,7 @@ func generateGithubAuthUrl(clientId string, scopes []string) string {
 	values.Add("client_id", clientId)
 	return fmt.Sprintf("%s?%s", GithubAuthUrl, values.Encode())
 }
-func generateGithubAccessToken(clientId, clientSecret, sessionCode string) string {
+func generateGithubAccessTokenUrl(clientId, clientSecret, sessionCode string) string {
 	values := url.Values{}
 	values.Add("client_id", clientId)
 	values.Add("client_secret", clientSecret)
@@ -65,15 +68,12 @@ type GithubService struct {
 	AuthResponsePath string
 }
 
-func (g *GithubService) RedirectUrl() string {
-	return generateGithubAuthUrl(g.ClientId, []string{"user"})
-}
-func (g *GithubService) CallbackEndpoint() string {
-	return g.AuthResponsePath
-}
-
-func (g *GithubService) Name() string {
-	return "github"
+func (g *GithubService) Details() AuthServiceDetails {
+	return AuthServiceDetails{
+		RedirectUrl: generateGithubAuthUrl(g.ClientId, []string{"user"}),
+		Endpoint:    g.AuthResponsePath,
+		Name:        "github",
+	}
 }
 func (g *GithubService) LogoutUrl(redirectUrl string, idpToken string) string {
 	return "/"
@@ -83,7 +83,7 @@ var ErrCannotFindEmail error = errors.New("unable to determine github email")
 
 func (g *GithubService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 	code := r.URL.Query().Get("code")
-	url := generateGithubAccessToken(g.ClientId, g.ClientSecret, code)
+	url := generateGithubAccessTokenUrl(g.ClientId, g.ClientSecret, code)
 	token := struct {
 		AccessToken string `json:"access_token"`
 	}{}
@@ -201,13 +201,14 @@ func NewOpenId(ctx context.Context, providerUrl string, redirectUrl string, clie
 	}, nil
 }
 
-func (g *OpenIdService) RedirectUrl() string {
-	return g.oauthCfg.AuthCodeURL("")
+func (g *OpenIdService) Details() AuthServiceDetails {
+	return AuthServiceDetails{
+		RedirectUrl: g.oauthCfg.AuthCodeURL(""),
+		Endpoint:    "/oauth2/keycloak/idpresponse",
+		Name:        "keycloak",
+	}
 }
 
-func (g *OpenIdService) CallbackEndpoint() string {
-	return "/oauth2/keycloak/idpresponse"
-}
 func (g *OpenIdService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 	ctx := r.Context()
 	code := r.URL.Query().Get("code")
@@ -266,51 +267,9 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 
 }
 
-func (g *OpenIdService) Name() string {
-	return "keycloak"
-}
-
 func (g *OpenIdService) LogoutUrl(redirectUrl string, idpToken string) string {
 	values := url.Values{}
 	values.Add("id_token_hint", idpToken)
 	values.Add("post_logout_redirect_uri", redirectUrl)
 	return fmt.Sprintf("%s/?%s", strings.TrimSuffix(g.logoutUrl, "/"), values.Encode())
-}
-func parseRoleAttribute(attr string) RolePermissionClaim {
-	claim := RolePermissionClaim{}
-	for pair := range strings.SplitSeq(attr, ";") {
-		k, v, found := strings.Cut(pair, ":")
-		if !found {
-			continue
-		}
-		k = strings.TrimSpace(k)
-		v = strings.TrimSpace(v)
-		fmt.Println(k, v)
-		switch k {
-		case "access_type":
-			claim.AccessType = rolePermissionFromString(v)
-		case "account":
-			claim.Account, _ = strconv.Atoi(v)
-		case "role_name":
-			claim.RoleName = v
-		}
-	}
-	return claim
-}
-
-func rolePermissionFromString(permission string) string {
-	fmt.Println(permission)
-	permission = strings.ToLower(permission)
-	switch permission {
-	case "grant", "assume", "credentials":
-		return permission
-	default:
-		return "invalid"
-	}
-}
-
-func debugPrint(claims jwt.MapClaims) {
-	for k, v := range claims {
-		fmt.Println(k, "=", v)
-	}
 }
