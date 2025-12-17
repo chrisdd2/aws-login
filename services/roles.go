@@ -121,7 +121,7 @@ func (r *rolesService) Credentials(ctx context.Context, accountName string, role
 	if err != nil {
 		return AwsCredentials{}, err
 	}
-	if len(perms) == 0 || !slices.Contains(perms[0].Permissions, appconfig.RolePermissionConsole) {
+	if len(perms) == 0 || !slices.Contains(perms[0].Permissions, appconfig.RolePermissionCredentials) {
 		return AwsCredentials{}, ErrRoleUnauthorized
 	}
 
