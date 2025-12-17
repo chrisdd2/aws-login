@@ -29,10 +29,10 @@ type RoleUserAttachment struct {
 	Permissions []string `json:"permissions,omitempty"`
 }
 type User struct {
-	Name      string               `json:"name,omitempty"`
-	Email     string               `json:"email,omitempty"`
-	Superuser bool                 `json:"superuser,omitempty"`
-	Roles     []RoleUserAttachment `json:"roles,omitempty"`
+	FriendlyName string               `json:"friendly_name,omitempty"`
+	Name         string               `json:"name,omitempty"`
+	Superuser    bool                 `json:"superuser,omitempty"`
+	Roles        []RoleUserAttachment `json:"roles,omitempty"`
 }
 
 type Account struct {

@@ -14,6 +14,9 @@ import (
 type AppConfig struct {
 	environmentVariablePrefix string
 	ListenAddr                string `default:"localhost:8090" json:"listen_addr,omitempty"`
+	TlsListenAddr                string `default:"localhost:8090" json:"tls_listen_addr,omitempty"`
+	TlsCert                   string `default:"server.crt" json:"tls_cert,omitempty"`
+	TlsKey                    string `default:"server.key" json:"tls_key,omitempty"`
 	MetrisAddr                string `default:"localhost:8099" json:"metrics_addr,omitempty"`
 	SignKey                   string `default:"somekey" mask:"true" json:"sign_key,omitempty"`
 	DevelopmentMode           bool   `default:"false" json:"development_mode,omitempty"`
@@ -23,14 +26,21 @@ type AppConfig struct {
 	GithubEnabled             bool   `default:"false" json:"github_enabled"`
 	GithubClientSecret        string `mask:"true" json:"github_client_secret,omitempty"`
 	GithubClientId            string `json:"github_client_id,omitempty"`
-	OpenIdEnabled             bool   `default:"false" json:"openid_enabled"`
-	OpenIdProviderUrl         string `json:"openid_provider_url,omitempty"`
-	OpenIdRedirectUrl         string `json:"openid_redirect_url,omitempty"`
-	OpenIdClientId            string `json:"openid_client_id,omitempty"`
-	OpenIdClientSecret        string `json:"openid_client_secret,omitempty" mask:"true"`
 	AdminUsername             string `json:"admin_username,omitempty"`
 	AdminPassword             string `json:"admin_password,omitempty" mask:"true"`
 	Name                      string `json:"name,omitempty" mask:"true"`
+
+	KeyCloakEnabled      bool   `default:"false" json:"keycloak_enabled"`
+	KeycloakProviderUrl  string `json:"keycloak_provider_url,omitempty"`
+	KeycloakRedirectUrl  string `json:"keycloak_redirect_url,omitempty"`
+	KeycloakClientId     string `json:"keycloak_client_id,omitempty"`
+	KeycloakClientSecret string `json:"keycloak_client_secret,omitempty" mask:"true"`
+
+	GoogleEnabled      bool   `default:"false" json:"google_enabled"`
+	GoogleProviderUrl  string `json:"google_provider_url,omitempty"`
+	GoogleRedirectUrl  string `json:"google_redirect_url,omitempty"`
+	GoogleClientId     string `json:"google_client_id,omitempty"`
+	GoogleClientSecret string `json:"google_client_secret,omitempty" mask:"true"`
 }
 
 func (a *AppConfig) LoadDefaults() error {

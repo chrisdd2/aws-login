@@ -15,19 +15,17 @@ type TokenService interface {
 }
 
 type UserInfo struct {
-	Id        string
-	Username  string
-	Email     string
-	Superuser bool
-	LoginType string
-	IdpToken  string
+	Username     string
+	FriendlyName string
+	Superuser    bool
+	LoginType    string
+	IdpToken     string
 }
 
 func (u UserInfo) DebugPrint() {
 	fmt.Println("{")
-	fmt.Println("\tId:", u.Id)
 	fmt.Println("\tUsername:", u.Username)
-	fmt.Println("\tEmail :", u.Email)
+	fmt.Println("\tFriendlyName:", u.FriendlyName)
 	fmt.Println("\tSuperuse:", u.Superuser)
 	fmt.Println("\tLoginType:", u.LoginType)
 	fmt.Println("\tIdpToken:", u.IdpToken)
@@ -66,7 +64,6 @@ func (a *tokenServiceImpl) Create(ctx context.Context, usr *UserInfo, validate b
 			return "", err
 		}
 		usr.Superuser = sgUser.Superuser
-		usr.Id = sgUser.Name
 	}
 	accessToken, err := a.signToken(*usr, DefaultTokenExpiration)
 	if err != nil {

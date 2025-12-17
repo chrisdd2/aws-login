@@ -80,7 +80,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				redirectWithParams(w, r, "/login", map[string]string{"error": "wrong_credentials"}, http.StatusSeeOther)
 				return
 			}
-			accessToken, _ := tokenSvc.Create(r.Context(), &services.UserInfo{Username: username, Email: "admin@admin", Superuser: true, LoginType: "userpass"}, false)
+			accessToken, _ := tokenSvc.Create(r.Context(), &services.UserInfo{Username: username, FriendlyName: friendlyName(username), Superuser: true, LoginType: "userpass"}, false)
 			sendAccessToken(w, r, accessToken)
 			return
 		}
@@ -99,7 +99,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				sendUnathorized(w, r, err)
 				return
 			}
-			accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, Email: info.Email, LoginType: details.Name, IdpToken: info.IdpToken}, true)
+			accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, LoginType: details.Name, IdpToken: info.IdpToken}, true)
 			if err == services.ErrUserNotFound {
 				redirectWithParams(w, r, "/login", map[string]string{"error": "user_not_found", "username": info.Username}, http.StatusSeeOther)
 				return
@@ -466,4 +466,9 @@ func (s *StatusCache) Refresh(ctx context.Context, accountName string) (services
 	}
 	s.in.Store(accountName, status)
 	return status, err
+}
+
+func friendlyName(email string) string {
+	before, _, _ := strings.Cut(email, "@")
+	return before
 }

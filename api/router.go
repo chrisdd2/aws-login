@@ -42,11 +42,11 @@ func V1Api(accountsSvc services.AccountService, idps []services.AuthService, rol
 					return
 				}
 				accessToken, err := tokenSvc.Create(r.Context(), &services.UserInfo{
-					Username:  info.Username,
-					Email:     info.Email,
-					Superuser: true,
-					LoginType: authType,
-					IdpToken:  requestForm.AccessToken,
+					Username:     info.Username,
+					FriendlyName: info.FriendlyName,
+					Superuser:    true,
+					LoginType:    authType,
+					IdpToken:     requestForm.AccessToken,
 				}, false)
 				if err != nil {
 					sendError(w, r, fmt.Errorf("token.Create: %w", err), http.StatusInternalServerError)

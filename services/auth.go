@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/oauth2"
 )
 
@@ -22,9 +21,9 @@ type RolePermissionClaim struct {
 }
 
 type AuthInfo struct {
-	Username string
-	Email    string
-	IdpToken string
+	Username     string
+	FriendlyName string
+	IdpToken     string
 }
 
 type AuthServiceDetails struct {
@@ -121,7 +120,7 @@ func (g *GithubService) TokenLogin(r *http.Request, tokenString string) (*AuthIn
 	if userEmail == "" {
 		return nil, ErrCannotFindEmail
 	}
-	return &AuthInfo{Username: loginInfo.Login, Email: userEmail}, nil
+	return &AuthInfo{FriendlyName: loginInfo.Login, Username: userEmail}, nil
 }
 
 func fetchJsonAuthed(url string, accessToken string, v any) error {
@@ -152,6 +151,8 @@ type OpenIdService struct {
 	provider  *oidc.Provider
 	verifier  *oidc.IDTokenVerifier
 	oauthCfg  *oauth2.Config
+	name      string
+	endpoint  string
 	logoutUrl string
 }
 
@@ -172,7 +173,12 @@ func findLogoutUrl(issuer string) (string, error) {
 	return info.EndSessionEndpoint, nil
 }
 
-func NewOpenId(ctx context.Context, providerUrl string, redirectUrl string, clientId string, clientSecret string) (*OpenIdService, error) {
+func NewOpenId(ctx context.Context, name string, providerUrl string, redirectUrl string, clientId string, clientSecret string) (*OpenIdService, error) {
+	parsedUrl, err := url.Parse(redirectUrl)
+	if err != nil {
+		return nil, fmt.Errorf("url.Parse %w", err)
+	}
+	endpoint := fmt.Sprintf("/%s", strings.TrimSuffix(strings.TrimPrefix(parsedUrl.Path, "/"), "/"))
 
 	provider, err := oidc.NewProvider(ctx, providerUrl)
 	if err != nil {
@@ -195,7 +201,6 @@ func NewOpenId(ctx context.Context, providerUrl string, redirectUrl string, clie
 			oidc.ScopeOpenID,
 			"email",
 			"profile",
-			"roles",
 		},
 	}
 	return &OpenIdService{
@@ -203,14 +208,16 @@ func NewOpenId(ctx context.Context, providerUrl string, redirectUrl string, clie
 		verifier:  verifier,
 		provider:  provider,
 		logoutUrl: logoutUrl,
+		endpoint:  endpoint,
+		name:      name,
 	}, nil
 }
 
 func (g *OpenIdService) Details() AuthServiceDetails {
 	return AuthServiceDetails{
 		RedirectUrl: g.oauthCfg.AuthCodeURL(""),
-		Endpoint:    "/oauth2/keycloak/idpresponse",
-		Name:        "keycloak",
+		Endpoint:    g.endpoint,
+		Name:        g.name,
 	}
 }
 
@@ -233,41 +240,19 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 		return nil, fmt.Errorf("oidc.Verify %w", err)
 	}
 
-	type realmAccess struct {
-		Roles []string `json:"roles"`
-	}
-	type accessClaims struct {
-		RealmAccess    realmAccess    `json:"realm_access"`
-		ResourceAccess map[string]any `json:"resource_access"`
-		AwsRoles       []string       `json:"aws_roles"`
-	}
-	type Claims struct {
-		jwt.MapClaims
-		accessClaims
-	}
-	claims := Claims{}
-	_, _, err = jwt.NewParser().ParseUnverified(token.AccessToken, &claims)
-	if err != nil {
-		return nil, fmt.Errorf("token.ParseUnverified %w", err)
-	}
-	if err := idToken.Claims(&claims.MapClaims); err != nil {
+	claims := struct {
+		Email string `json:"email"`
+		Name  string `json:"name"`
+	}{}
+	if err := idToken.Claims(&claims); err != nil {
 		return nil, fmt.Errorf("idToken.Claims %w", err)
 	}
 
 	// user info
-	email, _ := claims.MapClaims["email"].(string)
-	username, _ := claims.MapClaims["name"].(string)
-	preferred_username, _ := claims.MapClaims["preferred_username"].(string)
-	if preferred_username != "" {
-		username = preferred_username
-	}
-	if username == "" {
-		username = email
-	}
 	return &AuthInfo{
-		Email:    claims.MapClaims["email"].(string),
-		Username: username,
-		IdpToken: idTokenRaw,
+		Username:     claims.Email,
+		FriendlyName: claims.Name,
+		IdpToken:     idTokenRaw,
 	}, nil
 
 }

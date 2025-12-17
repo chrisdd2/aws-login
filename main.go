@@ -84,9 +84,13 @@ func main() {
 		idps = append(idps, &services.GithubService{ClientSecret: appCfg.GithubClientSecret, ClientId: appCfg.GithubClientId, AuthResponsePath: "/oauth2/github/idpresponse"})
 		slog.Info("enabled", "auth", "github")
 	}
-	if appCfg.OpenIdEnabled {
-		idps = append(idps, must2(services.NewOpenId(ctx, appCfg.OpenIdProviderUrl, appCfg.OpenIdRedirectUrl, appCfg.OpenIdClientId, appCfg.OpenIdClientSecret)))
+	if appCfg.KeyCloakEnabled {
+		idps = append(idps, must2(services.NewOpenId(ctx, "keycloak", appCfg.KeycloakProviderUrl, appCfg.KeycloakRedirectUrl, appCfg.KeycloakClientId, appCfg.KeycloakClientSecret)))
 		slog.Info("enabled", "auth", "keycloak")
+	}
+	if appCfg.GoogleEnabled {
+		idps = append(idps, must2(services.NewOpenId(ctx, "google", appCfg.GoogleProviderUrl, appCfg.GoogleRedirectUrl, appCfg.GoogleClientId, appCfg.GoogleClientSecret)))
+		slog.Info("enabled", "auth", "google")
 	}
 
 	r := chi.NewRouter()
@@ -113,8 +117,13 @@ func main() {
 	}()
 
 	slog.Info("http", "address", appCfg.ListenAddr, "url", fmt.Sprintf("http:/%s", appCfg.ListenAddr))
+	if appCfg.TlsListenAddr  != "" {
+		go func() {
+			slog.Info("https", "address", appCfg.TlsListenAddr, "url", fmt.Sprintf("https:/%s", appCfg.TlsListenAddr))
+			must(http.ListenAndServeTLS(appCfg.TlsListenAddr, "server.crt", "server.key", r))
+		}()
+	}
 	must(http.ListenAndServe(appCfg.ListenAddr, r))
-
 }
 
 func awsContext(ctx context.Context, environmentPrefix string) (awsConfig awsSdk.Config, arn string, err error) {

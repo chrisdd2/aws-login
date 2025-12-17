@@ -183,11 +183,13 @@ func (s *Store) createAdminUser() *appconfig.User {
 					Permissions: []string{appconfig.RolePermissionConsole, appconfig.RolePermissionCredentials}})
 		}
 	}
+	friendlyName, _, _ := strings.Cut(s.cfg.AdminUsername, "@")
+
 	user := &appconfig.User{
-		Name:      s.cfg.AdminUsername,
-		Superuser: true,
-		Email:     "admin@admin",
-		Roles:     attachments,
+		Name:         s.cfg.AdminUsername,
+		Superuser:    true,
+		FriendlyName: friendlyName,
+		Roles:        attachments,
 	}
 	s.adminUser = user
 	return user
