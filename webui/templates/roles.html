@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,13 +9,17 @@
     <link rel="stylesheet" href="/static/font-awesome.css">
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
 </head>
-<body class="min-h-screen flex flex-col bg-gradient-to-br from-indigo-500 to-purple-600 dark:from-[#1a1a2e] dark:to-[#16213e] transition-colors duration-300">
+
+<body
+    class="min-h-screen flex flex-col bg-gradient-to-br from-indigo-500 to-purple-600 dark:from-[#1a1a2e] dark:to-[#16213e] transition-colors duration-300">
     <!-- Top Navigation Bar -->
-    <nav class="bg-white/95 dark:bg-[#1a1a2e]/95 backdrop-blur-lg shadow-lg dark:shadow-[0_2px_10px_rgba(0,0,0,0.5)] transition-all duration-300" id="mainNavbar" role="navigation" aria-label="main navigation">
+    <nav class="bg-white/95 dark:bg-[#1a1a2e]/95 backdrop-blur-lg shadow-lg dark:shadow-[0_2px_10px_rgba(0,0,0,0.5)] transition-all duration-300"
+        id="mainNavbar" role="navigation" aria-label="main navigation">
         <div class="container mx-auto px-4">
             <div class="flex items-center justify-between h-16">
                 <div class="flex items-center gap-6">
-                    <a class="flex items-center gap-2 font-bold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" href="/" id="navbarBrand">
+                    <a class="flex items-center gap-2 font-bold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                        href="/" id="navbarBrand">
                         <i class="fas fa-cloud"></i>
                         <span>{{.AppName}}</span>
                     </a>
@@ -25,14 +30,18 @@
                     {{end}}
                 </div>
                 <div class="flex items-center gap-4">
-                    <a href="/logout" class="cursor-pointer p-2 rounded bg-transparent border-none hover:bg-black/5 dark:hover:bg-white/10 transition-colors text-red-500 dark:text-red-400" aria-label="Logout">
+                    <a href="/logout"
+                        class="cursor-pointer p-2 rounded bg-transparent border-none hover:bg-black/5 dark:hover:bg-white/10 transition-colors text-red-500 dark:text-red-400"
+                        aria-label="Logout">
                         <i class="fas fa-sign-out-alt"></i>
                     </a>
                     <div class="flex items-center gap-2" id="userIndicator">
-                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm uppercase" id="userAvatar">
+                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm uppercase"
+                            id="userAvatar">
                             {{if .Username}}{{printf "%.1s" .Username}}{{else}}<i class="fas fa-user"></i>{{end}}
                         </div>
-                        <span class="text-gray-700 dark:text-white" id="userName">{{if .Username}}{{.Username}}{{else}}Loading...{{end}}</span>
+                        <span class="text-gray-700 dark:text-white" id="userName">{{if
+                            .Username}}{{.Username}}{{else}}Loading...{{end}}</span>
                         <span class="text-green-500">
                             <i class="fas fa-circle text-xs"></i>
                         </span>
@@ -44,10 +53,12 @@
 
     <!-- Main Content -->
     <div class="flex-1 p-8 flex flex-col items-center">
-        <div class="w-full max-w-6xl bg-white dark:bg-gray-800 rounded-lg shadow-2xl dark:shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-8 transition-all duration-300" id="contentCard">
+        <div class="w-full max-w-6xl bg-white dark:bg-gray-800 rounded-lg shadow-2xl dark:shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-8 transition-all duration-300"
+            id="contentCard">
             <div class="mb-6">
                 <h1 class="text-2xl font-bold mb-2 text-gray-900 dark:text-white" id="pageTitle">Available Roles</h1>
-                <p class="text-sm text-gray-600 dark:text-gray-300" id="pageSubtitle">Select a role to access AWS resources</p>
+                <p class="text-sm text-gray-600 dark:text-gray-300" id="pageSubtitle">Select a role to access AWS
+                    resources</p>
             </div>
 
             <div class="overflow-x-auto">
@@ -56,29 +67,41 @@
                         <tr class="border-b border-gray-200 dark:border-gray-700">
                             <th class="text-left py-3 px-4 font-semibold text-gray-700 dark:text-white">Account</th>
                             <th class="text-left py-3 px-4 font-semibold text-gray-700 dark:text-white">Role</th>
-                            <th class="text-right py-3 px-4 font-semibold text-gray-700 dark:text-white w-[1%] whitespace-nowrap">Actions</th>
+                            <th
+                                class="text-right py-3 px-4 font-semibold text-gray-700 dark:text-white w-[1%] whitespace-nowrap">
+                                Actions</th>
                         </tr>
                     </thead>
-                    <tbody id="rolesTableBody" class="[&>tr:nth-child(even)]:bg-gray-50 dark:[&>tr:nth-child(even)]:bg-gray-700/50 [&>tr:hover]:bg-gray-100 dark:[&>tr:hover]:bg-gray-700">
+                    <tbody id="rolesTableBody"
+                        class="[&>tr:nth-child(even)]:bg-gray-50 dark:[&>tr:nth-child(even)]:bg-gray-700/50 [&>tr:hover]:bg-gray-100 dark:[&>tr:hover]:bg-gray-700">
                         {{range .Roles}}
                         <tr class="border-b border-gray-200 dark:border-gray-700">
                             <td class="py-3 px-4 text-gray-900 dark:text-white">
-                                <span>{{.AccountName}} </span><span class="text-xs text-cyan-600 dark:text-cyan-400">({{.AccountId}})</span>
+                                <span>{{.AccountName}} </span><span
+                                    class="text-xs text-cyan-600 dark:text-cyan-400">({{.AccountId}})</span>
                             </td>
                             <td class="py-3 px-4 text-gray-900 dark:text-white">{{.RoleName}}</td>
                             <td class="py-3 px-4 text-right whitespace-nowrap">
                                 <div class="flex gap-2 justify-end">
                                     {{if .HasConsole}}
-                                    <a href="/account/console?account={{.AccountName}}&role={{.RoleName}}" target="_blank" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
+                                    <a href="/account/console?account={{.AccountName}}&role={{.RoleName}}"
+                                        target="_blank"
+                                        class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
                                         <i class="fas fa-external-link-alt text-xs"></i>
                                         <span>Console</span>
                                     </a>
                                     {{end}}
                                     {{if .HasCredentials}}
-                                    <a href="/account/credentials?account={{.AccountName}}&role={{.RoleName}}" download="{{.AccountId}}.txt" class="bg-blue-500 hover:bg-blue-600 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors">
-                                        <i class="fas fa-download text-xs"></i>
+                                    <button
+                                        class="bg-blue-500 hover:bg-blue-600 text-white text-sm py-1.5 px-3 rounded flex items-center gap-1.5 transition-colors"
+                                        onclick="openCredentialsModal(
+                                                '{{.AccountName}}',
+                                                '{{.RoleName}}',
+                                                '{{.AccountId}}'
+                                            )">
+                                        <i class="fas fa-key text-xs"></i>
                                         <span>Credentials</span>
-                                    </a>
+                                    </button>
                                     {{end}}
                                 </div>
                             </td>
@@ -91,13 +114,17 @@
             <!-- Pagination -->
             <nav class="hidden mt-6" id="paginationContainer" role="navigation" aria-label="pagination">
                 <div class="flex items-center justify-center gap-2">
-                    <button class="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed" id="prevPage" onclick="changePage(-1)">
+                    <button
+                        class="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        id="prevPage" onclick="changePage(-1)">
                         <i class="fas fa-chevron-left"></i>
                     </button>
                     <ul class="flex gap-1" id="paginationList">
                         <!-- Pagination numbers will be generated here -->
                     </ul>
-                    <button class="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed" id="nextPage" onclick="changePage(1)">
+                    <button
+                        class="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        id="nextPage" onclick="changePage(1)">
                         <i class="fas fa-chevron-right"></i>
                     </button>
                 </div>
@@ -106,7 +133,9 @@
     </div>
 
     <!-- Bottom Footer Bar -->
-    <footer class="bg-white/95 dark:bg-[#1a1a2e]/95 backdrop-blur-lg shadow-lg dark:shadow-[0_-2px_10px_rgba(0,0,0,0.5)] py-6 transition-all duration-300" id="mainFooter">
+    <footer
+        class="bg-white/95 dark:bg-[#1a1a2e]/95 backdrop-blur-lg shadow-lg dark:shadow-[0_-2px_10px_rgba(0,0,0,0.5)] py-6 transition-all duration-300"
+        id="mainFooter">
         <div class="container mx-auto px-4 text-center">
             <p class="font-semibold text-gray-900 dark:text-white mb-1" id="footerText1">
                 <strong>{{.AppName}}</strong> - Secure access to your AWS accounts
@@ -118,5 +147,106 @@
         </div>
     </footer>
 
-    </body>
+    <!-- Credentials Modal -->
+    <div id="credentialsModal"
+        class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6">
+            <h2 class="text-lg font-bold text-gray-900 dark:text-white mb-2">
+                Credentials Options
+            </h2>
+
+            <p class="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                Choose how you want to access credentials for:
+                <br>
+                <span class="font-semibold text-indigo-600 dark:text-indigo-400" id="modalRoleInfo"></span>
+            </p>
+
+            <!-- Format selector -->
+            <div class="mb-5">
+                <label for="credentialsFormat" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Format
+                </label>
+                <select id="credentialsFormat"
+                    class="w-full rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    onchange="updateCredentialsLinks()">
+                    <option value="linux">Linux / macOS (bash)</option>
+                    <option value="powershell">PowerShell</option>
+                    <option value="cmd">Command Prompt</option>
+                    <option value="json">Json</option>
+                </select>
+            </div>
+
+            <div class="flex flex-col gap-3">
+                <a id="downloadCredentialsBtn"
+                    class="w-full text-center bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded transition-colors">
+                    <i class="fas fa-download mr-1"></i>
+                    Download credentials
+                </a>
+
+                <a id="viewCredentialsBtn" target="_blank"
+                    class="w-full text-center bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white py-2 rounded transition-colors">
+                    <i class="fas fa-external-link-alt mr-1"></i>
+                    View in browser
+                </a>
+
+                <button onclick="closeCredentialsModal()"
+                    class="w-full text-center text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 mt-2">
+                    Cancel
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let baseCredentialsUrl = '';
+        let currentAccountId = '';
+
+        function openCredentialsModal(account, role, accountId) {
+            const modal = document.getElementById('credentialsModal');
+            const info = document.getElementById('modalRoleInfo');
+
+            baseCredentialsUrl =
+                `/account/credentials?account=${encodeURIComponent(account)}&role=${encodeURIComponent(role)}`;
+            currentAccountId = accountId;
+
+            info.textContent = `${account} / ${role}`;
+
+            // Reset dropdown to default
+            document.getElementById('credentialsFormat').value = 'linux';
+
+            updateCredentialsLinks();
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function updateCredentialsLinks() {
+            const format = document.getElementById('credentialsFormat').value;
+            const url = `${baseCredentialsUrl}&format=${encodeURIComponent(format)}`;
+
+            const downloadBtn = document.getElementById('downloadCredentialsBtn');
+            const viewBtn = document.getElementById('viewCredentialsBtn');
+
+            downloadBtn.href = url;
+            downloadBtn.setAttribute('download', `${currentAccountId}.txt`);
+            viewBtn.href = url;
+        }
+
+        function closeCredentialsModal() {
+            const modal = document.getElementById('credentialsModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        // Close when clicking backdrop
+        document.getElementById('credentialsModal').addEventListener('click', function (e) {
+            if (e.target === this) {
+                closeCredentialsModal();
+            }
+        });
+    </script>
+
+</body>
+
 </html>
