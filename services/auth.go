@@ -2,6 +2,9 @@ package services
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,15 +30,15 @@ type AuthInfo struct {
 }
 
 type AuthServiceDetails struct {
-	RedirectUrl string
-	Endpoint    string
-	Name        string
+	Endpoint string
+	Name     string
 }
 
 type AuthService interface {
 	Details() AuthServiceDetails
 	LogoutUrl(redirectUrl string, idpToken string) string
 	TokenLogin(r *http.Request, tokenString string) (*AuthInfo, error)
+	Login(w http.ResponseWriter, r *http.Request)
 	CallbackHandler(r *http.Request) (*AuthInfo, error)
 }
 
@@ -46,14 +49,6 @@ const (
 	GIthubUserEmailApiUrl = "https://api.github.com/user/emails"
 )
 
-func generateGithubAuthUrl(clientId string, scopes []string) string {
-	values := url.Values{}
-	for _, scope := range scopes {
-		values.Add("scope", scope)
-	}
-	values.Add("client_id", clientId)
-	return fmt.Sprintf("%s?%s", GithubAuthUrl, values.Encode())
-}
 func generateGithubAccessTokenUrl(clientId, clientSecret, sessionCode string) string {
 	values := url.Values{}
 	values.Add("client_id", clientId)
@@ -70,9 +65,8 @@ type GithubService struct {
 
 func (g *GithubService) Details() AuthServiceDetails {
 	return AuthServiceDetails{
-		RedirectUrl: generateGithubAuthUrl(g.ClientId, []string{"user"}),
-		Endpoint:    g.AuthResponsePath,
-		Name:        "github",
+		Endpoint: g.AuthResponsePath,
+		Name:     "github",
 	}
 }
 func (g *GithubService) LogoutUrl(redirectUrl string, idpToken string) string {
@@ -80,6 +74,16 @@ func (g *GithubService) LogoutUrl(redirectUrl string, idpToken string) string {
 }
 
 var ErrCannotFindEmail error = errors.New("unable to determine github email")
+
+func (g *GithubService) Login(w http.ResponseWriter, r *http.Request) {
+	values := url.Values{}
+	scopes := []string{"user"}
+	for _, scope := range scopes {
+		values.Add("scope", scope)
+	}
+	values.Add("client_id", g.ClientId)
+	http.Redirect(w, r, fmt.Sprintf("%s?%s", GithubAuthUrl, values.Encode()), http.StatusFound)
+}
 
 func (g *GithubService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 	code := r.URL.Query().Get("code")
@@ -148,12 +152,13 @@ func getWrapped(url string, headers map[string]string, expected int, v any) erro
 }
 
 type OpenIdService struct {
-	provider  *oidc.Provider
-	verifier  *oidc.IDTokenVerifier
-	oauthCfg  *oauth2.Config
-	name      string
-	endpoint  string
-	logoutUrl string
+	provider    *oidc.Provider
+	verifier    *oidc.IDTokenVerifier
+	oauthCfg    *oauth2.Config
+	name        string
+	endpoint    string
+	logoutUrl   string
+	validations []OpenIdClaimsValidation
 }
 
 func findLogoutUrl(issuer string) (string, error) {
@@ -173,7 +178,18 @@ func findLogoutUrl(issuer string) (string, error) {
 	return info.EndSessionEndpoint, nil
 }
 
-func NewOpenId(ctx context.Context, name string, providerUrl string, redirectUrl string, clientId string, clientSecret string) (*OpenIdService, error) {
+type OpenIdClaims struct {
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"email_verified"`
+	Name          string `json:"name"`
+	PreferredName string `json:"preferred_username"`
+	HD            string `json:"hd"`
+	Sub           string `json:"sub"`
+}
+
+type OpenIdClaimsValidation func(claims OpenIdClaims) error
+
+func NewOpenId(ctx context.Context, name string, providerUrl string, redirectUrl string, clientId string, clientSecret string, validations ...OpenIdClaimsValidation) (*OpenIdService, error) {
 	parsedUrl, err := url.Parse(redirectUrl)
 	if err != nil {
 		return nil, fmt.Errorf("url.Parse %w", err)
@@ -204,30 +220,78 @@ func NewOpenId(ctx context.Context, name string, providerUrl string, redirectUrl
 		},
 	}
 	return &OpenIdService{
-		oauthCfg:  &cfg,
-		verifier:  verifier,
-		provider:  provider,
-		logoutUrl: logoutUrl,
-		endpoint:  endpoint,
-		name:      name,
+		oauthCfg:    &cfg,
+		verifier:    verifier,
+		provider:    provider,
+		logoutUrl:   logoutUrl,
+		endpoint:    endpoint,
+		name:        name,
+		validations: validations,
 	}, nil
 }
 
 func (g *OpenIdService) Details() AuthServiceDetails {
 	return AuthServiceDetails{
-		RedirectUrl: g.oauthCfg.AuthCodeURL(""),
-		Endpoint:    g.endpoint,
-		Name:        g.name,
+		Endpoint: g.endpoint,
+		Name:     g.name,
 	}
+}
+func (g *OpenIdService) Login(w http.ResponseWriter, r *http.Request) {
+	// random verification
+	stateBuf := make([]byte, 32)
+	rand.Read(stateBuf)
+	state := base64.RawURLEncoding.EncodeToString(stateBuf)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauth_state",
+		Value:    state,
+		HttpOnly: true,
+		Secure:   false,
+		Path:     "/",
+	})
+
+	codeVerifierBuf := make([]byte, 32)
+	rand.Read(codeVerifierBuf)
+	codeVerifierSha := sha256.Sum256(codeVerifierBuf)
+	codeVerifier := base64.RawURLEncoding.EncodeToString(codeVerifierSha[:])
+	http.SetCookie(w, &http.Cookie{
+		Name:     "pkce_verifier",
+		Value:    codeVerifier,
+		HttpOnly: true,
+		Secure:   false,
+		Path:     "/",
+	})
+
+	url := g.oauthCfg.AuthCodeURL(
+		state,
+		oauth2.S256ChallengeOption(codeVerifier),
+	)
+
+	http.Redirect(w, r, url, http.StatusFound)
 }
 
 func (g *OpenIdService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 	ctx := r.Context()
-	code := r.URL.Query().Get("code")
+	query := r.URL.Query()
+
+	// redirects validation
+	state := query.Get("state")
+	stateCookie, err := r.Cookie("oauth_state")
+	if err != nil || state != stateCookie.Value {
+		return nil, errors.New("invalid oauth state")
+	}
+
+	pkceCookie, err := r.Cookie("pkce_verifier")
+	if err != nil {
+		return nil, errors.New("missing pkce verifier")
+	}
+	code := query.Get("code")
 	if code == "" {
 		return nil, errors.New("query.Get [missing code parameter]")
 	}
-	token, err := g.oauthCfg.Exchange(ctx, code)
+	token, err := g.oauthCfg.Exchange(ctx,
+		code,
+		oauth2.VerifierOption(pkceCookie.Value),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("oauth2.Exchange %w", err)
 	}
@@ -240,18 +304,28 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 		return nil, fmt.Errorf("oidc.Verify %w", err)
 	}
 
-	claims := struct {
-		Email string `json:"email"`
-		Name  string `json:"name"`
-	}{}
+	claims := OpenIdClaims{}
+	for _, v := range g.validations {
+		if err := v(claims); err != nil {
+			return nil, fmt.Errorf("claimValidation: %w", err)
+		}
+	}
 	if err := idToken.Claims(&claims); err != nil {
 		return nil, fmt.Errorf("idToken.Claims %w", err)
+	}
+
+	name := claims.Name
+	if claims.PreferredName != "" {
+		name = claims.PreferredName
+	}
+	if name == "" {
+		name = claims.Email
 	}
 
 	// user info
 	return &AuthInfo{
 		Username:     claims.Email,
-		FriendlyName: claims.Name,
+		FriendlyName: name,
 		IdpToken:     idTokenRaw,
 	}, nil
 

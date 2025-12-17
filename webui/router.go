@@ -53,7 +53,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			if idp.Details().Name != loginType {
 				continue
 			}
-			http.Redirect(w, r, idp.Details().RedirectUrl, http.StatusTemporaryRedirect)
+			idp.Login(w, r)
 			return
 		}
 		data := templates.LoginData{HasAdminPrompt: hasAdminLogin, AppName: cfg.Name, ErrorString: loginErrorString(query)}
@@ -99,7 +99,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				sendUnathorized(w, r, err)
 				return
 			}
-			accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, LoginType: details.Name, IdpToken: info.IdpToken}, true)
+			accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, FriendlyName: info.FriendlyName, LoginType: details.Name, IdpToken: info.IdpToken}, true)
 			if err == services.ErrUserNotFound {
 				redirectWithParams(w, r, "/login", map[string]string{"error": "user_not_found", "username": info.Username}, http.StatusSeeOther)
 				return
@@ -139,7 +139,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			})
 		}
 		data := templates.RolesData{
-			Navbar: templates.Navbar{AppName: cfg.Name, Username: user.Username, HasAdmin: user.Superuser},
+			Navbar: templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
 			Roles:  templateRoles,
 		}
 		if err := templates.RolesTemplate(w, data); err != nil {
@@ -197,7 +197,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				})
 			}
 			data := templates.AdminData{
-				Navbar:   templates.Navbar{AppName: cfg.Name, Username: user.Username, HasAdmin: user.Superuser},
+				Navbar:   templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
 				Accounts: templateAccounts,
 			}
 			if err := templates.AdminTemplate(w, data); err != nil {
@@ -324,7 +324,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				return
 			}
 			if err := templates.WatchTemplate(w, templates.WatchData{
-				Navbar: templates.Navbar{AppName: cfg.Name, Username: user.Username, HasAdmin: user.Superuser},
+				Navbar: templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
 				Events: events,
 			}); err != nil {
 				sendError(w, r, err)
