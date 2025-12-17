@@ -18,8 +18,8 @@ roles:
       - arn:aws:iam::aws:policy/ReadOnlyAccess
     max_session_duration: 28800000000000
 users:
-  - email: user@user.com
-    name: user
+  - name: user@user.com
+    friendly_name: user
     roles:
       - account_name: main
         role_name: developer-role-37ab35d9-bcf1-4ae4-b9ad-366f39002e98
