@@ -117,10 +117,10 @@ func main() {
 	}()
 
 	slog.Info("http", "address", appCfg.ListenAddr, "url", fmt.Sprintf("http:/%s", appCfg.ListenAddr))
-	if appCfg.TlsListenAddr  != "" {
+	if appCfg.TlsListenAddr != "" {
 		go func() {
 			slog.Info("https", "address", appCfg.TlsListenAddr, "url", fmt.Sprintf("https:/%s", appCfg.TlsListenAddr))
-			must(http.ListenAndServeTLS(appCfg.TlsListenAddr, "server.crt", "server.key", r))
+			must(http.ListenAndServeTLS(appCfg.TlsListenAddr, appCfg.TlsCert, appCfg.TlsKey, r))
 		}()
 	}
 	must(http.ListenAndServe(appCfg.ListenAddr, r))
