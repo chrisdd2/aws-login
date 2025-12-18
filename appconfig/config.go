@@ -3,6 +3,7 @@ package appconfig
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"reflect"
 	"strconv"
@@ -11,117 +12,63 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+type OpenIdConfig struct {
+	ProviderUrl  string `json:"provider_url,omitempty"`
+	RedirectUrl  string `json:"redirect_url,omitempty"`
+	ClientId     string `json:"client_id,omitempty"`
+	ClientSecret string `json:"client_secret,omitempty" mask:"true"`
+}
+
+func (o OpenIdConfig) Enabled() bool {
+	return o.ProviderUrl != "" && o.RedirectUrl != "" && o.ClientId != "" && o.ClientSecret != ""
+}
+
+type GithubIdpConfig struct {
+	ClientSecret string `mask:"true" json:"client_secret,omitempty"`
+	ClientId     string `json:"client_id,omitempty"`
+	RedirectUrl  string `json:"redirect_url,omitempty"`
+}
+
+func (o GithubIdpConfig) Enabled() bool {
+	return o.ClientId != "" && o.ClientSecret != ""
+}
+
 type AppConfig struct {
 	environmentVariablePrefix string
-	ListenAddr                string `default:"localhost:8090" json:"listen_addr,omitempty"`
-	TlsListenAddr                string `default:"localhost:8090" json:"tls_listen_addr,omitempty"`
-	TlsCert                   string `default:"server.crt" json:"tls_cert,omitempty"`
-	TlsKey                    string `default:"server.key" json:"tls_key,omitempty"`
-	MetrisAddr                string `default:"localhost:8099" json:"metrics_addr,omitempty"`
-	SignKey                   string `default:"somekey" mask:"true" json:"sign_key,omitempty"`
-	DevelopmentMode           bool   `default:"false" json:"development_mode,omitempty"`
-	RootUrl                   string `json:"root_url,omitempty"`
-	ConfigDirectory           string `default:".config" json:"conf_dir,omitempty"`
-	ConfigUrl                 string `json:"conf_url,omitempty"`
-	GithubEnabled             bool   `default:"false" json:"github_enabled"`
-	GithubClientSecret        string `mask:"true" json:"github_client_secret,omitempty"`
-	GithubClientId            string `json:"github_client_id,omitempty"`
-	AdminUsername             string `json:"admin_username,omitempty"`
-	AdminPassword             string `json:"admin_password,omitempty" mask:"true"`
 	Name                      string `json:"name,omitempty" mask:"true"`
+	MetrisAddr                string `default:"localhost:8099" json:"metrics_addr,omitempty"`
+	ListenAddr                string `default:"localhost:8090" json:"listen_addr,omitempty"`
+	Tls                       struct {
+		ListenAddr string `json:"listen_addr"`
+		CertFile   string `json:"cert_file" default:"server.crt"`
+		KeyFile    string `json:"key_file" default:"server.key"`
+	}
+	DevelopmentMode bool   `default:"false" json:"development_mode,omitempty"`
+	RootUrl         string `json:"root_url,omitempty"`
+	ConfigDirectory string `default:".config" json:"conf_dir,omitempty"`
+	ConfigUrl       string `json:"conf_url,omitempty"`
 
-	KeyCloakEnabled      bool   `default:"false" json:"keycloak_enabled"`
-	KeycloakProviderUrl  string `json:"keycloak_provider_url,omitempty"`
-	KeycloakRedirectUrl  string `json:"keycloak_redirect_url,omitempty"`
-	KeycloakClientId     string `json:"keycloak_client_id,omitempty"`
-	KeycloakClientSecret string `json:"keycloak_client_secret,omitempty" mask:"true"`
-
-	GoogleEnabled      bool   `default:"false" json:"google_enabled"`
-	GoogleProviderUrl  string `json:"google_provider_url,omitempty"`
-	GoogleRedirectUrl  string `json:"google_redirect_url,omitempty"`
-	GoogleClientId     string `json:"google_client_id,omitempty"`
-	GoogleClientSecret string `json:"google_client_secret,omitempty" mask:"true"`
+	Auth struct {
+		AdminUsername    string          `json:"admin_username,omitempty"`
+		AdminPassword    string          `json:"admin_password,omitempty" mask:"true"`
+		SignKey          string          `default:"somekey" mask:"true" json:"sign_key,omitempty"`
+		Keycloak         OpenIdConfig    `json:"keycloak"`
+		Google           OpenIdConfig    `json:"google"`
+		Github           GithubIdpConfig `json:"github"`
+		GoogleWorkspaces []string        `json:"google_workspaces"`
+	} `json:"auth"`
 }
 
 func (a *AppConfig) LoadDefaults() error {
-	t := reflect.TypeOf(a).Elem()
-	v := reflect.ValueOf(a).Elem()
-	for i := range v.NumField() {
-		tFld := t.Field(i)
-		if !tFld.IsExported() {
-			continue
-		}
-		fld := v.Field(i)
-		def := tFld.Tag.Get("default")
-		switch k := fld.Kind(); k {
-		case reflect.String:
-			fld.SetString(def)
-		case reflect.Bool:
-			def := strings.ToLower(def)
-			fld.SetBool(def != "false" && len(def) > 0)
-		default:
-			return fmt.Errorf("unhandled kind %s", k.String())
-		}
-	}
-	return nil
+	return defaultsWalk([]string{a.environmentVariablePrefix}, reflect.ValueOf(a))
 }
 
 func (a *AppConfig) DebugPrint() {
-	t := reflect.TypeOf(a).Elem()
-	v := reflect.ValueOf(a).Elem()
-	fmt.Print("AppConfig {\n")
-	for i := range v.NumField() {
-		tFld := t.Field(i)
-		if !tFld.IsExported() {
-			continue
-		}
-		fld := v.Field(i)
-		val := fmt.Sprint(fld.Interface())
-		if len(tFld.Tag.Get("mask")) > 0 {
-			// this is a security risk cause it hints size, but you know looks cooler
-			val = strings.Repeat("*", len(val))
-		}
-		fmt.Printf("\t%s: %s\n", tFld.Name, val)
-	}
-	fmt.Print("}\n")
+	debugWalk(0, reflect.ValueOf(a), nil)
 }
 
 func (a *AppConfig) LoadFromEnv() error {
-	t := reflect.TypeOf(a).Elem()
-	v := reflect.ValueOf(a).Elem()
-	for i := range v.NumField() {
-		tFld := t.Field(i)
-		if !tFld.IsExported() {
-			continue
-		}
-		fld := v.Field(i)
-		name := tFld.Tag.Get("env")
-		if name == "" {
-			name = tFld.Tag.Get("cfg")
-		}
-		if name == "" {
-			name = strings.Split(tFld.Tag.Get("json"), ",")[0]
-		}
-		if name == "" {
-			return fmt.Errorf("missing cfg or name tag for field %s", tFld.Name)
-		}
-		envVarName := strings.ToUpper(a.PrefixEnv(name))
-		envVar, exists := os.LookupEnv(envVarName)
-		if !exists {
-			continue
-		}
-		switch k := fld.Kind(); k {
-		case reflect.String:
-			fld.SetString(envVar)
-		case reflect.Bool:
-			def := strings.ToLower(envVar)
-			num, _ := strconv.Atoi(def)
-			fld.SetBool(def == "true" || num != 0)
-		default:
-			return fmt.Errorf("unhandled kind %s", k.String())
-		}
-	}
-	return nil
+	return envWalk([]string{a.environmentVariablePrefix}, reflect.ValueOf(a))
 }
 
 func (a *AppConfig) LoadFromYaml(r io.Reader) error {
@@ -177,4 +124,186 @@ func environmentContext(envVars map[string]string) (restoreFunc func()) {
 			os.Unsetenv(k)
 		}
 	}
+}
+
+func getFromEnv(key string, path ...string) string {
+	var v string
+	if len(path) > 0 {
+		v = strings.Join(path, "__")
+		v = fmt.Sprintf("%s__%s", v, key)
+	} else if len(path) > 0 {
+		v = key
+	}
+	v = strings.ToUpper(v)
+	// log.Println(v, os.Getenv(v))
+	return os.Getenv(v)
+}
+
+func prettyPath(key string, path ...string) string {
+	return strings.ToLower(strings.Join(append(path, key), "."))
+}
+
+func maskValue(value any, tags reflect.StructTag) string {
+	valueStr := fmt.Sprint(value)
+	if tags.Get("mask") != "" {
+		return strings.Repeat("*", len(valueStr))
+	}
+	return valueStr
+}
+
+func envWalk(path []string, v reflect.Value) error {
+	if v.Kind() == reflect.Pointer {
+		v = v.Elem()
+	}
+	t := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		fld := v.Field(i)
+		fldType := t.Field(i)
+		k := fld.Kind()
+		name := fldType.Name
+		if k == reflect.Struct {
+			err := envWalk(append(path, name), fld)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		jsonName := strings.Split(fldType.Tag.Get("json"), ",")[0]
+		if jsonName != "" {
+			name = jsonName
+		}
+		value := getFromEnv(name, path...)
+		if value == "" {
+			continue
+		}
+		if !fld.CanSet() {
+			slog.Debug("config", "skipping", prettyPath(name, path...))
+			continue
+		}
+		slog.Debug("config", "set", prettyPath(name, path...), "value", maskValue(value, fldType.Tag), "source", "env")
+		switch k {
+		case reflect.Array, reflect.Slice:
+			fld.Set(reflect.ValueOf(strings.Split(value, ",")))
+		case reflect.String:
+			fld.SetString(value)
+		case reflect.Bool:
+			fld.SetBool(!(strings.ToLower(value) == "false" || value == "0"))
+		case reflect.Int, reflect.Int16, reflect.Int64, reflect.Int32:
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return fmt.Errorf("[%s] invalid value [%s] for int", prettyPath(name, path...), value)
+			}
+			fld.SetInt(n)
+		case reflect.Float32, reflect.Float64:
+			n, err := strconv.ParseFloat(value, 64)
+			if err != nil {
+				return fmt.Errorf("[%s] invalid value [%s] for float", prettyPath(name, path...), value)
+			}
+			fld.SetFloat(float64(n))
+		case reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint:
+			n, err := strconv.ParseUint(value, 10, 64)
+			if err != nil {
+				return fmt.Errorf("[%s] invalid value [%s] for uint", prettyPath(name, path...), value)
+			}
+			fld.SetFloat(float64(n))
+		default:
+			slog.Debug("config", "unknown", name, "type", fld.Kind())
+		}
+	}
+	return nil
+}
+
+func defaultsWalk(path []string, v reflect.Value) error {
+	if v.Kind() == reflect.Pointer {
+		v = v.Elem()
+	}
+	t := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		fld := v.Field(i)
+		fldType := t.Field(i)
+		k := fld.Kind()
+		name := fldType.Name
+		if k == reflect.Struct {
+			err := defaultsWalk(append(path, name), fld)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		jsonName := strings.Split(fldType.Tag.Get("json"), ",")[0]
+		if jsonName != "" {
+			name = jsonName
+		}
+		value := fldType.Tag.Get("default")
+		if value == "" {
+			continue
+		}
+		if !fld.CanSet() {
+			slog.Debug("config", "skipping", prettyPath(name, path...))
+			continue
+		}
+		slog.Debug("config", "set", prettyPath(name, path...), "value", maskValue(value, fldType.Tag), "source", "defaults")
+		switch k := fld.Kind(); k {
+		case reflect.Array, reflect.Slice:
+			fld.Set(reflect.ValueOf(strings.Split(value, ",")))
+		case reflect.String:
+			fld.SetString(value)
+		case reflect.Bool:
+			fld.SetBool(!(strings.ToLower(value) == "false" || value == "0"))
+		case reflect.Int, reflect.Int16, reflect.Int64, reflect.Int32:
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return fmt.Errorf("[%s] invalid value [%s] for int", prettyPath(name, path...), value)
+			}
+			fld.SetInt(n)
+		case reflect.Float32, reflect.Float64:
+			n, err := strconv.ParseFloat(value, 64)
+			if err != nil {
+				return fmt.Errorf("[%s] invalid value [%s] for float", prettyPath(name, path...), value)
+			}
+			fld.SetFloat(float64(n))
+		case reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint:
+			n, err := strconv.ParseUint(value, 10, 64)
+			if err != nil {
+				return fmt.Errorf("[%s] invalid value [%s] for uint", prettyPath(name, path...), value)
+			}
+			fld.SetFloat(float64(n))
+		default:
+			slog.Debug("config", "unknown", name, "type", fld.Kind())
+		}
+	}
+	return nil
+
+}
+
+func debugWalk(indent identer, v reflect.Value, fld *reflect.StructField) {
+	if v.Kind() == reflect.Pointer {
+		v = v.Elem()
+	}
+	t := v.Type()
+	name := t.Name()
+	if fld != nil {
+		name = fld.Name
+	}
+	fmt.Printf("%s%s {\n", indent, name)
+	for i := 0; i < v.NumField(); i++ {
+		fld := v.Field(i)
+		fldType := t.Field(i)
+		name := fldType.Name
+		if !fld.CanSet() {
+			continue
+		}
+		if fld.Kind() == reflect.Struct {
+			debugWalk(indent+1, fld, &fldType)
+			continue
+		}
+		fmt.Printf("%s%s: %v\n", indent+1, name, maskValue(fld, fldType.Tag))
+	}
+	fmt.Printf("%s}\n", indent)
+}
+
+type identer int
+
+func (s identer) String() string {
+	return strings.Repeat("  ", int(s))
 }

@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"slices"
 
 	"log/slog"
 	"net/http"
+	"net/url"
 
 	awsSdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -41,12 +43,13 @@ func must3[T any, Y any](a T, b Y, err error) (T, Y) {
 }
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(logger)
 	appCfg := appconfig.AppConfig{}
-	appCfg.SetEnvironmentVariablePrefix("APP_")
+	appCfg.SetEnvironmentVariablePrefix("app")
 	must(appCfg.LoadDefaults())
 	must(appCfg.LoadFromEnv())
 
-	var logger *slog.Logger
 	logLvl := slog.LevelInfo
 	if appCfg.DevelopmentMode {
 		logLvl = slog.LevelDebug
@@ -56,9 +59,10 @@ func main() {
 	} else {
 		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLvl}))
 	}
-	slog.SetDefault(logger)
 
-	appCfg.DebugPrint()
+	if appCfg.DevelopmentMode {
+		appCfg.DebugPrint()
+	}
 
 	ctx := context.Background()
 
@@ -75,21 +79,35 @@ func main() {
 	must(storageSvc.Validate())
 
 	awsApi := must2(aws.NewAwsApi(ctx, sts.NewFromConfig(assumerConfig)))
-	tokenSvc := services.NewToken(storageSvc, []byte(appCfg.SignKey))
+	tokenSvc := services.NewToken(storageSvc, []byte(appCfg.Auth.SignKey))
 	roleSvc := services.NewRoleService(storageSvc, awsApi)
 	accSvc := services.NewAccountService(storageSvc, awsApi)
 
 	idps := []services.AuthService{}
-	if appCfg.GithubEnabled {
-		idps = append(idps, &services.GithubService{ClientSecret: appCfg.GithubClientSecret, ClientId: appCfg.GithubClientId, AuthResponsePath: "/oauth2/github/idpresponse"})
+	if appCfg.Auth.Github.Enabled() {
+		u := must2(url.Parse(appCfg.Auth.Github.RedirectUrl))
+		idps = append(idps, &services.GithubService{
+			ClientSecret:     appCfg.Auth.Github.ClientSecret,
+			ClientId:         appCfg.Auth.Github.ClientId,
+			AuthResponsePath: u.Path,
+		})
 		slog.Info("enabled", "auth", "github")
 	}
-	if appCfg.KeyCloakEnabled {
-		idps = append(idps, must2(services.NewOpenId(ctx, "keycloak", appCfg.KeycloakProviderUrl, appCfg.KeycloakRedirectUrl, appCfg.KeycloakClientId, appCfg.KeycloakClientSecret)))
+	if appCfg.Auth.Keycloak.Enabled() {
+		idps = append(idps, must2(services.NewOpenId(ctx, "keycloak", appCfg.Auth.Keycloak)))
 		slog.Info("enabled", "auth", "keycloak")
 	}
-	if appCfg.GoogleEnabled {
-		idps = append(idps, must2(services.NewOpenId(ctx, "google", appCfg.GoogleProviderUrl, appCfg.GoogleRedirectUrl, appCfg.GoogleClientId, appCfg.GoogleClientSecret)))
+	if appCfg.Auth.Google.Enabled() {
+		validations := []services.OpenIdClaimsValidation{}
+		if len(appCfg.Auth.GoogleWorkspaces) > 0 {
+			validations = append(validations, func(claims services.OpenIdClaims) error {
+				if !slices.Contains(appCfg.Auth.GoogleWorkspaces, claims.HD) {
+					return fmt.Errorf("%s not in allowed workspaces", claims.Email)
+				}
+				return nil
+			})
+		}
+		idps = append(idps, must2(services.NewOpenId(ctx, "google", appCfg.Auth.Google)))
 		slog.Info("enabled", "auth", "google")
 	}
 
@@ -117,10 +135,10 @@ func main() {
 	}()
 
 	slog.Info("http", "address", appCfg.ListenAddr, "url", fmt.Sprintf("http:/%s", appCfg.ListenAddr))
-	if appCfg.TlsListenAddr != "" {
+	if appCfg.Tls.ListenAddr != "" {
 		go func() {
-			slog.Info("https", "address", appCfg.TlsListenAddr, "url", fmt.Sprintf("https:/%s", appCfg.TlsListenAddr))
-			must(http.ListenAndServeTLS(appCfg.TlsListenAddr, appCfg.TlsCert, appCfg.TlsKey, r))
+			slog.Info("https", "address", appCfg.Tls.ListenAddr, "url", fmt.Sprintf("https:/%s", appCfg.Tls.ListenAddr))
+			must(http.ListenAndServeTLS(appCfg.Tls.ListenAddr, appCfg.Tls.CertFile, appCfg.Tls.KeyFile, r))
 		}()
 	}
 	must(http.ListenAndServe(appCfg.ListenAddr, r))

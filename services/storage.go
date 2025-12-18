@@ -146,7 +146,7 @@ func (s *Store) GetInlinePolicy(ctx context.Context, id string) (*appconfig.Inli
 	return nil, errors.New("PolicyNotFound")
 }
 func (s *Store) GetUser(ctx context.Context, id string) (*appconfig.User, error) {
-	if id == s.cfg.AdminUsername {
+	if id == s.cfg.Auth.AdminUsername {
 		return s.createAdminUser(), nil
 	}
 	idx := slices.IndexFunc(s.Users, func(acc appconfig.User) bool {
@@ -183,10 +183,10 @@ func (s *Store) createAdminUser() *appconfig.User {
 					Permissions: []string{appconfig.RolePermissionConsole, appconfig.RolePermissionCredentials}})
 		}
 	}
-	friendlyName, _, _ := strings.Cut(s.cfg.AdminUsername, "@")
+	friendlyName, _, _ := strings.Cut(s.cfg.Auth.AdminUsername, "@")
 
 	user := &appconfig.User{
-		Name:         s.cfg.AdminUsername,
+		Name:         s.cfg.Auth.AdminUsername,
 		Superuser:    true,
 		FriendlyName: friendlyName,
 		Roles:        attachments,

@@ -40,7 +40,7 @@ func loginErrorString(queryParams url.Values) string {
 }
 
 func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, storageSvc services.Storage, cfg appconfig.AppConfig) chi.Router {
-	hasAdminLogin := cfg.AdminPassword != "" && cfg.AdminUsername != ""
+	hasAdminLogin := cfg.Auth.AdminPassword != "" && cfg.Auth.AdminUsername != ""
 
 	r := chi.NewRouter()
 	// font awesome ruins me
@@ -76,7 +76,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			r.ParseForm()
 			username := r.Form.Get("username")
 			password := r.Form.Get("password")
-			if !(username == cfg.AdminUsername && password == cfg.AdminPassword) {
+			if !(username == cfg.Auth.AdminUsername && password == cfg.Auth.AdminPassword) {
 				redirectWithParams(w, r, "/login", map[string]string{"error": "wrong_credentials"}, http.StatusSeeOther)
 				return
 			}

@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 )
@@ -58,9 +59,9 @@ func generateGithubAccessTokenUrl(clientId, clientSecret, sessionCode string) st
 }
 
 type GithubService struct {
-	ClientSecret     string
-	ClientId         string
-	AuthResponsePath string
+	ClientSecret string
+	ClientId     string
+	AuthResponsePath  string
 }
 
 func (g *GithubService) Details() AuthServiceDetails {
@@ -189,29 +190,29 @@ type OpenIdClaims struct {
 
 type OpenIdClaimsValidation func(claims OpenIdClaims) error
 
-func NewOpenId(ctx context.Context, name string, providerUrl string, redirectUrl string, clientId string, clientSecret string, validations ...OpenIdClaimsValidation) (*OpenIdService, error) {
-	parsedUrl, err := url.Parse(redirectUrl)
+func NewOpenId(ctx context.Context, name string, o appconfig.OpenIdConfig, validations ...OpenIdClaimsValidation) (*OpenIdService, error) {
+	parsedUrl, err := url.Parse(o.RedirectUrl)
 	if err != nil {
 		return nil, fmt.Errorf("url.Parse %w", err)
 	}
 	endpoint := fmt.Sprintf("/%s", strings.TrimSuffix(strings.TrimPrefix(parsedUrl.Path, "/"), "/"))
 
-	provider, err := oidc.NewProvider(ctx, providerUrl)
+	provider, err := oidc.NewProvider(ctx, o.ProviderUrl)
 	if err != nil {
 		return nil, fmt.Errorf("oidc.NewProvider %w", err)
 	}
-	logoutUrl, err := findLogoutUrl(providerUrl)
+	logoutUrl, err := findLogoutUrl(o.ProviderUrl)
 	if err != nil {
 		return nil, fmt.Errorf("oidc.NewProvider %w", err)
 	}
 
 	verifier := provider.VerifierContext(ctx, &oidc.Config{
-		ClientID: clientId,
+		ClientID: o.ClientId,
 	})
 	cfg := oauth2.Config{
-		ClientID:     clientId,
-		ClientSecret: clientSecret,
-		RedirectURL:  redirectUrl,
+		ClientID:     o.ClientId,
+		ClientSecret: o.ClientSecret,
+		RedirectURL:  o.RedirectUrl,
 		Endpoint:     provider.Endpoint(),
 		Scopes: []string{
 			oidc.ScopeOpenID,
