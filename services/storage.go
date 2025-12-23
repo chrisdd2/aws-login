@@ -35,6 +35,7 @@ type Storage interface {
 	ListAccounts(ctx context.Context) ([]*appconfig.Account, error)
 
 	Reload(ctx context.Context) error
+	PrettyPrint(ctx context.Context) (string, error)
 }
 
 type Store struct {
@@ -392,4 +393,12 @@ func (s *Store) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func (s *Store) PrettyPrint(ctx context.Context) (string, error) {
+	b, err := yaml.Marshal(s)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }

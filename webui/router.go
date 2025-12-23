@@ -210,7 +210,23 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				sendError(w, r, err)
 			}
 			slog.Info("reloaded config", "source", "admin_page")
-			http.Redirect(w, r, "/admin", http.StatusTemporaryRedirect)
+			http.Redirect(w, r, "/admin/config", http.StatusTemporaryRedirect)
+		})
+		r.Get("/config", func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			user := getUser(r)
+			prettyText, err := storageSvc.PrettyPrint(ctx)
+			if err != nil {
+				sendError(w, r, err)
+				return
+			}
+			data := templates.ConfigurationData{
+				Navbar:   templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
+				Document: prettyText,
+			}
+			if err := templates.ConfigurationTemplate(w, data); err != nil {
+				sendError(w, r, err)
+			}
 		})
 	})
 	loggedIn.Route("/account", func(r chi.Router) {

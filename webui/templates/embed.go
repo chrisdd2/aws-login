@@ -74,3 +74,12 @@ func AdminTemplate(w io.Writer, data AdminData) error {
 func WatchTemplate(w io.Writer, data WatchData) error {
 	return pagesTmpls.ExecuteTemplate(w, "watch.html", data)
 }
+
+type ConfigurationData struct {
+	Navbar
+	Document string
+}
+
+func ConfigurationTemplate(w io.Writer, data ConfigurationData) error {
+	return pagesTmpls.ExecuteTemplate(w, "config.html", data)
+}

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.AppName}} - Configuration</title>
+    <script src="/static/tailwind.js"></script>
+    <link rel="stylesheet" href="/static/font-awesome.css">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="stylesheet" href="/static/github-dark.min.css">
+
+</head>
+
+<body
+    class="min-h-screen flex flex-col bg-gradient-to-br from-indigo-500 to-purple-600 dark:from-[#1a1a2e] dark:to-[#16213e] transition-colors duration-300">
+    <!-- Top Navigation Bar -->
+    <nav class="bg-white/95 dark:bg-[#1a1a2e]/95 backdrop-blur-lg shadow-lg dark:shadow-[0_2px_10px_rgba(0,0,0,0.5)] transition-all duration-300"
+        role="navigation" aria-label="main navigation">
+        <div class="container mx-auto px-4">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center gap-6">
+                    <a class="flex items-center gap-2 font-bold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                        href="/">
+                        <i class="fas fa-cloud"></i>
+                        <span>{{.AppName}}</span>
+                    </a>
+                    {{if .HasAdmin}}
+                    <a href="/admin" class="text-sm font-medium text-indigo-600 dark:text-indigo-300 hover:underline">
+                        Admin
+                    </a>
+                    <a href="/admin/config" class="text-sm font-medium text-indigo-600 dark:text-indigo-300 hover:underline">
+                        Configuration
+                    </a>
+                    {{end}}
+                </div>
+                <div class="flex items-center gap-4">
+                    <a href="/logout"
+                        class="cursor-pointer p-2 rounded bg-transparent border-none hover:bg-black/5 dark:hover:bg-white/10 transition-colors text-red-500 dark:text-red-400"
+                        aria-label="Logout">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </a>
+                    <div class="flex items-center gap-2">
+                        <div
+                            class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm uppercase">
+                            {{if .Username}}{{printf "%.1s" .Username}}{{else}}<i class="fas fa-user"></i>{{end}}
+                        </div>
+                        <span class="text-gray-700 dark:text-white">{{if
+                            .Username}}{{.Username}}{{else}}Loading...{{end}}</span>
+                        <span class="text-green-500">
+                            <i class="fas fa-circle text-xs"></i>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="p-8 flex flex-col items-justify">
+        <div class="flex gap-2 z-10">
+            <a href="/admin/reloadconfig" class="text-xs px-2 py-1 rounded
+             bg-indigo-600 hover:bg-indigo-700
+             text-white shadow">
+                Reload
+            </a>
+
+            <button onclick="navigator.clipboard.writeText(document.getElementById('yaml').textContent)" class="text-xs px-2 py-1 rounded
+             bg-gray-700 hover:bg-gray-600
+             text-white shadow">
+                Copy
+            </button>
+        </div>
+        <pre id="yaml"
+            class="overflow-x-auto rounded-lg border
+                border-gray-200 dark:border-gray-700
+                bg-gray-900 p-4 text-sm font-mono
+                leading-relaxed text-gray-100 shadow-inner"><code id="yaml" class="language-yaml">{{.Document}}</code></pre>
+    </div>
+
+
+    <!-- Bottom Footer Bar -->
+    <footer
+        class="bg-white/95 dark:bg-[#1a1a2e]/95 backdrop-blur-lg shadow-lg dark:shadow-[0_-2px_10px_rgba(0,0,0,0.5)] py-6 transition-all duration-300">
+        <div class="container mx-auto px-4 text-center">
+            <p class="font-semibold text-gray-900 dark:text-white mb-1">
+                <strong>{{.AppName}}</strong> - Secure access to your AWS accounts
+            </p>
+            <p class="text-xs text-gray-600 dark:text-gray-400">
+                <i class="fas fa-shield-alt mr-1"></i>
+                Your credentials are securely managed
+            </p>
+        </div>
+    </footer>
+    <script src="/static/highlight.min.js"></script>
+    <script src="/static/yaml.min.js"></script>
+    <script>hljs.highlightAll();</script>
+
+
+</body>
+
+</html>
