@@ -45,8 +45,8 @@ type AppConfig struct {
 	}
 	DevelopmentMode bool   `default:"false" json:"development_mode,omitempty"`
 	RootUrl         string `json:"root_url,omitempty"`
-	ConfigDirectory string `default:".config" json:"conf_dir,omitempty"`
-	ConfigUrl       string `json:"conf_url,omitempty"`
+	ConfigDirectory string `default:".config" json:"config_dir,omitempty"`
+	ConfigUrl       string `json:"config_url,omitempty"`
 
 	Auth struct {
 		AdminUsername    string          `json:"admin_username,omitempty"`

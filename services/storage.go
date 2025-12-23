@@ -206,32 +206,7 @@ func (s *Store) ListAccounts(ctx context.Context) ([]*appconfig.Account, error) 
 
 func (s *Store) Reload(ctx context.Context) error {
 	ret := &Store{}
-	if s.cfg.ConfigDirectory != "" {
-		entries, err := os.ReadDir(s.cfg.ConfigDirectory)
-		if err != nil {
-			return err
-		}
-		for _, entry := range entries {
-			name := filepath.Join(s.cfg.ConfigDirectory, entry.Name())
-			if entry.IsDir() {
-				continue
-			}
-			if !strings.HasSuffix(name, ".yml") {
-				continue
-			}
-			o := Store{}
-			f, err := os.Open(name)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			slog.Info("load_config", "type", "filesystem", "filename", name)
-			if err := o.LoadYaml(f); err != nil {
-				return err
-			}
-			ret = ret.Merge(&o, false)
-		}
-	} else if s.cfg.ConfigUrl != "" {
+	if s.cfg.ConfigUrl != "" {
 		if !strings.HasPrefix(s.cfg.ConfigUrl, "s3://") {
 			return errors.New("only s3 urls support for config files")
 		}
@@ -265,6 +240,34 @@ func (s *Store) Reload(ctx context.Context) error {
 				ret = ret.Merge(&o, false)
 			}
 		}
+	} else if s.cfg.ConfigDirectory != "" {
+		entries, err := os.ReadDir(s.cfg.ConfigDirectory)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			name := filepath.Join(s.cfg.ConfigDirectory, entry.Name())
+			if entry.IsDir() {
+				continue
+			}
+			if !strings.HasSuffix(name, ".yml") {
+				continue
+			}
+			o := Store{}
+			f, err := os.Open(name)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			slog.Info("load_config", "type", "filesystem", "filename", name)
+			if err := o.LoadYaml(f); err != nil {
+				return err
+			}
+			ret = ret.Merge(&o, false)
+		}
+	}
+	if err := ret.Validate(); err != nil {
+		return err
 	}
 	s.Reset()
 	s.Merge(ret, true)

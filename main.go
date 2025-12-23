@@ -41,24 +41,25 @@ func must3[T any, Y any](a T, b Y, err error) (T, Y) {
 	}
 	return a, b
 }
+func ternary[T any](c bool, a T, b T) T {
+	if c {
+		return a
+	}
+	return b
+}
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	slog.SetDefault(logger)
 	appCfg := appconfig.AppConfig{}
 	appCfg.SetEnvironmentVariablePrefix("app")
 	must(appCfg.LoadDefaults())
 	must(appCfg.LoadFromEnv())
 
-	logLvl := slog.LevelInfo
-	if appCfg.DevelopmentMode {
-		logLvl = slog.LevelDebug
-	}
-	if appCfg.DevelopmentMode {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLvl}))
-	} else {
-		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLvl}))
-	}
+	logLvl := ternary(appCfg.DevelopmentMode, slog.LevelInfo, slog.LevelDebug)
+	logger := ternary(appCfg.DevelopmentMode,
+		slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLvl})),
+		slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLvl})),
+	)
+	slog.SetDefault(logger)
 
 	if appCfg.DevelopmentMode {
 		appCfg.DebugPrint()
