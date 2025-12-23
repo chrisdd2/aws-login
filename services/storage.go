@@ -214,7 +214,7 @@ func (s *Store) Reload(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		bucket, path := s3Url.Hostname(), s3Url.Path
+		bucket, path := s3Url.Hostname(), strings.TrimPrefix(s3Url.Path, "/")
 		pages := s3.NewListObjectsV2Paginator(s.s3Cl, &s3.ListObjectsV2Input{Bucket: &bucket, Prefix: &path})
 		for pages.HasMorePages() {
 			page, err := pages.NextPage(ctx)
