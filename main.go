@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"slices"
 
 	"log/slog"
@@ -49,6 +53,7 @@ func ternary[T any](c bool, a T, b T) T {
 }
 
 func main() {
+	cache := must2(NewFileCache("aws-login"))
 	appCfg := appconfig.AppConfig{}
 	appCfg.SetEnvironmentVariablePrefix("app")
 	must(appCfg.LoadDefaults())
@@ -80,7 +85,22 @@ func main() {
 	must(storageSvc.Validate())
 
 	awsApi := must2(aws.NewAwsApi(ctx, sts.NewFromConfig(assumerConfig)))
-	tokenSvc := services.NewToken(storageSvc, []byte(appCfg.Auth.SignKey))
+
+	var signKey []byte = []byte(appCfg.Auth.SignKey)
+	// make sure we got a sign key
+	if len(signKey) == 0 {
+		buf, _ := cache.Read("signkey")
+		if len(buf) == 0 {
+			buf = make([]byte, 120)
+			rand.Read(buf)
+			buf = base64.StdEncoding.AppendEncode(nil, buf)
+			cache.Write("signkey", buf)
+		}
+		signKey = must2(base64.StdEncoding.AppendDecode(nil, buf))
+		slog.Info("signkey", "size", len(buf))
+	}
+
+	tokenSvc := services.NewToken(storageSvc, signKey)
 	roleSvc := services.NewRoleService(storageSvc, awsApi)
 	accSvc := services.NewAccountService(storageSvc, awsApi)
 
@@ -162,4 +182,44 @@ func awsContext(ctx context.Context, environmentPrefix string) (awsConfig awsSdk
 		return awsConfig, "", err
 	}
 	return cfg, awsSdk.ToString(resp.Arn), nil
+}
+
+type cache struct {
+	cacheDir string
+}
+
+func NewFileCache(subDir string) (*cache, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	cacheDir := filepath.Join(homeDir, ".cache", subDir)
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return nil, err
+	}
+	return &cache{cacheDir}, nil
+}
+
+func (c *cache) Write(filename string, buf []byte) error {
+	filename = filepath.Join(c.cacheDir, filename)
+	f, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	f.Write(buf)
+	f.Close()
+	return nil
+}
+func (c *cache) Read(filename string) ([]byte, error) {
+	filename = filepath.Join(c.cacheDir, filename)
+	f, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	buf, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+	f.Close()
+	return buf, nil
 }

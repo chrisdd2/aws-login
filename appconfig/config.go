@@ -36,22 +36,22 @@ func (o GithubIdpConfig) Enabled() bool {
 type AppConfig struct {
 	environmentVariablePrefix string
 	Name                      string `json:"name,omitempty" mask:"true"`
-	MetrisAddr                string `default:"localhost:8099" json:"metrics_addr,omitempty"`
-	ListenAddr                string `default:"localhost:8090" json:"listen_addr,omitempty"`
+	MetrisAddr                string `json:"metrics_addr,omitempty" default:"localhost:8099"`
+	ListenAddr                string `json:"listen_addr,omitempty" default:"localhost:8090"`
 	Tls                       struct {
 		ListenAddr string `json:"listen_addr"`
 		CertFile   string `json:"cert_file" default:"server.crt"`
 		KeyFile    string `json:"key_file" default:"server.key"`
 	}
-	DevelopmentMode bool   `default:"false" json:"development_mode,omitempty"`
+	DevelopmentMode bool   `json:"development_mode,omitempty" default:"false"`
 	RootUrl         string `json:"root_url,omitempty"`
-	ConfigDirectory string `default:".config" json:"config_dir,omitempty"`
+	ConfigDirectory string `json:"config_dir,omitempty" default:".config" `
 	ConfigUrl       string `json:"config_url,omitempty"`
 
 	Auth struct {
 		AdminUsername    string          `json:"admin_username,omitempty"`
 		AdminPassword    string          `json:"admin_password,omitempty" mask:"true"`
-		SignKey          string          `default:"somekey" mask:"true" json:"sign_key,omitempty"`
+		SignKey          string          `mask:"true" json:"sign_key,omitempty"`
 		Keycloak         OpenIdConfig    `json:"keycloak"`
 		Google           OpenIdConfig    `json:"google"`
 		Github           GithubIdpConfig `json:"github"`
@@ -99,12 +99,12 @@ func getEnvironmentVariablesWithPrefix(prefix string) map[string]string {
 }
 
 func WithEnvContext[T any](prefix string, f func() (T, error)) (T, error) {
-	restore := environmentContext(getEnvironmentVariablesWithPrefix(prefix))
+	restore := patchEnvironment(getEnvironmentVariablesWithPrefix(prefix))
 	defer restore()
 	return f()
 }
 
-func environmentContext(envVars map[string]string) (restoreFunc func()) {
+func patchEnvironment(envVars map[string]string) (restoreFunc func()) {
 	restore := map[string]string{}
 	unset := []string{}
 	for k, v := range envVars {
@@ -135,7 +135,6 @@ func getFromEnv(key string, path ...string) string {
 		v = key
 	}
 	v = strings.ToUpper(v)
-	// log.Println(v, os.Getenv(v))
 	return os.Getenv(v)
 }
 
