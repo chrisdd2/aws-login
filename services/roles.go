@@ -46,10 +46,11 @@ type RolesService interface {
 type rolesService struct {
 	storage Storage
 	aws     aws.AwsApiCaller
+	ev      Eventer
 }
 
-func NewRoleService(store Storage, aws aws.AwsApiCaller) RolesService {
-	return &rolesService{store, aws}
+func NewRoleService(store Storage, aws aws.AwsApiCaller, ev Eventer) RolesService {
+	return &rolesService{store, aws, ev}
 }
 
 func (r *rolesService) RolesForAccount(ctx context.Context, accountName string) ([]string, error) {
@@ -94,6 +95,8 @@ func (r *rolesService) Console(ctx context.Context, accountName string, roleName
 	if err != nil {
 		return "", fmt.Errorf("aws.GenerateSigninUrl: %w", err)
 	}
+	// publish an event
+	r.ev.Publish(ctx, "console_login", map[string]string{"username": username, "account_name": accountName, "role_name": roleName})
 	return url, nil
 }
 
@@ -130,6 +133,8 @@ func (r *rolesService) Credentials(ctx context.Context, accountName string, role
 	if err != nil {
 		return AwsCredentials{}, fmt.Errorf("aws.GenerateSigninUrl: %w", err)
 	}
+	// publish an event
+	r.ev.Publish(ctx, "credentials_login", map[string]string{"username": username, "account_name": accountName, "role_name": roleName})
 	return AwsCredentials{AccessKeyId: accessKeyId, SecretAccessKey: secretAccessKey, SessionToken: sessionToken}, nil
 }
 

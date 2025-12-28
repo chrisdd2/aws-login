@@ -44,6 +44,7 @@ type AppConfig struct {
 		KeyFile    string `json:"key_file" default:"server.key"`
 	}
 	DevelopmentMode bool   `json:"development_mode,omitempty" default:"false"`
+	EventsFile      string `json:"events_file,omitempty" default:"events.jsonl"`
 	RootUrl         string `json:"root_url,omitempty"`
 	ConfigDirectory string `json:"config_dir,omitempty" default:".config" `
 	ConfigUrl       string `json:"config_url,omitempty"`

@@ -39,7 +39,7 @@ func loginErrorString(queryParams url.Values) string {
 	}
 }
 
-func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, storageSvc services.Storage, cfg appconfig.AppConfig) chi.Router {
+func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, storageSvc services.Storage, cfg appconfig.AppConfig, ev services.Eventer) chi.Router {
 	hasAdminLogin := cfg.Auth.AdminPassword != "" && cfg.Auth.AdminUsername != ""
 
 	r := chi.NewRouter()
@@ -81,6 +81,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				return
 			}
 			accessToken, _ := tokenSvc.Create(r.Context(), &services.UserInfo{Username: username, FriendlyName: friendlyName(username), Superuser: true, LoginType: "userpass"}, false)
+			ev.Publish(r.Context(), "user_login", map[string]string{"username": username, "login_type": loginType})
 			sendAccessToken(w, r, accessToken)
 			return
 		}
@@ -108,6 +109,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				sendUnathorized(w, r, err)
 				return
 			}
+			ev.Publish(ctx, "user_login", map[string]string{"username": info.Username, "login_type": details.Name})
 			sendAccessToken(w, r, accessToken)
 		})
 
@@ -355,7 +357,8 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			stackId, err := accountSrvc.DestroyStack(ctx, account)
+			user := getUser(r)
+			stackId, err := accountSrvc.DestroyStack(ctx, account, user.Username)
 			if err != nil {
 				sendError(w, r, err)
 				return

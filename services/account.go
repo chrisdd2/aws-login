@@ -28,7 +28,7 @@ type AccountService interface {
 	Deploy(ctx context.Context, userId string, accountId string) error
 	DeploymentStatus(ctx context.Context, accountId string) (DeploymentStatus, error)
 	StackUpdates(ctx context.Context, accountName string, stackId string) ([]aws.StackEvent, error)
-	DestroyStack(ctx context.Context, accountName string) (string, error)
+	DestroyStack(ctx context.Context, accountName string, username string) (string, error)
 	GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error)
 	ListAccounts(ctx context.Context) ([]*appconfig.Account, error)
 	BootstrapTemplate(ctx context.Context, accountName string, terraform bool) (string, error)
@@ -39,6 +39,7 @@ const stackHash = "al:stackHash"
 type accountService struct {
 	storage Storage
 	aws     aws.AwsApiCaller
+	ev      Eventer
 }
 
 var baseStackTemplate = template.Must(template.New("base-stack").Funcs(template.FuncMap{
@@ -175,6 +176,7 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 	if err != nil {
 		return err
 	}
+	a.ev.Publish(ctx, "account_deploy", map[string]string{"username": userId, "account_name": accountId})
 	return a.aws.DeployStack(ctx, acc.Name, acc.AwsAccountId, aws.StackName.Value(accountId), templateString, nil, map[string]string{stackHash: h})
 }
 func (a *accountService) GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error) {
@@ -197,10 +199,11 @@ func ValidateAWSAccountID(accountID int) bool {
 	return accountID > 100000000000 && accountID <= 999999999999
 }
 
-func NewAccountService(store Storage, aws aws.AwsApiCaller) AccountService {
+func NewAccountService(store Storage, aws aws.AwsApiCaller, ev Eventer) AccountService {
 	return &accountService{
 		storage: store,
 		aws:     aws,
+		ev:      ev,
 	}
 }
 
@@ -296,11 +299,12 @@ func generateStackTemplate(ctx context.Context, store Storage, account string) (
 	return templateString, nil
 }
 
-func (a *accountService) DestroyStack(ctx context.Context, accountName string) (string, error) {
+func (a *accountService) DestroyStack(ctx context.Context, accountName string, username string) (string, error) {
 	acc, err := a.storage.GetAccount(ctx, accountName)
 	if err != nil {
 		return "", fmt.Errorf("accountService.DestroyStack: storage.GetAccount: %w", err)
 	}
+	a.ev.Publish(ctx, "account_destroy", map[string]string{"username": username, "account_name": accountName})
 	stackId, err := a.aws.DestroyStack(ctx, accountName, acc.AwsAccountId, aws.StackName.Value(accountName))
 	if err != nil {
 		return "", fmt.Errorf("accountService.DestroyStack: aws.DestroyStack: %w", err)

@@ -100,9 +100,11 @@ func main() {
 		slog.Info("signkey", "size", len(buf))
 	}
 
+	eventer := must2(services.NewFileEventer(appCfg.EventsFile))
+	defer eventer.Close()
 	tokenSvc := services.NewToken(storageSvc, signKey)
-	roleSvc := services.NewRoleService(storageSvc, awsApi)
-	accSvc := services.NewAccountService(storageSvc, awsApi)
+	roleSvc := services.NewRoleService(storageSvc, awsApi, eventer)
+	accSvc := services.NewAccountService(storageSvc, awsApi, eventer)
 
 	idps := []services.AuthService{}
 	if appCfg.Auth.Github.Enabled() {
@@ -144,7 +146,7 @@ func main() {
 	}))
 
 	r.Mount("/api", api.V1Api(accSvc, idps, roleSvc, tokenSvc))
-	r.Mount("/", webui.Router(tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg))
+	r.Mount("/", webui.Router(tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg, eventer))
 
 	metricsRouter := chi.NewRouter()
 	metricsRouter.Handle("/metrics", metrics.Handler())
