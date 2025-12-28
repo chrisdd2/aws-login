@@ -17,7 +17,7 @@ import (
 
 type Event struct {
 	Id       string            `json:"id,omitempty"`
-	Time     time.Time         `json:"time,omitempty"`
+	Time     time.Time         `json:"time"`
 	Type     string            `json:"type,omitempty"`
 	Metadata map[string]string `json:"metadata,omitempty"`
 }

@@ -92,8 +92,8 @@ func getEnvironmentVariablesWithPrefix(prefix string) map[string]string {
 	res := map[string]string{}
 	for _, env := range os.Environ() {
 		key, value, _ := strings.Cut(env, "=")
-		if strings.HasPrefix(key, prefix) {
-			res[strings.TrimPrefix(key, prefix)] = value
+		if after, ok := strings.CutPrefix(key, prefix); ok {
+			res[after] = value
 		}
 	}
 	return res

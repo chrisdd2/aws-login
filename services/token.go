@@ -73,7 +73,7 @@ func (a *tokenServiceImpl) Create(ctx context.Context, usr *UserInfo, validate b
 }
 
 func (a *tokenServiceImpl) Validate(ctx context.Context, tokenStr string) (*UserInfo, error) {
-	token, err := jwt.ParseWithClaims(tokenStr, &UserClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &UserClaims{}, func(token *jwt.Token) (any, error) {
 		return a.key, nil
 	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 	if err != nil {
