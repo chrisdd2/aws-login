@@ -2,3 +2,5 @@ store.json
 node_modules
 terraform
 events.jsonl
+app.conf.yml
+.config

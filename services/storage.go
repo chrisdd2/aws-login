@@ -207,11 +207,13 @@ func (s *Store) ListAccounts(ctx context.Context) ([]*appconfig.Account, error) 
 
 func (s *Store) Reload(ctx context.Context) error {
 	ret := &Store{}
-	if s.cfg.ConfigUrl != "" {
-		if !strings.HasPrefix(s.cfg.ConfigUrl, "s3://") {
+	sgUrl := s.cfg.Storage.Url
+	sgDir := s.cfg.Storage.Directory
+	if sgUrl != "" {
+		if !strings.HasPrefix(sgUrl, "s3://") {
 			return errors.New("only s3 urls support for config files")
 		}
-		s3Url, err := url.Parse(s.cfg.ConfigUrl)
+		s3Url, err := url.Parse(sgUrl)
 		if err != nil {
 			return err
 		}
@@ -241,13 +243,13 @@ func (s *Store) Reload(ctx context.Context) error {
 				ret = ret.Merge(&o, false)
 			}
 		}
-	} else if s.cfg.ConfigDirectory != "" {
-		entries, err := os.ReadDir(s.cfg.ConfigDirectory)
+	} else if sgDir != "" {
+		entries, err := os.ReadDir(sgDir)
 		if err != nil {
 			return err
 		}
 		for _, entry := range entries {
-			name := filepath.Join(s.cfg.ConfigDirectory, entry.Name())
+			name := filepath.Join(sgDir)
 			if entry.IsDir() {
 				continue
 			}

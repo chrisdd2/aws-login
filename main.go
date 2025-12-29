@@ -62,6 +62,12 @@ func main() {
 	must(appCfg.LoadDefaults())
 	must(appCfg.LoadFromEnv())
 
+	f, err := os.Open(appCfg.ConfigFile)
+	if err == nil {
+		must(appCfg.LoadFromYaml(f))
+		f.Close()
+	}
+
 	logLvl := ternary(appCfg.DevelopmentMode, slog.LevelInfo, slog.LevelDebug)
 	logger := ternary(appCfg.DevelopmentMode,
 		slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLvl})),

@@ -46,8 +46,11 @@ type AppConfig struct {
 	DevelopmentMode bool   `json:"development_mode,omitempty" default:"false"`
 	EventsFile      string `json:"events_file,omitempty" default:"events.jsonl"`
 	RootUrl         string `json:"root_url,omitempty"`
-	ConfigDirectory string `json:"config_dir,omitempty" default:".config" `
-	ConfigUrl       string `json:"config_url,omitempty"`
+	ConfigFile      string `json:"config_file" default:"app.conf.yml"`
+	Storage         struct {
+		Directory string `json:"dir,omitempty" default:".config" `
+		Url       string `json:"url,omitempty"`
+	} `json:"storage"`
 
 	Auth struct {
 		AdminUsername    string          `json:"admin_username,omitempty"`
