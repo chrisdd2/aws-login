@@ -249,7 +249,7 @@ func (s *Store) Reload(ctx context.Context) error {
 			return err
 		}
 		for _, entry := range entries {
-			name := filepath.Join(sgDir)
+			name := filepath.Join(sgDir, entry.Name())
 			if entry.IsDir() {
 				continue
 			}
