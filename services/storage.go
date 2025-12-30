@@ -274,6 +274,8 @@ func (s *Store) Reload(ctx context.Context) error {
 	}
 	s.Reset()
 	s.Merge(ret, true)
+	// reset admin
+	s.adminUser = nil
 	return nil
 }
 
