@@ -23,6 +23,11 @@ func sendError(w http.ResponseWriter, r *http.Request, err error, statusCode int
 }
 func V1Api(accountsSvc services.AccountService, idps []services.AuthService, roleSvc services.RolesService, tokenSvc services.TokenService) chi.Router {
 	r := chi.NewRouter()
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		render.JSON(w, r, struct {
+			Message string
+		}{Message: "ok"})
+	})
 	r.Post("/auth", func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
 		authType := query.Get("type")
