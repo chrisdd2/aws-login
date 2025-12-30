@@ -91,7 +91,7 @@ func (r *rolesService) Console(ctx context.Context, accountName string, roleName
 	}
 
 	arn := roleArn(roleName, acc.AwsAccountId)
-	url, err := r.aws.GenerateSigninUrl(ctx, arn, roleName, "https://console.aws.amazon.com/")
+	url, err := r.aws.GenerateSigninUrl(ctx, arn, username, "https://console.aws.amazon.com/")
 	if err != nil {
 		return "", fmt.Errorf("aws.GenerateSigninUrl: %w", err)
 	}
