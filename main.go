@@ -25,6 +25,7 @@ import (
 	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/aws"
 	"github.com/chrisdd2/aws-login/services"
+	"github.com/chrisdd2/aws-login/services/storage"
 	"github.com/chrisdd2/aws-login/webui"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -89,7 +90,7 @@ func main() {
 	s3Config, arn := must3(awsContext(ctx, "S3_"))
 	slog.Info("aws", "principal", arn, "user", "s3")
 
-	storageSvc := services.NewStaticStore(&appCfg, s3Config)
+	storageSvc := storage.NewStaticStore(&appCfg, s3Config)
 	must(storageSvc.Reload(ctx))
 	slog.Info("found", "accounts", len(storageSvc.Accounts), "users", len(storageSvc.Users), "roles", len(storageSvc.Roles))
 	must(storageSvc.Validate())

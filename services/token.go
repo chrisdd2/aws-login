@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/chrisdd2/aws-login/services/storage"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -39,11 +40,11 @@ type UserClaims struct {
 	Tags map[string]string
 }
 type tokenServiceImpl struct {
-	storage Storage
+	storage storage.Storage
 	key     any
 }
 
-func NewToken(storage Storage, key any) TokenService {
+func NewToken(storage storage.Storage, key any) TokenService {
 	return &tokenServiceImpl{storage, key}
 }
 

@@ -1,4 +1,4 @@
-package services
+package storage
 
 import (
 	"context"
@@ -17,28 +17,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/chrisdd2/aws-login/appconfig"
-
 	"sigs.k8s.io/yaml"
 )
 
-var ErrUserNotFound = errors.New("UserNotFound")
-
-type Storage interface {
-	ListRolesForAccount(ctx context.Context, accountId string) ([]*appconfig.Role, error)
-
-	ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]*appconfig.RoleUserAttachment, error)
-	GetInlinePolicy(ctx context.Context, id string) (*appconfig.InlinePolicy, error)
-
-	GetRole(ctx context.Context, name string) (*appconfig.Role, error)
-	GetUser(ctx context.Context, name string) (*appconfig.User, error)
-	GetAccount(ctx context.Context, id string) (*appconfig.Account, error)
-	ListAccounts(ctx context.Context) ([]*appconfig.Account, error)
-
-	Reload(ctx context.Context) error
-	PrettyPrint(ctx context.Context) (string, error)
-}
-
-type Store struct {
+type FileStore struct {
 	Users     []appconfig.User         `json:"users,omitempty"`
 	Accounts  []appconfig.Account      `json:"accounts,omitempty"`
 	Roles     []appconfig.Role         `json:"roles,omitempty"`
@@ -48,14 +30,14 @@ type Store struct {
 	cfg       *appconfig.AppConfig
 }
 
-func (s *Store) Reset() {
+func (s *FileStore) Reset() {
 	s.Users = nil
 	s.Accounts = nil
 	s.Roles = nil
 	s.Policies = nil
 }
 
-func (s *Store) Merge(o *Store, inPlace bool) *Store {
+func (s *FileStore) Merge(o *FileStore, inPlace bool) *FileStore {
 	cfg := s.cfg
 	if cfg == nil {
 		cfg = o.cfg
@@ -64,13 +46,13 @@ func (s *Store) Merge(o *Store, inPlace bool) *Store {
 	if s3Cl == nil {
 		s3Cl = o.s3Cl
 	}
-	var ret *Store
+	var ret *FileStore
 	if inPlace {
 		ret = s
 		s.cfg = cfg
 		s.s3Cl = s3Cl
 	} else {
-		ret = &Store{cfg: cfg, s3Cl: s3Cl}
+		ret = &FileStore{cfg: cfg, s3Cl: s3Cl}
 	}
 	ret.Users = slices.Concat(s.Users, o.Users)
 	ret.Accounts = slices.Concat(s.Accounts, o.Accounts)
@@ -78,22 +60,22 @@ func (s *Store) Merge(o *Store, inPlace bool) *Store {
 	ret.Policies = slices.Concat(s.Policies, o.Policies)
 	return ret
 }
-func (s *Store) LoadYaml(r io.Reader) error {
+func (s *FileStore) LoadYaml(r io.Reader) error {
 	buf, err := io.ReadAll(r)
 	if err != nil {
 		return err
 	}
 	return yaml.Unmarshal(buf, s, yaml.DisallowUnknownFields)
 }
-func (s *Store) LoadJson(r io.Reader) error {
+func (s *FileStore) LoadJson(r io.Reader) error {
 	return json.NewDecoder(r).Decode(&s)
 }
 
-func NewStaticStore(cfg *appconfig.AppConfig, awsCfg aws.Config) *Store {
-	return &Store{cfg: cfg, s3Cl: s3.NewFromConfig(awsCfg)}
+func NewStaticStore(cfg *appconfig.AppConfig, awsCfg aws.Config) *FileStore {
+	return &FileStore{cfg: cfg, s3Cl: s3.NewFromConfig(awsCfg)}
 }
 
-func (s *Store) GetAccount(ctx context.Context, name string) (*appconfig.Account, error) {
+func (s *FileStore) GetAccount(ctx context.Context, name string) (*appconfig.Account, error) {
 	idx := slices.IndexFunc(s.Accounts, func(acc appconfig.Account) bool {
 		return name == acc.Name
 	})
@@ -103,7 +85,7 @@ func (s *Store) GetAccount(ctx context.Context, name string) (*appconfig.Account
 	return nil, errors.New("AccountNotFound")
 }
 
-func (s *Store) ListRolesForAccount(ctx context.Context, accountName string) ([]*appconfig.Role, error) {
+func (s *FileStore) ListRolesForAccount(ctx context.Context, accountName string) ([]*appconfig.Role, error) {
 	roles := []*appconfig.Role{}
 	acc, err := s.GetAccount(ctx, accountName)
 	if err != nil {
@@ -116,7 +98,7 @@ func (s *Store) ListRolesForAccount(ctx context.Context, accountName string) ([]
 	}
 	return roles, nil
 }
-func (s *Store) ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]*appconfig.RoleUserAttachment, error) {
+func (s *FileStore) ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]*appconfig.RoleUserAttachment, error) {
 	if userName == "" {
 		return nil, errors.New("username must be provided")
 	}
@@ -137,7 +119,7 @@ func (s *Store) ListRolePermissions(ctx context.Context, userName string, roleNa
 	}
 	return ats, nil
 }
-func (s *Store) GetInlinePolicy(ctx context.Context, id string) (*appconfig.InlinePolicy, error) {
+func (s *FileStore) GetInlinePolicy(ctx context.Context, id string) (*appconfig.InlinePolicy, error) {
 	idx := slices.IndexFunc(s.Policies, func(acc appconfig.InlinePolicy) bool {
 		return id == acc.Id
 	})
@@ -146,7 +128,7 @@ func (s *Store) GetInlinePolicy(ctx context.Context, id string) (*appconfig.Inli
 	}
 	return nil, errors.New("PolicyNotFound")
 }
-func (s *Store) GetUser(ctx context.Context, id string) (*appconfig.User, error) {
+func (s *FileStore) GetUser(ctx context.Context, id string) (*appconfig.User, error) {
 	if id == s.cfg.Auth.AdminUsername {
 		return s.createAdminUser(), nil
 	}
@@ -159,7 +141,7 @@ func (s *Store) GetUser(ctx context.Context, id string) (*appconfig.User, error)
 	return nil, ErrUserNotFound
 }
 
-func (s *Store) GetRole(ctx context.Context, name string) (*appconfig.Role, error) {
+func (s *FileStore) GetRole(ctx context.Context, name string) (*appconfig.Role, error) {
 	idx := slices.IndexFunc(s.Roles, func(acc appconfig.Role) bool {
 		return name == acc.Name
 	})
@@ -169,7 +151,7 @@ func (s *Store) GetRole(ctx context.Context, name string) (*appconfig.Role, erro
 	return nil, errors.New("RoleNotFound")
 }
 
-func (s *Store) createAdminUser() *appconfig.User {
+func (s *FileStore) createAdminUser() *appconfig.User {
 	if s.adminUser != nil {
 		return s.adminUser
 	}
@@ -197,7 +179,7 @@ func (s *Store) createAdminUser() *appconfig.User {
 
 }
 
-func (s *Store) ListAccounts(ctx context.Context) ([]*appconfig.Account, error) {
+func (s *FileStore) ListAccounts(ctx context.Context) ([]*appconfig.Account, error) {
 	ret := make([]*appconfig.Account, 0, len(s.Accounts))
 	for _, acc := range s.Accounts {
 		ret = append(ret, &acc)
@@ -205,8 +187,8 @@ func (s *Store) ListAccounts(ctx context.Context) ([]*appconfig.Account, error) 
 	return ret, nil
 }
 
-func (s *Store) Reload(ctx context.Context) error {
-	ret := &Store{}
+func (s *FileStore) Reload(ctx context.Context) error {
+	ret := &FileStore{}
 	sgUrl := s.cfg.Storage.Url
 	sgDir := s.cfg.Storage.Directory
 	if sgUrl != "" {
@@ -233,7 +215,7 @@ func (s *Store) Reload(ctx context.Context) error {
 				if err != nil {
 					return err
 				}
-				o := Store{}
+				o := FileStore{}
 				slog.Info("load_config", "type", "s3", "filename", fmt.Sprintf("s3://%s/%s", bucket, name))
 				if err := o.LoadYaml(resp.Body); err != nil {
 					resp.Body.Close()
@@ -256,7 +238,7 @@ func (s *Store) Reload(ctx context.Context) error {
 			if !strings.HasSuffix(name, ".yml") {
 				continue
 			}
-			o := Store{}
+			o := FileStore{}
 			f, err := os.Open(name)
 			if err != nil {
 				return err
@@ -293,7 +275,7 @@ func duplicates[T any](arr []T, selector func(a T) string) error {
 	return nil
 }
 
-func (s *Store) Validate() error {
+func (s *FileStore) Validate() error {
 	verifyAccount := func(ctx context.Context, acc appconfig.Account) error {
 		name := strings.TrimSpace(acc.Name)
 		if name == "" {
@@ -399,7 +381,7 @@ func (s *Store) Validate() error {
 	return errors.Join(errs...)
 }
 
-func (s *Store) PrettyPrint(ctx context.Context) (string, error) {
+func (s *FileStore) PrettyPrint(ctx context.Context) (string, error) {
 	b, err := yaml.Marshal(s)
 	if err != nil {
 		return "", err

@@ -14,6 +14,7 @@ import (
 
 	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/services"
+	"github.com/chrisdd2/aws-login/services/storage"
 	"github.com/chrisdd2/aws-login/webui/templates"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
@@ -39,7 +40,7 @@ func loginErrorString(queryParams url.Values) string {
 	}
 }
 
-func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, storageSvc services.Storage, cfg appconfig.AppConfig, ev services.Eventer) chi.Router {
+func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, storageSvc storage.Storage, cfg appconfig.AppConfig, ev services.Eventer) chi.Router {
 	hasAdminLogin := cfg.Auth.AdminPassword != "" && cfg.Auth.AdminUsername != ""
 
 	r := chi.NewRouter()
@@ -101,7 +102,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 				return
 			}
 			accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, FriendlyName: info.FriendlyName, LoginType: details.Name, IdpToken: info.IdpToken}, true)
-			if err == services.ErrUserNotFound {
+			if err == storage.ErrUserNotFound {
 				redirectWithParams(w, r, "/login", map[string]string{"error": "user_not_found", "username": info.Username}, http.StatusSeeOther)
 				return
 			}

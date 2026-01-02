@@ -9,6 +9,7 @@ import (
 
 	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/aws"
+	"github.com/chrisdd2/aws-login/services/storage"
 )
 
 var ErrAccountDisabled = errors.New("account is disabled")
@@ -44,12 +45,12 @@ type RolesService interface {
 }
 
 type rolesService struct {
-	storage Storage
+	storage storage.Storage
 	aws     aws.AwsApiCaller
 	ev      Eventer
 }
 
-func NewRoleService(store Storage, aws aws.AwsApiCaller, ev Eventer) RolesService {
+func NewRoleService(store storage.Storage, aws aws.AwsApiCaller, ev Eventer) RolesService {
 	return &rolesService{store, aws, ev}
 }
 

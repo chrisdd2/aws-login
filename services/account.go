@@ -14,6 +14,7 @@ import (
 
 	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/aws"
+	"github.com/chrisdd2/aws-login/services/storage"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
@@ -37,7 +38,7 @@ type AccountService interface {
 const stackHash = "al:stackHash"
 
 type accountService struct {
-	storage Storage
+	storage storage.Storage
 	aws     aws.AwsApiCaller
 	ev      Eventer
 }
@@ -199,7 +200,7 @@ func ValidateAWSAccountID(accountID int) bool {
 	return accountID > 100000000000 && accountID <= 999999999999
 }
 
-func NewAccountService(store Storage, aws aws.AwsApiCaller, ev Eventer) AccountService {
+func NewAccountService(store storage.Storage, aws aws.AwsApiCaller, ev Eventer) AccountService {
 	return &accountService{
 		storage: store,
 		aws:     aws,
@@ -262,7 +263,7 @@ func (a *accountService) StackUpdates(ctx context.Context, accountName string, s
 	return events, nil
 }
 
-func generateStackTemplate(ctx context.Context, store Storage, account string) (string, error) {
+func generateStackTemplate(ctx context.Context, store storage.Storage, account string) (string, error) {
 	// gather up all the roles that need to be deployed as part of the stack
 	type CfnRole struct {
 		LogicalName        string
