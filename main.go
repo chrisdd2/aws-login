@@ -193,12 +193,6 @@ func main() {
 	}()
 
 	slog.Info("http", "address", appCfg.ListenAddr, "url", fmt.Sprintf("http:/%s", appCfg.ListenAddr))
-	if appCfg.Tls.ListenAddr != "" {
-		go func() {
-			slog.Info("https", "address", appCfg.Tls.ListenAddr, "url", fmt.Sprintf("https:/%s", appCfg.Tls.ListenAddr))
-			must(http.ListenAndServeTLS(appCfg.Tls.ListenAddr, appCfg.Tls.CertFile, appCfg.Tls.KeyFile, r))
-		}()
-	}
 	must(http.ListenAndServe(appCfg.ListenAddr, r))
 }
 

@@ -43,16 +43,11 @@ type AppConfig struct {
 	Name                      string `json:"name,omitempty" mask:"true"`
 	MetrisAddr                string `json:"metrics_addr,omitempty" default:"localhost:8099"`
 	ListenAddr                string `json:"listen_addr,omitempty" default:"localhost:8090"`
-	Tls                       struct {
-		ListenAddr string `json:"listen_addr"`
-		CertFile   string `json:"cert_file" default:"server.crt"`
-		KeyFile    string `json:"key_file" default:"server.key"`
-	}
-	DevelopmentMode bool   `json:"development_mode,omitempty" default:"false"`
-	EventsFile      string `json:"events_file,omitempty" default:"events.jsonl"`
-	RootUrl         string `json:"root_url,omitempty"`
-	ConfigFile      string `json:"config_file" default:"app.conf.yml"`
-	Storage         struct {
+	DevelopmentMode           bool   `json:"development_mode,omitempty" default:"false"`
+	EventsFile                string `json:"events_file,omitempty" default:"events.jsonl"`
+	RootUrl                   string `json:"root_url,omitempty"`
+	ConfigFile                string `json:"config_file" default:"app.conf.yml"`
+	Storage                   struct {
 		Type      string `json:"type" default:"file"`
 		Directory string `json:"dir,omitempty" default:".config" `
 		Postgres  struct {
