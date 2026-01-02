@@ -50,7 +50,14 @@ type AppConfig struct {
 	Storage         struct {
 		Directory string `json:"dir,omitempty" default:".config" `
 		Url       string `json:"url,omitempty"`
-	} `json:"storage"`
+		Postgres  struct {
+			Host     string `json:"host,omitempty"`
+			Port     int    `json:"port,omitempty"`
+			Database string `json:"database,omitempty"`
+			Username string `json:"username,omitempty"`
+			Password string `json:"password,omitempty"`
+		} `json:"postgres,omitempty"`
+	} `json:"storage,omitempty"`
 
 	Auth struct {
 		AdminUsername    string          `json:"admin_username,omitempty"`
