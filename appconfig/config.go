@@ -33,6 +33,11 @@ func (o GithubIdpConfig) Enabled() bool {
 	return o.ClientId != "" && o.ClientSecret != ""
 }
 
+const (
+	StorageTypeFile     = "file"
+	StorageTypePostgres = "postgres"
+)
+
 type AppConfig struct {
 	environmentVariablePrefix string
 	Name                      string `json:"name,omitempty" mask:"true"`
@@ -48,8 +53,8 @@ type AppConfig struct {
 	RootUrl         string `json:"root_url,omitempty"`
 	ConfigFile      string `json:"config_file" default:"app.conf.yml"`
 	Storage         struct {
+		Type      string `json:"type" default:"file"`
 		Directory string `json:"dir,omitempty" default:".config" `
-		Url       string `json:"url,omitempty"`
 		Postgres  struct {
 			Host     string `json:"host,omitempty"`
 			Port     int    `json:"port,omitempty"`

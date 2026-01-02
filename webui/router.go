@@ -209,23 +209,29 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		})
 		r.Get("/reloadconfig", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
-			if err := storageSvc.Reload(ctx); err != nil {
-				sendError(w, r, err)
+			reloadble, ok := storageSvc.(storage.Reloadable)
+			if ok {
+				if err := reloadble.Reload(ctx); err != nil {
+					sendError(w, r, err)
+				}
+				slog.Info("reloaded config", "source", "admin_page")
 			}
-			slog.Info("reloaded config", "source", "admin_page")
 			http.Redirect(w, r, "/admin/config", http.StatusTemporaryRedirect)
 		})
 		r.Get("/config", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			user := getUser(r)
-			prettyText, err := storageSvc.PrettyPrint(ctx)
-			if err != nil {
-				sendError(w, r, err)
-				return
-			}
 			data := templates.ConfigurationData{
-				Navbar:   templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
-				Document: prettyText,
+				Navbar: templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
+			}
+			printable, ok := storageSvc.(storage.Printable)
+			if ok {
+				prettyText, err := printable.Display(ctx)
+				if err != nil {
+					sendError(w, r, err)
+					return
+				}
+				data.Document = prettyText
 			}
 			if err := templates.ConfigurationTemplate(w, data); err != nil {
 				sendError(w, r, err)

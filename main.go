@@ -90,13 +90,20 @@ func main() {
 	s3Config, arn := must3(awsContext(ctx, "S3_"))
 	slog.Info("aws", "principal", arn, "user", "s3")
 
-	storageSvc := storage.NewStaticStore(&appCfg, s3Config)
-	must(storageSvc.Reload(ctx))
-	slog.Info("found", "accounts", len(storageSvc.Accounts), "users", len(storageSvc.Users), "roles", len(storageSvc.Roles))
-	must(storageSvc.Validate())
+	// storage
+	var storageSvc storage.Storage
+	switch appCfg.Storage.Type {
+	case appconfig.StorageTypeFile:
+		s := storage.NewStaticStore(&appCfg, s3Config)
+		must(s.Reload(ctx))
+		must(s.Validate(ctx))
+		slog.Info("found", "accounts", len(s.Accounts), "users", len(s.Users), "roles", len(s.Roles))
+		storageSvc = s
+	case appconfig.StorageTypePostgres:
+		storageSvc = must2(storage.NewPostgresStore(ctx, &appCfg))
+	}
 
-	awsApi := must2(aws.NewAwsApi(ctx, sts.NewFromConfig(assumerConfig)))
-
+	// sign key
 	var signKey []byte = []byte(appCfg.Auth.SignKey)
 	// make sure we got a sign key
 	if len(signKey) == 0 {
@@ -111,6 +118,7 @@ func main() {
 		slog.Info("signkey", "size", len(buf))
 	}
 
+	// event store
 	var eventer services.Eventer
 	if strings.HasPrefix(appCfg.EventsFile, "s3://") {
 		s3Url := must2(url.Parse(appCfg.EventsFile))
@@ -126,7 +134,10 @@ func main() {
 		eventer = fileEventer
 		slog.Info("enabled", "eventer", "file")
 	}
+
+	// simple services
 	tokenSvc := services.NewToken(storageSvc, signKey)
+	awsApi := must2(aws.NewAwsApi(ctx, sts.NewFromConfig(assumerConfig)))
 	roleSvc := services.NewRoleService(storageSvc, awsApi, eventer)
 	accSvc := services.NewAccountService(storageSvc, awsApi, eventer)
 

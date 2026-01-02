@@ -189,13 +189,10 @@ func (s *FileStore) ListAccounts(ctx context.Context) ([]*appconfig.Account, err
 
 func (s *FileStore) Reload(ctx context.Context) error {
 	ret := &FileStore{}
-	sgUrl := s.cfg.Storage.Url
 	sgDir := s.cfg.Storage.Directory
-	if sgUrl != "" {
-		if !strings.HasPrefix(sgUrl, "s3://") {
-			return errors.New("only s3 urls support for config files")
-		}
-		s3Url, err := url.Parse(sgUrl)
+	if strings.HasPrefix(sgDir, "s3://") {
+		// its s3
+		s3Url, err := url.Parse(sgDir)
 		if err != nil {
 			return err
 		}
@@ -225,7 +222,7 @@ func (s *FileStore) Reload(ctx context.Context) error {
 				ret = ret.Merge(&o, false)
 			}
 		}
-	} else if sgDir != "" {
+	} else {
 		entries, err := os.ReadDir(sgDir)
 		if err != nil {
 			return err
@@ -251,7 +248,7 @@ func (s *FileStore) Reload(ctx context.Context) error {
 			ret = ret.Merge(&o, false)
 		}
 	}
-	if err := ret.Validate(); err != nil {
+	if err := ret.Validate(ctx); err != nil {
 		return err
 	}
 	s.Reset()
@@ -275,7 +272,7 @@ func duplicates[T any](arr []T, selector func(a T) string) error {
 	return nil
 }
 
-func (s *FileStore) Validate() error {
+func (s *FileStore) Validate(ctx context.Context) error {
 	verifyAccount := func(ctx context.Context, acc appconfig.Account) error {
 		name := strings.TrimSpace(acc.Name)
 		if name == "" {
@@ -346,7 +343,6 @@ func (s *FileStore) Validate() error {
 	if err != nil {
 		return err
 	}
-	ctx := context.Background()
 	// verify that roles and accounts to match
 	errs := []error{}
 	for _, acc := range s.Accounts {

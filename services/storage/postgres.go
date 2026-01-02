@@ -28,6 +28,12 @@ type PostgresStore struct {
 
 func NewPostgresStore(ctx context.Context, cfg *appconfig.AppConfig) (*PostgresStore, error) {
 	pgCfg := cfg.Storage.Postgres
+	if pgCfg.Port == 0 {
+		pgCfg.Port = 5432
+	}
+	if pgCfg.Host == "" {
+		pgCfg.Host = "localhost"
+	}
 	dsn := fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s",
 		pgCfg.Username, pgCfg.Password, pgCfg.Host, pgCfg.Port, pgCfg.Database,
