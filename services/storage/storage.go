@@ -27,7 +27,7 @@ type Writable interface {
 type Storage interface {
 	ListRolesForAccount(ctx context.Context, accountId string) ([]*appconfig.Role, error)
 
-	ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]*appconfig.RoleUserAttachment, error)
+	ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error)
 	GetInlinePolicy(ctx context.Context, id string) (*appconfig.InlinePolicy, error)
 
 	GetRole(ctx context.Context, name string) (*appconfig.Role, error)

@@ -38,7 +38,7 @@ func (c AwsCredentials) Format(t string) string {
 }
 
 type RolesService interface {
-	UserPermissions(ctx context.Context, username string, roleName string, accountName string) ([]*appconfig.RoleUserAttachment, error)
+	UserPermissions(ctx context.Context, username string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error)
 	RolesForAccount(ctx context.Context, accountName string) ([]string, error)
 	Console(ctx context.Context, accountName string, roleName, username string) (string, error)
 	Credentials(ctx context.Context, accountName string, roleName, username string) (AwsCredentials, error)
@@ -61,7 +61,7 @@ func (r *rolesService) RolesForAccount(ctx context.Context, accountName string) 
 	}
 	return acc.Roles, nil
 }
-func (r *rolesService) UserPermissions(ctx context.Context, username string, roleName string, accountName string) ([]*appconfig.RoleUserAttachment, error) {
+func (r *rolesService) UserPermissions(ctx context.Context, username string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error) {
 	return r.storage.ListRolePermissions(ctx, username, roleName, accountName)
 }
 func (r *rolesService) Console(ctx context.Context, accountName string, roleName, username string) (string, error) {

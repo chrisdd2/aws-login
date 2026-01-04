@@ -10,6 +10,8 @@ const (
 	RolePermissionConsole     = "console"
 )
 
+var RolePermissionAll []string = []string{RolePermissionConsole, RolePermissionCredentials}
+
 type InlinePolicy struct {
 	Id       string `json:"id,omitempty"`
 	Document string `json:"document,omitempty"`

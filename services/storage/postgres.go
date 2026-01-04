@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -15,15 +16,16 @@ import (
 
 const (
 	schemaVersionTable = "aws_login_schema_table"
-	rolesTable         = "roles"
-	usersTable         = "users"
-	userRolesTable     = "user_roles"
-	accountsTable      = "accounts"
-	policiesTable      = "policies"
+	rolesTable         = "aws_login_roles"
+	usersTable         = "aws_login_users"
+	userRolesTable     = "aws_login_user_roles"
+	accountsTable      = "aws_login_accounts"
+	policiesTable      = "aws_login_policies"
 )
 
 type PostgresStore struct {
-	db *sql.DB
+	db  *sql.DB
+	cfg *appconfig.AppConfig
 }
 
 func NewPostgresStore(ctx context.Context, cfg *appconfig.AppConfig) (*PostgresStore, error) {
@@ -39,7 +41,7 @@ func NewPostgresStore(ctx context.Context, cfg *appconfig.AppConfig) (*PostgresS
 		pgCfg.Username, pgCfg.Password, pgCfg.Host, pgCfg.Port, pgCfg.Database,
 	)
 
-	db, err := sql.Open("postgres", dsn)
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +51,7 @@ func NewPostgresStore(ctx context.Context, cfg *appconfig.AppConfig) (*PostgresS
 		return nil, err
 	}
 
-	store := &PostgresStore{db: db}
+	store := &PostgresStore{db: db, cfg: cfg}
 	if err := store.prepareDb(ctx); err != nil {
 		db.Close()
 		return nil, err
@@ -82,7 +84,9 @@ func (p *PostgresStore) v1Schema(ctx context.Context) error {
 	queries := []string{
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 			aws_account_id TEXT PRIMARY KEY,
-			name TEXT UNIQUE NOT NULL
+			name TEXT UNIQUE NOT NULL,
+			roles TEXT
+			enabled bool NOT NULL DEFAULT TRUE
 		)`, accountsTable),
 
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
@@ -129,7 +133,7 @@ func (p *PostgresStore) v1Schema(ctx context.Context) error {
 }
 
 func (p *PostgresStore) ListRolesForAccount(ctx context.Context, accountName string) ([]*appconfig.Role, error) {
-	rows, err := p.db.QueryContext(ctx,
+	rows, err := p.query(ctx,
 		fmt.Sprintf(`
 			SELECT name, policies, managed_policies, max_session_duration
 			FROM %s
@@ -145,21 +149,20 @@ func (p *PostgresStore) ListRolesForAccount(ctx context.Context, accountName str
 
 	for rows.Next() {
 		var (
-			name              string
-			policies          sql.NullString
-			managedPolicies   sql.NullString
-			maxSessionSeconds int
+			name            string
+			policies        sql.NullString
+			managedPolicies sql.NullString
+			maxSessionInt   sql.NullInt64
 		)
 
-		if err := rows.Scan(&name, &policies, &managedPolicies, &maxSessionSeconds); err != nil {
+		if err := rows.Scan(&name, &policies, &managedPolicies, &maxSessionInt); err != nil {
 			return nil, err
 		}
-
 		ret = append(ret, &appconfig.Role{
 			Name:               name,
 			Policies:           parseMap(policies.String),
 			ManagedPolicies:    parseArray(managedPolicies.String),
-			MaxSessionDuration: time.Duration(maxSessionSeconds) * time.Second,
+			MaxSessionDuration: time.Duration(maxSessionInt.Int64),
 			Enabled:            true,
 		})
 	}
@@ -182,29 +185,77 @@ func parseMap(v string) map[string]string {
 	return ret
 }
 
+func (p *PostgresStore) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	log.Println(query)
+	return p.db.QueryContext(ctx, query, args...)
+}
+
+func (p *PostgresStore) adminRoles(ctx context.Context, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error) {
+	q := fmt.Sprintf("SELECT name, roles FROM %s WHERE 2 > 1", accountsTable)
+	if accountName != "" {
+		q += fmt.Sprintf(" AND name = '%s'", accountName)
+	}
+	rows, err := p.query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	ret := []appconfig.RoleUserAttachment{}
+	for rows.Next() {
+		var name, roles sql.NullString
+		if err := rows.Scan(&name, &roles); err != nil {
+			return nil, err
+		}
+		for role := range strings.SplitSeq(roles.String, ",") {
+			role = strings.TrimSpace(role)
+			if role == "" || (roleName != "" && roleName != role) {
+				continue
+			}
+			ret = append(ret, appconfig.RoleUserAttachment{RoleName: role, AccountName: name.String, Permissions: appconfig.RolePermissionAll})
+		}
+	}
+	log.Println(ret)
+	return ret, nil
+}
+
 func (p *PostgresStore) ListRolePermissions(
 	ctx context.Context,
 	userName string,
 	roleName string,
 	accountName string,
-) ([]*appconfig.RoleUserAttachment, error) {
+) ([]appconfig.RoleUserAttachment, error) {
+	usr, err := p.GetUser(ctx, userName)
+	if err != nil {
+		return nil, err
+	}
+	if userName == p.cfg.Auth.AdminUsername || usr.Superuser {
+		return p.adminRoles(ctx, roleName, accountName)
+	}
+	query := []string{
+		fmt.Sprintf("SELECT a.role_name,a.account_name, a.permissions FROM %s a WHERE 2 > 1", userRolesTable),
+	}
+	args := []any{}
+	idx := 1
+	query = append(query, fmt.Sprintf("AND user_name = $%d", idx))
+	args = append(args, userName)
+	idx++
+	if accountName != "" {
+		query = append(query, fmt.Sprintf("AND account_name = $%d", idx))
+		args = append(args, accountName)
+		idx++
+	}
+	if roleName != "" {
+		query = append(query, fmt.Sprintf("AND role_name = $%d", idx))
+		args = append(args, roleName)
+		idx++
+	}
 
-	rows, err := p.db.QueryContext(ctx,
-		fmt.Sprintf(`
-			SELECT permissions
-			FROM %s
-			WHERE user_name = $1
-			  AND role_name = $2
-			  AND account_name = $3
-		`, userRolesTable),
-		userName, roleName, accountName,
-	)
+	rows, err := p.query(ctx, strings.Join(query, " "), args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var ret []*appconfig.RoleUserAttachment
+	var ret []appconfig.RoleUserAttachment
 
 	for rows.Next() {
 		var perms string
@@ -212,7 +263,7 @@ func (p *PostgresStore) ListRolePermissions(
 			return nil, err
 		}
 
-		ret = append(ret, &appconfig.RoleUserAttachment{
+		ret = append(ret, appconfig.RoleUserAttachment{
 			RoleName:    roleName,
 			AccountName: accountName,
 			Permissions: parseArray(perms),
@@ -245,7 +296,7 @@ func (p *PostgresStore) GetInlinePolicy(ctx context.Context, id string) (*appcon
 func (p *PostgresStore) GetRole(ctx context.Context, name string) (*appconfig.Role, error) {
 	row := p.db.QueryRowContext(ctx,
 		fmt.Sprintf(`
-			SELECT name, managed_policies, roles, max_session_duration
+			SELECT name, managed_policies, policies, max_session_duration
 			FROM %s
 			WHERE name = $1
 		`, rolesTable),
@@ -265,58 +316,86 @@ func (p *PostgresStore) GetRole(ctx context.Context, name string) (*appconfig.Ro
 		}
 		return nil, err
 	}
-
 	return &appconfig.Role{
 		Name:               rName,
 		ManagedPolicies:    parseArray(managedPoliciesStr.String),
 		Policies:           parseMap(policiesStr.String),
-		MaxSessionDuration: time.Duration(maxSessionInt) * time.Second,
+		MaxSessionDuration: time.Duration(maxSessionInt),
 		Enabled:            true,
 	}, nil
 }
 
 func (p *PostgresStore) GetUser(ctx context.Context, name string) (*appconfig.User, error) {
-	row := p.db.QueryRowContext(ctx,
+	var rows *sql.Rows
+	var err error
+	if name == p.cfg.Auth.AdminUsername {
+		roles, err := p.adminRoles(ctx, "", "")
+		if err != nil {
+			return nil, err
+		}
+		return &appconfig.User{
+			FriendlyName: name,
+			Name:         name,
+			Superuser:    true,
+			Roles:        roles,
+		}, nil
+	}
+	rows, err = p.query(ctx,
 		fmt.Sprintf(`
-			SELECT name, superuser, friendly_name
-			FROM %s
-			WHERE name = $1
-		`, usersTable),
+			SELECT a.name, a.superuser, a.friendly_name, b.account_name, b.role_name, b.permissions
+			FROM %s a
+			LEFT JOIN %s b
+			ON a.name == b.user_name or a.superuser
+			WHERE a.name = $1
+		`, usersTable, userRolesTable),
 		name,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	var (
 		uName        string
 		superuser    bool
 		friendlyName sql.NullString
 	)
-
-	if err := row.Scan(&uName, &superuser, &friendlyName); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
+	roles := []appconfig.RoleUserAttachment{}
+	for rows.Next() {
+		var (
+			roleName    sql.NullString
+			accountName sql.NullString
+			permissions sql.NullString
+		)
+		if err := rows.Scan(&uName, &superuser, &friendlyName, &roleName, &accountName, &permissions); err != nil {
+			return nil, err
 		}
-		return nil, err
+		roles = append(roles, appconfig.RoleUserAttachment{RoleName: roleName.String, AccountName: accountName.String, Permissions: parseArray(permissions.String)})
+	}
+	if uName == "" {
+		return nil, ErrUserNotFound
 	}
 
 	return &appconfig.User{
 		Name:         uName,
 		Superuser:    superuser,
 		FriendlyName: friendlyName.String,
+		Roles:        roles,
 	}, nil
 }
 
 func (p *PostgresStore) GetAccount(ctx context.Context, accountName string) (*appconfig.Account, error) {
 	row := p.db.QueryRowContext(ctx,
 		fmt.Sprintf(`
-			SELECT aws_account_id, name
+			SELECT aws_account_id, name, roles, enabled
 			FROM %s
 			WHERE name = $1
 		`, accountsTable),
 		accountName,
 	)
 
-	var acctID, name string
-	if err := row.Scan(&acctID, &name); err != nil {
+	var acctID, name, roles string
+	var enabled bool
+	if err := row.Scan(&acctID, &name, &roles, &enabled); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -326,11 +405,13 @@ func (p *PostgresStore) GetAccount(ctx context.Context, accountName string) (*ap
 	return &appconfig.Account{
 		AwsAccountId: acctID,
 		Name:         name,
+		Roles:        parseArray(roles),
+		Enabled:      enabled,
 	}, nil
 }
 
 func (p *PostgresStore) ListAccounts(ctx context.Context) ([]*appconfig.Account, error) {
-	rows, err := p.db.QueryContext(ctx,
+	rows, err := p.query(ctx,
 		fmt.Sprintf(`SELECT aws_account_id, name FROM %s`, accountsTable),
 	)
 	if err != nil {

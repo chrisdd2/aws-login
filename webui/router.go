@@ -119,7 +119,7 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 	mainHandler := func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := getUser(r)
-		var roles []*appconfig.RoleUserAttachment
+		var roles []appconfig.RoleUserAttachment
 		var err error
 		roles, err = rolesSvc.UserPermissions(ctx, user.Username, "", "")
 		if err != nil {
@@ -222,7 +222,8 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			ctx := r.Context()
 			user := getUser(r)
 			data := templates.ConfigurationData{
-				Navbar: templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
+				Navbar:   templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
+				Document: "Not supported",
 			}
 			printable, ok := storageSvc.(storage.Printable)
 			if ok {

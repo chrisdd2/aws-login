@@ -98,7 +98,7 @@ func (s *FileStore) ListRolesForAccount(ctx context.Context, accountName string)
 	}
 	return roles, nil
 }
-func (s *FileStore) ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]*appconfig.RoleUserAttachment, error) {
+func (s *FileStore) ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error) {
 	if userName == "" {
 		return nil, errors.New("username must be provided")
 	}
@@ -111,10 +111,10 @@ func (s *FileStore) ListRolePermissions(ctx context.Context, userName string, ro
 	if user.Superuser {
 		attachments = s.createAdminUser().Roles
 	}
-	ats := []*appconfig.RoleUserAttachment{}
+	ats := []appconfig.RoleUserAttachment{}
 	for _, at := range attachments {
 		if (accountName == "" || at.AccountName == accountName) && (roleName == "" || at.RoleName == roleName) {
-			ats = append(ats, &at)
+			ats = append(ats, at)
 		}
 	}
 	return ats, nil
