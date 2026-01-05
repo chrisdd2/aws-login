@@ -47,10 +47,10 @@ type RolesService interface {
 type rolesService struct {
 	storage storage.Storage
 	aws     aws.AwsApiCaller
-	ev      Eventer
+	ev      storage.Eventer
 }
 
-func NewRoleService(store storage.Storage, aws aws.AwsApiCaller, ev Eventer) RolesService {
+func NewRoleService(store storage.Storage, aws aws.AwsApiCaller, ev storage.Eventer) RolesService {
 	return &rolesService{store, aws, ev}
 }
 

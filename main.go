@@ -10,8 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
-	"time"
 
 	"log/slog"
 	"net/http"
@@ -19,7 +17,6 @@ import (
 
 	awsSdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/api"
 	"github.com/chrisdd2/aws-login/appconfig"
@@ -94,7 +91,7 @@ func main() {
 	var storageSvc storage.Storage
 	switch appCfg.Storage.Type {
 	case appconfig.StorageTypeFile:
-		s := storage.NewStaticStore(&appCfg, s3Config)
+		s := must2(storage.NewStaticStore(ctx, &appCfg, s3Config))
 		must(s.Reload(ctx))
 		must(s.Validate(ctx))
 		slog.Info("found", "accounts", len(s.Accounts), "users", len(s.Users), "roles", len(s.Roles))
@@ -119,20 +116,9 @@ func main() {
 	}
 
 	// event store
-	var eventer services.Eventer
-	if strings.HasPrefix(appCfg.EventsFile, "s3://") {
-		s3Url := must2(url.Parse(appCfg.EventsFile))
-		bucket, key := s3Url.Hostname(), strings.TrimPrefix(s3Url.Path, "/")
-		s3Eventer := must2(services.NewS3Eventer(s3.NewFromConfig(s3Config), bucket, key))
-		go s3Eventer.CommitLoop(ctx, time.Minute, 100, time.Minute*10)
-		eventer = s3Eventer
-		slog.Info("enabled", "eventer", "s3")
-	} else {
-		fileEventer := must2(services.NewFileEventer(appCfg.EventsFile))
-
-		defer fileEventer.Close()
-		eventer = fileEventer
-		slog.Info("enabled", "eventer", "file")
+	eventer, ok := storageSvc.(storage.Eventer)
+	if !ok {
+		eventer = storage.ConsoleEventer{}
 	}
 
 	// simple services

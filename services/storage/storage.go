@@ -3,6 +3,8 @@ package storage
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"time"
 
 	"github.com/chrisdd2/aws-login/appconfig"
 )
@@ -34,4 +36,33 @@ type Storage interface {
 	GetUser(ctx context.Context, name string) (*appconfig.User, error)
 	GetAccount(ctx context.Context, id string) (*appconfig.Account, error)
 	ListAccounts(ctx context.Context) ([]*appconfig.Account, error)
+}
+type Event struct {
+	Id       string            `json:"id,omitempty"`
+	Time     time.Time         `json:"time"`
+	Type     string            `json:"type,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+type Eventer interface {
+	Publish(ctx context.Context, eventType string, metadata map[string]string) error
+}
+
+type ConsoleEventer struct{}
+
+func (c ConsoleEventer) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
+	slog.Info("event", "type", eventType, "metadata", metadata)
+	return nil
+}
+
+type NoopReloadable struct{}
+
+func (n NoopReloadable) Reload(ctx context.Context) error {
+	return nil
+}
+
+type NoopPrintable struct{}
+
+func (n NoopPrintable) Display(ctx context.Context) (string, error) {
+	return "", nil
 }

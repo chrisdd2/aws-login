@@ -40,7 +40,16 @@ func loginErrorString(queryParams url.Values) string {
 	}
 }
 
-func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, storageSvc storage.Storage, cfg appconfig.AppConfig, ev services.Eventer) chi.Router {
+func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, storageSvc storage.Storage, cfg appconfig.AppConfig, ev storage.Eventer) chi.Router {
+	reloadable, ok := storageSvc.(storage.Reloadable)
+	if !ok {
+		reloadable = storage.NoopReloadable{}
+	}
+	printable, ok := storageSvc.(storage.Printable)
+	if !ok {
+		printable = storage.NoopPrintable{}
+	}
+
 	hasAdminLogin := cfg.Auth.AdminPassword != "" && cfg.Auth.AdminUsername != ""
 
 	r := chi.NewRouter()
@@ -209,30 +218,23 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		})
 		r.Get("/reloadconfig", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
-			reloadble, ok := storageSvc.(storage.Reloadable)
-			if ok {
-				if err := reloadble.Reload(ctx); err != nil {
-					sendError(w, r, err)
-				}
-				slog.Info("reloaded config", "source", "admin_page")
+			if err := reloadable.Reload(ctx); err != nil {
+				sendError(w, r, err)
 			}
+			slog.Info("reloaded config", "source", "admin_page")
 			http.Redirect(w, r, "/admin/config", http.StatusTemporaryRedirect)
 		})
 		r.Get("/config", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			user := getUser(r)
+			prettyText, err := printable.Display(ctx)
+			if err != nil {
+				sendError(w, r, err)
+				return
+			}
 			data := templates.ConfigurationData{
 				Navbar:   templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
-				Document: "Not supported",
-			}
-			printable, ok := storageSvc.(storage.Printable)
-			if ok {
-				prettyText, err := printable.Display(ctx)
-				if err != nil {
-					sendError(w, r, err)
-					return
-				}
-				data.Document = prettyText
+				Document: prettyText,
 			}
 			if err := templates.ConfigurationTemplate(w, data); err != nil {
 				sendError(w, r, err)

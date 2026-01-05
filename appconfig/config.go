@@ -44,7 +44,6 @@ type AppConfig struct {
 	MetrisAddr                string `json:"metrics_addr,omitempty" default:"localhost:8099"`
 	ListenAddr                string `json:"listen_addr,omitempty" default:"localhost:8090"`
 	DevelopmentMode           bool   `json:"development_mode,omitempty" default:"false"`
-	EventsFile                string `json:"events_file,omitempty" default:"events.jsonl"`
 	RootUrl                   string `json:"root_url,omitempty"`
 	ConfigFile                string `json:"config_file" default:"app.conf.yml"`
 	Storage                   struct {
@@ -56,8 +55,8 @@ type AppConfig struct {
 			Database string `json:"database,omitempty"`
 			Username string `json:"username,omitempty"`
 			Password string `json:"password,omitempty"`
-		} `json:"postgres,omitempty"`
-	} `json:"storage,omitempty"`
+		} `json:"postgres"`
+	} `json:"storage"`
 
 	Auth struct {
 		AdminUsername    string          `json:"admin_username,omitempty"`

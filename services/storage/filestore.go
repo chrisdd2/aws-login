@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,10 +15,13 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/chrisdd2/aws-login/appconfig"
+	"github.com/google/uuid"
 	"sigs.k8s.io/yaml"
 )
 
@@ -28,6 +33,7 @@ type FileStore struct {
 	adminUser *appconfig.User
 	s3Cl      *s3.Client
 	cfg       *appconfig.AppConfig
+	ev        Eventer
 }
 
 func (s *FileStore) Reset() {
@@ -71,8 +77,31 @@ func (s *FileStore) LoadJson(r io.Reader) error {
 	return json.NewDecoder(r).Decode(&s)
 }
 
-func NewStaticStore(cfg *appconfig.AppConfig, awsCfg aws.Config) *FileStore {
-	return &FileStore{cfg: cfg, s3Cl: s3.NewFromConfig(awsCfg)}
+func NewStaticStore(ctx context.Context, cfg *appconfig.AppConfig, awsCfg aws.Config) (*FileStore, error) {
+	s := &FileStore{cfg: cfg, s3Cl: s3.NewFromConfig(awsCfg)}
+	if strings.HasPrefix(cfg.Storage.Directory, "s3://") {
+		s3Url, err := url.Parse(cfg.Storage.Directory)
+		if err != nil {
+			return nil, err
+		}
+		bucket, key := s3Url.Hostname(), strings.TrimPrefix(s3Url.Path, "/")
+		s3Eventer, err := NewS3Eventer(s3.NewFromConfig(awsCfg), bucket, key)
+		if err != nil {
+			return nil, err
+		}
+		go s3Eventer.CommitLoop(ctx, time.Minute, 100, time.Minute*10)
+		s.ev = s3Eventer
+		slog.Info("enabled", "eventer", "s3")
+	} else {
+		filename := filepath.Join(cfg.Storage.Directory, "events.json")
+		f, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+		if err != nil {
+			return nil, err
+		}
+		s.ev = &fileEventer{f: f, w: bufio.NewWriter(f)}
+		slog.Info("enabled", "eventer", "file")
+	}
+	return s, nil
 }
 
 func (s *FileStore) GetAccount(ctx context.Context, name string) (*appconfig.Account, error) {
@@ -377,10 +406,108 @@ func (s *FileStore) Validate(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func (s *FileStore) PrettyPrint(ctx context.Context) (string, error) {
+func (s *FileStore) Display(ctx context.Context) (string, error) {
 	b, err := yaml.Marshal(s)
 	if err != nil {
 		return "", err
 	}
 	return string(b), nil
+}
+
+func (s *FileStore) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
+	return s.ev.Publish(ctx, eventType, metadata)
+}
+
+type fileEventer struct {
+	f *os.File
+	w *bufio.Writer
+}
+
+func (f *fileEventer) Close() {
+	f.w.Flush()
+	f.f.Close()
+}
+func (f *fileEventer) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
+	b, err := json.Marshal(Event{
+		Id:       uuid.NewString(),
+		Time:     time.Now().UTC(),
+		Type:     eventType,
+		Metadata: metadata,
+	})
+	if err != nil {
+		return err
+	}
+	f.w.Write(b)
+	f.w.WriteByte('\n')
+	return f.w.Flush()
+}
+
+type s3Eventer struct {
+	s3             *s3.Client
+	bucket         string
+	key            string
+	lastCommitTime time.Time
+	buffered       []Event
+	bufferedLock   sync.Mutex
+}
+
+func NewS3Eventer(s3Cl *s3.Client, bucket string, key string) (*s3Eventer, error) {
+	return &s3Eventer{
+		s3:           s3Cl,
+		bucket:       bucket,
+		key:          key,
+		bufferedLock: sync.Mutex{},
+	}, nil
+}
+
+func (s *s3Eventer) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
+	s.bufferedLock.Lock()
+	s.buffered = append(s.buffered, Event{
+		Id:       uuid.NewString(),
+		Time:     time.Now().UTC(),
+		Type:     eventType,
+		Metadata: metadata,
+	})
+	s.bufferedLock.Unlock()
+	return nil
+}
+
+func (s *s3Eventer) CommitLoop(ctx context.Context, commitInternal time.Duration, commitNumEventThreshold int, commitTimeWindow time.Duration) {
+	done := ctx.Done()
+	ticker := time.Tick(commitInternal)
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker:
+			if err := s.commit(ctx, commitNumEventThreshold, commitTimeWindow); err != nil {
+				slog.Info("s3eventer", "commit_error", err)
+			}
+		}
+	}
+}
+func (s *s3Eventer) commit(ctx context.Context, commitThreshold int, commitWindow time.Duration) error {
+	if len(s.buffered) == 0 {
+		return nil
+	}
+	if len(s.buffered) < commitThreshold && s.lastCommitTime.Sub(time.Now().UTC()) < commitWindow {
+		return nil
+	}
+	buf := bytes.Buffer{}
+	commitTime := time.Now().UTC()
+	enc := json.NewEncoder(&buf)
+	s.bufferedLock.Lock()
+	events := s.buffered
+	for _, ev := range events {
+		enc.Encode(ev)
+		buf.WriteByte('\n')
+	}
+	s.buffered = nil
+	s.lastCommitTime = commitTime
+	s.bufferedLock.Unlock()
+	s3Key := fmt.Sprintf("%s-%d", s.key, commitTime.UnixMilli())
+	if _, err := s.s3.PutObject(ctx, &s3.PutObjectInput{Body: &buf, Key: &s3Key, Bucket: &s.bucket}); err != nil {
+		return err
+	}
+	return nil
 }

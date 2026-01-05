@@ -40,7 +40,7 @@ const stackHash = "al:stackHash"
 type accountService struct {
 	storage storage.Storage
 	aws     aws.AwsApiCaller
-	ev      Eventer
+	ev      storage.Eventer
 }
 
 var baseStackTemplate = template.Must(template.New("base-stack").Funcs(template.FuncMap{
@@ -200,7 +200,7 @@ func ValidateAWSAccountID(accountID int) bool {
 	return accountID > 100000000000 && accountID <= 999999999999
 }
 
-func NewAccountService(store storage.Storage, aws aws.AwsApiCaller, ev Eventer) AccountService {
+func NewAccountService(store storage.Storage, aws aws.AwsApiCaller, ev storage.Eventer) AccountService {
 	return &accountService{
 		storage: store,
 		aws:     aws,
