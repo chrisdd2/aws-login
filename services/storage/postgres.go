@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"database/sql"
 
 	"github.com/chrisdd2/aws-login/appconfig"
+	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -21,6 +23,7 @@ const (
 	userRolesTable     = "aws_login_user_roles"
 	accountsTable      = "aws_login_accounts"
 	policiesTable      = "aws_login_policies"
+	eventsTable        = "aws_login_events"
 )
 
 type PostgresStore struct {
@@ -62,7 +65,7 @@ func NewPostgresStore(ctx context.Context, cfg *appconfig.AppConfig) (*PostgresS
 func (p *PostgresStore) prepareDb(ctx context.Context) error {
 	var version string
 	err := p.db.QueryRowContext(ctx,
-		fmt.Sprintf(`SELECT version FROM %s LIMIT 1`, schemaVersionTable),
+		fmt.Sprintf(`SELECT max(version) as version FROM %s LIMIT 1`, schemaVersionTable),
 	).Scan(&version)
 
 	if err != nil {
@@ -74,9 +77,28 @@ func (p *PostgresStore) prepareDb(ctx context.Context) error {
 		}
 		return err
 	}
+	switch version {
+	case "1":
+		log.Println("updating to v2 schema")
+		return p.v2Schema(ctx)
+	case "2":
+		return nil
+	}
+	return errors.New("invalid schema version")
+}
 
-	if version != "1" {
-		return errors.New("invalid schema version")
+func (p *PostgresStore) v2Schema(ctx context.Context) error {
+	q := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+			id TEXT PRIMARY KEY,
+			time TEXT NOT NULL,
+			event_type TEXT NOT NULL,
+			metadata TEXT DEFAULT '{}'
+	)`, eventsTable)
+	if _, err := p.db.ExecContext(ctx, q); err != nil {
+		return err
+	}
+	if _, err := p.db.ExecContext(ctx, fmt.Sprintf(`INSERT INTO %s(version) SELECT 2`, schemaVersionTable)); err != nil {
+		return err
 	}
 	return nil
 }
@@ -188,6 +210,9 @@ func parseMap(v string) map[string]string {
 func (p *PostgresStore) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	log.Println(query)
 	return p.db.QueryContext(ctx, query, args...)
+}
+func (p *PostgresStore) queryFmt(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return p.db.QueryContext(ctx, fmt.Sprintf(query, args...))
 }
 
 func (p *PostgresStore) adminRoles(ctx context.Context, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error) {
@@ -441,6 +466,100 @@ func (p *PostgresStore) Reload(ctx context.Context) error {
 	return nil
 }
 
-func (p *PostgresStore) PrettyPrint(ctx context.Context) (string, error) {
-	return "PostgresStore: no pretty printer implemented", nil
+func (p *PostgresStore) Display(ctx context.Context) (string, error) {
+	// try to convert the database into a filestore
+	userRoles := map[string][]appconfig.RoleUserAttachment{}
+	rows, err := p.queryFmt(ctx, "SELECT user_name,role_name,account_name,permissions FROM %s", userRolesTable)
+	if err != nil {
+		return "", err
+	}
+	for rows.Next() {
+		var userName, roleName, accountName, permissions string
+		err := rows.Scan(&userName, &roleName, &accountName, &permissions)
+		if err != nil {
+			return "", err
+		}
+		userRoles[userName] = append(userRoles[userName], appconfig.RoleUserAttachment{RoleName: roleName, AccountName: accountName, Permissions: parseArray(permissions)})
+	}
+	users := []appconfig.User{}
+	rows, err = p.queryFmt(ctx, "SELECT name,superuser,friendly_name FROM %s", usersTable)
+	if err != nil {
+		return "", err
+	}
+	for rows.Next() {
+		var name, friendlyName string
+		var superuser bool
+		err := rows.Scan(&name, &superuser, &friendlyName)
+		if err != nil {
+			return "", err
+		}
+		users = append(users, appconfig.User{FriendlyName: friendlyName, Name: name, Roles: userRoles[name]})
+	}
+	policies := []appconfig.InlinePolicy{}
+	rows, err = p.queryFmt(ctx, "SELECT id,document FROM %s", policiesTable)
+	if err != nil {
+		return "", err
+	}
+	for rows.Next() {
+		var id, document string
+		err := rows.Scan(&id, &document)
+		if err != nil {
+			return "", err
+		}
+		policies = append(policies, appconfig.InlinePolicy{Id: id, Document: document})
+	}
+	accounts := []appconfig.Account{}
+	rows, err = p.queryFmt(ctx, "SELECT aws_account_id,name,roles,enabled FROM %s", accountsTable)
+	if err != nil {
+		return "", err
+	}
+	for rows.Next() {
+		var awsAccountId, name, roles string
+		var enabled bool
+		err := rows.Scan(&awsAccountId, &name, &roles, &enabled)
+		if err != nil {
+			return "", err
+		}
+		accounts = append(accounts, appconfig.Account{Name: name, AwsAccountId: awsAccountId, Enabled: enabled, Roles: parseArray(roles)})
+	}
+
+	roles := []appconfig.Role{}
+	rows, err = p.queryFmt(ctx, "SELECT name,max_session_duration,managed_policies,policies,enabled FROM %s", rolesTable)
+	if err != nil {
+		return "", err
+	}
+	for rows.Next() {
+		var (
+			name                      string
+			managedPolicies, policies sql.NullString
+			maxSessionDuration        int64
+			enabled                   bool
+		)
+		err := rows.Scan(&name, &maxSessionDuration, &managedPolicies, &policies, &enabled)
+		if err != nil {
+			return "", err
+		}
+		roles = append(roles, appconfig.Role{
+			Name:               name,
+			Policies:           parseMap(policies.String),
+			ManagedPolicies:    parseArray(managedPolicies.String),
+			MaxSessionDuration: time.Duration(maxSessionDuration),
+			Enabled:            enabled,
+		})
+	}
+	s := &FileStore{Users: users, Accounts: accounts, Policies: policies, Roles: roles}
+
+	return s.Display(ctx)
+}
+
+func (p *PostgresStore) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
+	b, _ := json.Marshal(metadata)
+	if b == nil {
+		b = []byte{'{', '}'}
+	}
+	if _, err := p.db.ExecContext(ctx,
+		fmt.Sprintf("INSERT INTO %s(id,time,event_type,metadata) VALUES($1,$2,$3,$4)", eventsTable), uuid.NewString(), time.Now().UTC().String(), eventType, string(b)); err != nil {
+		return err
+	}
+	return nil
 }
