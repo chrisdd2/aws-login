@@ -70,7 +70,10 @@ func (p *PostgresStore) prepareDb(ctx context.Context) error {
 
 	if err != nil {
 		if strings.Contains(err.Error(), "does not exist") {
-			return p.v1Schema(ctx)
+			if err := p.v1Schema(ctx); err != nil {
+				return err
+			}
+			return p.v2Schema(ctx)
 		}
 		if err == sql.ErrNoRows {
 			return p.v1Schema(ctx)
