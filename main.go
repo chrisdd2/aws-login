@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -55,8 +56,11 @@ func ternary[T any](c bool, a T, b T) T {
 }
 
 func main() {
-	cache := must2(NewFileCache("aws-login"))
 	appCfg := appconfig.AppConfig{}
+
+	flag.StringVar(&appCfg.ConfigFile, "config-file", "app.conf.yml", "config file path")
+	flag.Parse()
+
 	appCfg.SetEnvironmentVariablePrefix("app")
 	must(appCfg.LoadDefaults())
 	must(appCfg.LoadFromEnv())
@@ -76,6 +80,10 @@ func main() {
 
 	if appCfg.DevelopmentMode {
 		appCfg.DebugPrint()
+	}
+	cache, err := NewFileCache("aws-login")
+	if err != nil {
+		slog.Debug("cache", "cannot_create_dir", "aws-login", "err", err.Error())
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -207,6 +215,7 @@ type cache struct {
 }
 
 func NewFileCache(subDir string) (*cache, error) {
+	cache := &cache{}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -215,10 +224,14 @@ func NewFileCache(subDir string) (*cache, error) {
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return nil, err
 	}
-	return &cache{cacheDir}, nil
+	cache.cacheDir = cacheDir
+	return cache, nil
 }
 
 func (c *cache) Write(filename string, buf []byte) error {
+	if c.cacheDir == "" {
+		return nil
+	}
 	filename = filepath.Join(c.cacheDir, filename)
 	f, err := os.Create(filename)
 	if err != nil {
@@ -229,6 +242,9 @@ func (c *cache) Write(filename string, buf []byte) error {
 	return nil
 }
 func (c *cache) Read(filename string) ([]byte, error) {
+	if c.cacheDir == "" {
+		return []byte{}, nil
+	}
 	filename = filepath.Join(c.cacheDir, filename)
 	f, err := os.Open(filename)
 	if err != nil {
