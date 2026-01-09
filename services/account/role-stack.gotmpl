@@ -1,0 +1,94 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  IAM setup with:
+    - Permissions boundary to prevent unrestricted IAM user creation
+    - Roles for the account assumeable only by specified principal
+
+Parameters:
+  ManagementRoleArn:
+    Type: String
+    Description: Management role arn
+  PermissionBoundaryName:
+    Type: String
+    Description: name for the permission boundary on iam roles
+
+Resources:
+
+  IAMPermissionsBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Ref PermissionBoundaryName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyAllIAMUserActions
+            Effect: Deny
+            Action:
+              - iam:CreateUser
+              - iam:DeleteUser
+            Resource: "*"
+
+          - Sid: DenyCreateRoleWithoutBoundary
+            Effect: Deny
+            Action:
+              - iam:CreateRole
+            Resource: "*"
+            Condition:
+              StringNotEqualsIfExists:
+                iam:PermissionsBoundary: !Sub "arn:aws:iam::${AWS::AccountId}:policy/${PermissionBoundaryName}"
+
+          - Sid: DenyUpdateRoleToRemoveBoundary
+            Effect: Deny
+            Action:
+              - iam:UpdateRole
+            Resource: "*"
+            Condition:
+              StringNotEqualsIfExists:
+                iam:PermissionsBoundary: !Sub "arn:aws:iam::${AWS::AccountId}:policy/${PermissionBoundaryName}"
+          - Sid: DenyBoundaryActions
+            Effect: Deny
+            Action:
+              - iam:*Boundary
+            Resource: "*"
+          - Sid: AllowEverythingElse
+            Effect: Allow
+            Action:
+              - "*"
+            Resource: "*"
+{{ range .Roles}}
+  {{roleLogicalName .RoleName }}:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: {{ .RoleName }}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref ManagementRoleArn
+            Action: sts:AssumeRole
+      {{ if .ManagedPolicies }}
+      ManagedPolicyArns:
+        {{range .ManagedPolicies}}
+        - {{.}}
+        {{end}}
+      {{ end }}
+      {{ if .Policies }}
+      Policies:
+      {{ range $key, $value := .Policies }}
+        - PolicyName: {{ $key }}
+          PolicyDocument: {{ $value }}
+      {{ end }}
+      {{ end }}
+      PermissionsBoundary: !Ref IAMPermissionsBoundary
+      MaxSessionDuration: {{ maxSessionDuration .MaxSessionDuration }} 
+{{ end }}
+
+
+Outputs:
+  {{ range .Roles}}
+  {{ $name := roleLogicalName .RoleName }}
+  {{ $name }}Arn:
+    Description: Arn of {{.RoleName}}
+    Value: !GetAtt {{$name}}.Arn
+  {{end}}

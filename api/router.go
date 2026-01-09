@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/chrisdd2/aws-login/services"
+	"github.com/chrisdd2/aws-login/services/account"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
 )
@@ -21,7 +22,7 @@ func sendError(w http.ResponseWriter, r *http.Request, err error, statusCode int
 	render.Status(r, statusCode)
 	render.JSON(w, r, ApiError{Message: fmt.Sprintf("json.Decode: %s", err)})
 }
-func V1Api(accountsSvc services.AccountService, idps []services.AuthService, roleSvc services.RolesService, tokenSvc services.TokenService) chi.Router {
+func V1Api(accountsSvc account.AccountService, idps []services.AuthService, roleSvc services.RolesService, tokenSvc services.TokenService) chi.Router {
 	r := chi.NewRouter()
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		render.JSON(w, r, struct {

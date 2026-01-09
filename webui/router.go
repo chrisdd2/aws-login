@@ -14,6 +14,7 @@ import (
 
 	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/services"
+	"github.com/chrisdd2/aws-login/services/account"
 	"github.com/chrisdd2/aws-login/services/storage"
 	"github.com/chrisdd2/aws-login/webui/templates"
 	"github.com/go-chi/chi/v5"
@@ -40,7 +41,14 @@ func loginErrorString(queryParams url.Values) string {
 	}
 }
 
-func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, storageSvc storage.Storage, cfg appconfig.AppConfig, ev storage.Eventer) chi.Router {
+func Router(
+	tokenSvc services.TokenService,
+	authSvcs []services.AuthService,
+	rolesSvc services.RolesService,
+	accountSrvc account.AccountService,
+	storageSvc storage.Storage,
+	cfg appconfig.AppConfig,
+	ev storage.Eventer) chi.Router {
 	reloadable, ok := storageSvc.(storage.Reloadable)
 	if !ok {
 		reloadable = storage.NoopStorage{}
@@ -304,12 +312,11 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 		r.Get("/bootstrap_template", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			account := r.URL.Query().Get("account")
-			templateType := r.URL.Query().Get("template_type")
 			if account == "" {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			templateString, err := accountSrvc.BootstrapTemplate(ctx, account, templateType == "tf")
+			templateString, err := accountSrvc.BootstrapTemplate(ctx, account)
 			if err != nil {
 				sendError(w, r, err)
 				return
@@ -459,7 +466,7 @@ func sendError(w http.ResponseWriter, r *http.Request, err error) {
 	}{err.Error()})
 }
 
-func deploymentStatusMessage(d services.DeploymentStatus) string {
+func deploymentStatusMessage(d account.DeploymentStatus) string {
 	if d.NeedsBootstrap {
 		return "Needs bootstrap (manual)"
 	}
@@ -482,22 +489,22 @@ func redirectWithParams(w http.ResponseWriter, r *http.Request, redirectUrl stri
 }
 
 type StatusCache struct {
-	accountsSvc services.AccountService
+	accountsSvc account.AccountService
 	in          sync.Map
 }
 
-func (s *StatusCache) Status(ctx context.Context, accountName string) (services.DeploymentStatus, error) {
+func (s *StatusCache) Status(ctx context.Context, accountName string) (account.DeploymentStatus, error) {
 	statusV, ok := s.in.Load(accountName)
 	if ok {
-		return statusV.(services.DeploymentStatus), nil
+		return statusV.(account.DeploymentStatus), nil
 	}
 	return s.Refresh(ctx, accountName)
 }
 
-func (s *StatusCache) Refresh(ctx context.Context, accountName string) (services.DeploymentStatus, error) {
+func (s *StatusCache) Refresh(ctx context.Context, accountName string) (account.DeploymentStatus, error) {
 	status, err := s.accountsSvc.DeploymentStatus(ctx, accountName)
 	if err != nil {
-		return services.DeploymentStatus{}, err
+		return account.DeploymentStatus{}, err
 	}
 	s.in.Store(accountName, status)
 	return status, err

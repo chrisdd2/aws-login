@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  aws-login Bootstrap
+  Creates an IAM role with scoped CloudFormation and IAM permissions.
+  The role will be used to setup the account.
+
+Parameters:
+  AwsLoginPrincipal:
+    Type: String
+    Description: ARN of the IAM user or role that can assume this admin role
+    Default: {{.Principal}}
+
+  TargetStackName:
+    Type: String
+    Description: Name of the CloudFormation stack this role will manage
+    Default: {{.TargetStackName}}
+
+Resources:
+  OpsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: {{.OpsRoleName}}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref AwsLoginPrincipal
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StackAndIAMManagement
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AllowSpecificStackOperations
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                Resource: !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${TargetStackName}/*
+
+              - Sid: AllowFullIAMViaCloudFormation
+                Effect: Allow
+                Action: "iam:*"
+                Resource: "*"
+                Condition:
+                  ForAnyValue:StringEquals:
+                    aws:CalledVia: cloudformation.amazonaws.com
+
+              - Sid: AllowPassRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: "*"
+
+      MaxSessionDuration: 43200
+
+Outputs:
+  OpsRoleArn:
+    Description: ARN of the management role
+    Value: !GetAtt OpsRole.Arn

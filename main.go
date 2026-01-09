@@ -22,6 +22,7 @@ import (
 	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/aws"
 	"github.com/chrisdd2/aws-login/services"
+	"github.com/chrisdd2/aws-login/services/account"
 	"github.com/chrisdd2/aws-login/services/storage"
 	"github.com/chrisdd2/aws-login/webui"
 	"github.com/go-chi/chi/v5"
@@ -125,7 +126,7 @@ func main() {
 	tokenSvc := services.NewToken(storageSvc, signKey)
 	awsApi := must2(aws.NewAwsApi(ctx, sts.NewFromConfig(assumerConfig)))
 	roleSvc := services.NewRoleService(storageSvc, awsApi, eventer)
-	accSvc := services.NewAccountService(storageSvc, awsApi, eventer)
+	accSvc := account.NewAccountService(storageSvc, awsApi, eventer)
 
 	idps := []services.AuthService{}
 	if appCfg.Auth.Github.Enabled() {
