@@ -20,13 +20,6 @@ type Printable interface {
 	Display(ctx context.Context) (map[string]string, error)
 }
 
-type Writable interface {
-	PutRole(ctx context.Context, r *appconfig.Role, delete bool) error
-	PutAccount(ctx context.Context, r *appconfig.Account, delete bool) error
-	PutUserRoleAttachment(ctx context.Context, username string, a appconfig.RoleUserAttachment, delete bool) error
-	PutPolicy(ctx context.Context, policyName string, policyDocument string) error
-}
-
 type Importable interface {
 	Import(ctx context.Context, reader io.Reader) error
 }
