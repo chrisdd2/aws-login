@@ -406,12 +406,21 @@ func (s *FileStore) Validate(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func (s *FileStore) Display(ctx context.Context) (string, error) {
-	b, err := yaml.Marshal(s)
-	if err != nil {
-		return "", err
+func (s *FileStore) Display(ctx context.Context) (map[string]string, error) {
+	marshal := func(v any) string {
+		var buf bytes.Buffer
+		encoder := json.NewEncoder(&buf)
+		encoder.SetIndent("", "  ")
+		_ = encoder.Encode(v)
+		return buf.String()
 	}
-	return string(b), nil
+	data := map[string]string{
+		"Accounts": marshal(s.Accounts),
+		"Roles":    marshal(s.Roles),
+		"Users":    marshal(s.Users),
+		"Policies": marshal(s.Policies),
+	}
+	return data, nil
 }
 
 func (s *FileStore) Publish(ctx context.Context, eventType string, metadata map[string]string) error {

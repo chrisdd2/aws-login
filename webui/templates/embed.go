@@ -77,7 +77,7 @@ func WatchTemplate(w io.Writer, data WatchData) error {
 
 type ConfigurationData struct {
 	Navbar
-	Document string
+	Document map[string]string
 }
 
 func ConfigurationTemplate(w io.Writer, data ConfigurationData) error {

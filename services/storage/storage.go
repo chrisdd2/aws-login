@@ -17,7 +17,7 @@ type Reloadable interface {
 }
 
 type Printable interface {
-	Display(ctx context.Context) (string, error)
+	Display(ctx context.Context) (map[string]string, error)
 }
 
 type Writable interface {
@@ -66,8 +66,8 @@ func (n NoopStorage) Reload(ctx context.Context) error {
 	return nil
 }
 
-func (n NoopStorage) Display(ctx context.Context) (string, error) {
-	return "", nil
+func (n NoopStorage) Display(ctx context.Context) (map[string]string, error) {
+	return map[string]string{}, nil
 }
 
 func (n NoopStorage) Import(ctx context.Context, r io.Reader) error {

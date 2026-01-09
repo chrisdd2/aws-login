@@ -59,33 +59,47 @@
     <!-- Main Content -->
     <div class="p-8 flex flex-col items-justify">
         <div class="flex gap-2 z-10">
-            <a href="/admin/reloadconfig" class="text-xs px-2 py-1 rounded
-             bg-indigo-600 hover:bg-indigo-700
-             text-white shadow">
-                Reload
-            </a>
+            <div class="pr-2">
+                <a href="/admin/reloadconfig" class="text-xs px-2 py-1 rounded
+                 bg-indigo-600 hover:bg-indigo-700
+                 text-white shadow">
+                    Reload
+                </a>
+            </div>
 
-            <button onclick="navigator.clipboard.writeText(document.getElementById('yaml').textContent)" class="text-xs px-2 py-1 rounded
-             bg-gray-700 hover:bg-gray-600
-             text-white shadow">
-                Copy
-            </button>
+            <div class="w-px bg-gray-400 dark:bg-gray-600"></div>
 
-            <form action="/admin/importconfig" method="post" enctype="multipart/form-data" class="contents">
-                <input type="file" name="file" id="importFile" accept=".yml,.yaml" class="hidden">
-                <button type="button" onclick="document.getElementById('importFile').click()" 
-                class="text-xs px-2 py-1 rounded
-                bg-gray-700 hover:bg-gray-600
-                text-white shadow">
-                    Import
-                </button>
-            </form>
+            <div class="pl-2">
+                <form action="/admin/importconfig" method="post" enctype="multipart/form-data" class="contents">
+                    <input type="file" name="file" id="importFile" accept=".yml,.yaml" class="hidden">
+                    <button type="button" onclick="document.getElementById('importFile').click()" 
+                    class="text-xs px-2 py-1 rounded
+                    bg-gray-700 hover:bg-gray-600
+                    text-white shadow">
+                        Import
+                    </button>
+                </form>
+            </div>
         </div>
-        <pre id="yaml"
-            class="overflow-x-auto rounded-lg border
-                border-gray-200 dark:border-gray-700
-                bg-gray-900 p-4 text-sm font-mono
-                leading-relaxed text-gray-100 shadow-inner"><code id="yaml" class="language-yaml">{{.Document}}</code></pre>
+        <div class="flex flex-col gap-2 py-2">
+            <div class="flex gap-2 flex-wrap" id="tabs">
+                {{range $key, $value := .Document}}
+                <button onclick="selectTab('{{$key}}')" id="tab-{{$key}}"
+                    class="text-xs px-3 py-1 rounded
+                    bg-gray-700 hover:bg-gray-600
+                    text-white shadow tab-button">
+                    {{$key}}
+                </button>
+                {{end}}
+            </div>
+            {{range $key, $value := .Document}}
+            <pre id="yaml-{{$key}}"
+                class="overflow-x-auto rounded-lg border
+                    border-gray-200 dark:border-gray-700
+                    bg-gray-900 p-4 text-sm font-mono
+                    leading-relaxed text-gray-100 shadow-inner yaml-content hidden"><code class="language-yaml">{{$value}}</code></pre>
+            {{end}}
+        </div>
     </div>
 
 
@@ -109,6 +123,22 @@
         document.getElementById('importFile').addEventListener('change', function(e) {
             if (this.files.length > 0) {
                 this.form.submit();
+            }
+        });
+
+        function selectTab(key) {
+            document.querySelectorAll('.yaml-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('bg-indigo-600'));
+            document.querySelectorAll('.tab-button').forEach(el => el.classList.add('bg-gray-700'));
+            document.getElementById('yaml-' + key).classList.remove('hidden');
+            document.getElementById('tab-' + key).classList.remove('bg-gray-700');
+            document.getElementById('tab-' + key).classList.add('bg-indigo-600');
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const firstTab = document.querySelector('.tab-button');
+            if (firstTab) {
+                selectTab(firstTab.id.replace('tab-', ''));
             }
         });
     </script>

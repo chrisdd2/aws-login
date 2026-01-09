@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"strings"
 	"time"
 
@@ -40,9 +41,11 @@ func NewPostgresStore(ctx context.Context, cfg *appconfig.AppConfig) (*PostgresS
 	if pgCfg.Host == "" {
 		pgCfg.Host = "localhost"
 	}
+	username := url.QueryEscape(pgCfg.Username)
+	password := url.QueryEscape(pgCfg.Password)
 	dsn := fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s",
-		pgCfg.Username, pgCfg.Password, pgCfg.Host, pgCfg.Port, pgCfg.Database,
+		username, password, pgCfg.Host, pgCfg.Port, pgCfg.Database,
 	)
 
 	db, err := sql.Open("pgx", dsn)
@@ -111,7 +114,7 @@ func (p *PostgresStore) v1Schema(ctx context.Context) error {
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 			aws_account_id TEXT PRIMARY KEY,
 			name TEXT UNIQUE NOT NULL,
-			roles TEXT
+			roles TEXT,
 			enabled bool NOT NULL DEFAULT TRUE
 		)`, accountsTable),
 
@@ -197,6 +200,10 @@ func (p *PostgresStore) ListRolesForAccount(ctx context.Context, accountName str
 }
 
 func parseArray(v string) []string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil
+	}
 	return strings.Split(v, ",")
 }
 
@@ -321,7 +328,7 @@ func (p *PostgresStore) GetInlinePolicy(ctx context.Context, id string) (*appcon
 	var pid, doc string
 	if err := row.Scan(&pid, &doc); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil
+			return nil, err
 		}
 		return nil, err
 	}
@@ -351,7 +358,7 @@ func (p *PostgresStore) GetRole(ctx context.Context, name string) (*appconfig.Ro
 
 	if err := row.Scan(&rName, &managedPoliciesStr, &policiesStr, &maxSessionInt); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil
+			return nil, err
 		}
 		return nil, err
 	}
@@ -384,7 +391,7 @@ func (p *PostgresStore) GetUser(ctx context.Context, name string) (*appconfig.Us
 			SELECT a.name, a.superuser, a.friendly_name, b.account_name, b.role_name, b.permissions
 			FROM %s a
 			LEFT JOIN %s b
-			ON a.name == b.user_name or a.superuser
+			ON a.name = b.user_name or a.superuser
 			WHERE a.name = $1
 		`, usersTable, userRolesTable),
 		name,
@@ -436,7 +443,7 @@ func (p *PostgresStore) GetAccount(ctx context.Context, accountName string) (*ap
 	var enabled bool
 	if err := row.Scan(&acctID, &name, &roles, &enabled); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil
+			return nil, err
 		}
 		return nil, err
 	}
@@ -480,59 +487,59 @@ func (p *PostgresStore) Reload(ctx context.Context) error {
 	return nil
 }
 
-func (p *PostgresStore) Display(ctx context.Context) (string, error) {
+func (p *PostgresStore) Display(ctx context.Context) (map[string]string, error) {
 	// try to convert the database into a filestore
 	userRoles := map[string][]appconfig.RoleUserAttachment{}
 	rows, err := p.queryFmt(ctx, "SELECT user_name,role_name,account_name,permissions FROM %s", userRolesTable)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	for rows.Next() {
 		var userName, roleName, accountName, permissions string
 		err := rows.Scan(&userName, &roleName, &accountName, &permissions)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		userRoles[userName] = append(userRoles[userName], appconfig.RoleUserAttachment{RoleName: roleName, AccountName: accountName, Permissions: parseArray(permissions)})
 	}
 	users := []appconfig.User{}
 	rows, err = p.queryFmt(ctx, "SELECT name,superuser,friendly_name FROM %s", usersTable)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	for rows.Next() {
 		var name, friendlyName string
 		var superuser bool
 		err := rows.Scan(&name, &superuser, &friendlyName)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		users = append(users, appconfig.User{FriendlyName: friendlyName, Name: name, Roles: userRoles[name]})
 	}
 	policies := []appconfig.InlinePolicy{}
 	rows, err = p.queryFmt(ctx, "SELECT id,document FROM %s", policiesTable)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	for rows.Next() {
 		var id, document string
 		err := rows.Scan(&id, &document)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		policies = append(policies, appconfig.InlinePolicy{Id: id, Document: document})
 	}
 	accounts := []appconfig.Account{}
 	rows, err = p.queryFmt(ctx, "SELECT aws_account_id,name,roles,enabled FROM %s", accountsTable)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	for rows.Next() {
 		var awsAccountId, name, roles string
 		var enabled bool
 		err := rows.Scan(&awsAccountId, &name, &roles, &enabled)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		accounts = append(accounts, appconfig.Account{Name: name, AwsAccountId: awsAccountId, Enabled: enabled, Roles: parseArray(roles)})
 	}
@@ -540,7 +547,7 @@ func (p *PostgresStore) Display(ctx context.Context) (string, error) {
 	roles := []appconfig.Role{}
 	rows, err = p.queryFmt(ctx, "SELECT name,max_session_duration,managed_policies,policies,enabled FROM %s", rolesTable)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	for rows.Next() {
 		var (
@@ -551,7 +558,7 @@ func (p *PostgresStore) Display(ctx context.Context) (string, error) {
 		)
 		err := rows.Scan(&name, &maxSessionDuration, &managedPolicies, &policies, &enabled)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		roles = append(roles, appconfig.Role{
 			Name:               name,
