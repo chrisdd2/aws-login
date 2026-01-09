@@ -514,7 +514,7 @@ func (p *PostgresStore) Display(ctx context.Context) (map[string]string, error) 
 		if err != nil {
 			return nil, err
 		}
-		users = append(users, appconfig.User{FriendlyName: friendlyName, Name: name, Roles: userRoles[name]})
+		users = append(users, appconfig.User{FriendlyName: friendlyName, Name: name, Roles: userRoles[name], Superuser: superuser})
 	}
 	policies := []appconfig.InlinePolicy{}
 	rows, err = p.queryFmt(ctx, "SELECT id,document FROM %s", policiesTable)
