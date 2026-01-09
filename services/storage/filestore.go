@@ -408,11 +408,11 @@ func (s *FileStore) Validate(ctx context.Context) error {
 
 func (s *FileStore) Display(ctx context.Context) (map[string]string, error) {
 	marshal := func(v any) string {
-		var buf bytes.Buffer
-		encoder := json.NewEncoder(&buf)
-		encoder.SetIndent("", "  ")
-		_ = encoder.Encode(v)
-		return buf.String()
+		data, err := yaml.Marshal(v)
+		if err != nil {
+			return ""
+		}
+		return string(data)
 	}
 	data := map[string]string{
 		"Accounts": marshal(s.Accounts),
