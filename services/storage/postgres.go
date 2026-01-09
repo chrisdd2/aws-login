@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"strings"
 	"time"
@@ -185,7 +186,7 @@ func (p *PostgresStore) ListRolesForAccount(ctx context.Context, accountName str
 		}
 		ret = append(ret, &appconfig.Role{
 			Name:               name,
-			Policies:           parseMap(policies.String),
+			Policies:           TextMap{}.Scan(policies.String),
 			ManagedPolicies:    parseArray(managedPolicies.String),
 			MaxSessionDuration: time.Duration(maxSessionInt.Int64),
 			Enabled:            true,
@@ -198,7 +199,10 @@ func (p *PostgresStore) ListRolesForAccount(ctx context.Context, accountName str
 func parseArray(v string) []string {
 	return strings.Split(v, ",")
 }
-func parseMap(v string) map[string]string {
+
+type TextMap map[string]string
+
+func (tm TextMap) Scan(v string) map[string]string {
 	ret := map[string]string{}
 	for i := range strings.SplitSeq(v, ",") {
 		k, v, ok := strings.Cut(i, ":")
@@ -206,6 +210,13 @@ func parseMap(v string) map[string]string {
 			continue
 		}
 		ret[k] = v
+	}
+	return ret
+}
+func (tm TextMap) Serialize() string {
+	ret := ""
+	for k, v := range tm {
+		ret += fmt.Sprintf("%s:%s,", k, v)
 	}
 	return ret
 }
@@ -347,7 +358,7 @@ func (p *PostgresStore) GetRole(ctx context.Context, name string) (*appconfig.Ro
 	return &appconfig.Role{
 		Name:               rName,
 		ManagedPolicies:    parseArray(managedPoliciesStr.String),
-		Policies:           parseMap(policiesStr.String),
+		Policies:           TextMap{}.Scan(policiesStr.String),
 		MaxSessionDuration: time.Duration(maxSessionInt),
 		Enabled:            true,
 	}, nil
@@ -544,7 +555,7 @@ func (p *PostgresStore) Display(ctx context.Context) (string, error) {
 		}
 		roles = append(roles, appconfig.Role{
 			Name:               name,
-			Policies:           parseMap(policies.String),
+			Policies:           TextMap{}.Scan(policies.String),
 			ManagedPolicies:    parseArray(managedPolicies.String),
 			MaxSessionDuration: time.Duration(maxSessionDuration),
 			Enabled:            enabled,
@@ -564,5 +575,105 @@ func (p *PostgresStore) Publish(ctx context.Context, eventType string, metadata 
 		fmt.Sprintf("INSERT INTO %s(id,time,event_type,metadata) VALUES($1,$2,$3,$4)", eventsTable), uuid.NewString(), time.Now().UTC().String(), eventType, string(b)); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (p *PostgresStore) Import(ctx context.Context, r io.Reader) error {
+	fs := FileStore{}
+	if err := fs.LoadYaml(r); err != nil {
+		return fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, policy := range fs.Policies {
+		if _, err := tx.ExecContext(ctx,
+			fmt.Sprintf("DELETE FROM %s WHERE id = $1", policiesTable),
+			policy.Id); err != nil {
+			return fmt.Errorf("failed to delete policy %s: %w", policy.Id, err)
+		}
+		if policy.Delete {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			fmt.Sprintf("INSERT INTO %s(id, document) VALUES($1, $2)", policiesTable),
+			policy.Id, policy.Document); err != nil {
+			return fmt.Errorf("failed to insert policy %s: %w", policy.Id, err)
+		}
+	}
+
+	for _, role := range fs.Roles {
+		policiesStr := TextMap(role.Policies).Serialize()
+		managedPoliciesStr := strings.Join(role.ManagedPolicies, ",")
+		if _, err := tx.ExecContext(ctx,
+			fmt.Sprintf("DELETE FROM %s WHERE name = $1", rolesTable),
+			role.Name); err != nil {
+			return fmt.Errorf("failed to delete role %s: %w", role.Name, err)
+		}
+		if role.Delete {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			fmt.Sprintf("INSERT INTO %s(name, max_session_duration, managed_policies, policies, enabled) VALUES($1, $2, $3, $4, $5)", rolesTable),
+			role.Name, int(role.MaxSessionDuration), managedPoliciesStr, policiesStr, role.Enabled); err != nil {
+			return fmt.Errorf("failed to insert role %s: %w", role.Name, err)
+		}
+	}
+
+	for _, account := range fs.Accounts {
+		rolesStr := strings.Join(account.Roles, ",")
+		if _, err := tx.ExecContext(ctx,
+			fmt.Sprintf("DELETE FROM %s WHERE name = $1", accountsTable),
+			account.Name); err != nil {
+			return fmt.Errorf("failed to delete account %s: %w", account.Name, err)
+		}
+		if account.Delete {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			fmt.Sprintf("INSERT INTO %s(aws_account_id, name, roles, enabled) VALUES($1, $2, $3, $4)", accountsTable),
+			account.AwsAccountId, account.Name, rolesStr, account.Enabled); err != nil {
+			return fmt.Errorf("failed to insert account %s: %w", account.Name, err)
+		}
+	}
+
+	for _, user := range fs.Users {
+		if _, err := tx.ExecContext(ctx,
+			fmt.Sprintf("DELETE FROM %s WHERE user_name = $1", userRolesTable),
+			user.Name); err != nil {
+			return fmt.Errorf("failed to delete user role attachments for %s: %w", user.Name, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			fmt.Sprintf("DELETE FROM %s WHERE name = $1", usersTable),
+			user.Name); err != nil {
+			return fmt.Errorf("failed to delete user %s: %w", user.Name, err)
+		}
+		if user.Delete {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			fmt.Sprintf("INSERT INTO %s(name, superuser, friendly_name) VALUES($1, $2, $3)", usersTable),
+			user.Name, user.Superuser, user.FriendlyName); err != nil {
+			return fmt.Errorf("failed to insert user %s: %w", user.Name, err)
+		}
+
+		for _, roleAttachment := range user.Roles {
+			permissionsStr := strings.Join(roleAttachment.Permissions, ",")
+			if _, err := tx.ExecContext(ctx,
+				fmt.Sprintf("INSERT INTO %s(user_name, role_name, account_name, permissions) VALUES($1, $2, $3, $4)", userRolesTable),
+				user.Name, roleAttachment.RoleName, roleAttachment.AccountName, permissionsStr); err != nil {
+				return fmt.Errorf("failed to insert user role attachment for %s: %w", user.Name, err)
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
 	return nil
 }

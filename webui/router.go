@@ -43,11 +43,15 @@ func loginErrorString(queryParams url.Values) string {
 func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rolesSvc services.RolesService, accountSrvc services.AccountService, storageSvc storage.Storage, cfg appconfig.AppConfig, ev storage.Eventer) chi.Router {
 	reloadable, ok := storageSvc.(storage.Reloadable)
 	if !ok {
-		reloadable = storage.NoopReloadable{}
+		reloadable = storage.NoopStorage{}
 	}
 	printable, ok := storageSvc.(storage.Printable)
 	if !ok {
-		printable = storage.NoopPrintable{}
+		printable = storage.NoopStorage{}
+	}
+	importable, ok := storageSvc.(storage.Importable)
+	if !ok {
+		importable = storage.NoopStorage{}
 	}
 
 	hasAdminLogin := cfg.Auth.AdminPassword != "" && cfg.Auth.AdminUsername != ""
@@ -224,21 +228,23 @@ func Router(tokenSvc services.TokenService, authSvcs []services.AuthService, rol
 			slog.Info("reloaded config", "source", "admin_page")
 			http.Redirect(w, r, "/admin/config", http.StatusTemporaryRedirect)
 		})
-		r.Get("/config", func(w http.ResponseWriter, r *http.Request) {
+		r.Post("/importconfig", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			user := getUser(r)
-			prettyText, err := printable.Display(ctx)
+			file, _, err := r.FormFile("file")
 			if err != nil {
 				sendError(w, r, err)
 				return
 			}
-			data := templates.ConfigurationData{
-				Navbar:   templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
-				Document: prettyText,
-			}
-			if err := templates.ConfigurationTemplate(w, data); err != nil {
+			if err := importable.Import(ctx, file); err != nil {
 				sendError(w, r, err)
+				return
 			}
+			ev.Publish(ctx, "config_import", map[string]string{"username": user.Username})
+			configHandler(w, r, printable, &cfg)
+		})
+		r.Get("/config", func(w http.ResponseWriter, r *http.Request) {
+			configHandler(w, r, printable, &cfg)
 		})
 	})
 	loggedIn.Route("/account", func(r chi.Router) {
@@ -500,4 +506,21 @@ func (s *StatusCache) Refresh(ctx context.Context, accountName string) (services
 func friendlyName(email string) string {
 	before, _, _ := strings.Cut(email, "@")
 	return before
+}
+
+func configHandler(w http.ResponseWriter, r *http.Request, printable storage.Printable, cfg *appconfig.AppConfig) {
+	ctx := r.Context()
+	user := getUser(r)
+	prettyText, err := printable.Display(ctx)
+	if err != nil {
+		sendError(w, r, err)
+		return
+	}
+	data := templates.ConfigurationData{
+		Navbar:   templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
+		Document: prettyText,
+	}
+	if err := templates.ConfigurationTemplate(w, data); err != nil {
+		sendError(w, r, err)
+	}
 }

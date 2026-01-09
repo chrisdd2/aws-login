@@ -12,9 +12,15 @@ const (
 
 var RolePermissionAll []string = []string{RolePermissionConsole, RolePermissionCredentials}
 
+// import needs a delete flag
+type DeleteMarker struct {
+	Delete bool `json:"delete,omitempty"`
+}
+
 type InlinePolicy struct {
 	Id       string `json:"id,omitempty"`
 	Document string `json:"document,omitempty"`
+	DeleteMarker
 }
 
 type Role struct {
@@ -22,7 +28,8 @@ type Role struct {
 	Policies           map[string]string `json:"inline_policies,omitempty"`
 	ManagedPolicies    []string          `json:"managed_policies,omitempty"`
 	MaxSessionDuration time.Duration     `json:"max_session_duration,omitempty"`
-	Enabled            bool              `json:"enabled,omitempty"`
+	Enabled            bool              `json:"enabled"`
+	DeleteMarker
 }
 
 type RoleUserAttachment struct {
@@ -35,11 +42,13 @@ type User struct {
 	Name         string               `json:"name,omitempty"`
 	Superuser    bool                 `json:"superuser,omitempty"`
 	Roles        []RoleUserAttachment `json:"roles,omitempty"`
+	DeleteMarker
 }
 
 type Account struct {
 	Name         string   `json:"name,omitempty"`
 	AwsAccountId string   `json:"aws_account_id,omitempty"`
-	Enabled      bool     `json:"enabled,omitempty"`
+	Enabled      bool     `json:"enabled"`
 	Roles        []string `json:"roles,omitempty"`
+	DeleteMarker
 }

@@ -70,6 +70,16 @@
              text-white shadow">
                 Copy
             </button>
+
+            <form action="/admin/importconfig" method="post" enctype="multipart/form-data" class="contents">
+                <input type="file" name="file" id="importFile" accept=".yml,.yaml" class="hidden">
+                <button type="button" onclick="document.getElementById('importFile').click()" 
+                class="text-xs px-2 py-1 rounded
+                bg-gray-700 hover:bg-gray-600
+                text-white shadow">
+                    Import
+                </button>
+            </form>
         </div>
         <pre id="yaml"
             class="overflow-x-auto rounded-lg border
@@ -95,6 +105,13 @@
     <script src="/static/highlight.min.js"></script>
     <script src="/static/yaml.min.js"></script>
     <script>hljs.highlightAll();</script>
+    <script>
+        document.getElementById('importFile').addEventListener('change', function(e) {
+            if (this.files.length > 0) {
+                this.form.submit();
+            }
+        });
+    </script>
 
 
 </body>

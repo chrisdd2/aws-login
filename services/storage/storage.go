@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"time"
 
@@ -24,6 +25,10 @@ type Writable interface {
 	PutAccount(ctx context.Context, r *appconfig.Account, delete bool) error
 	PutUserRoleAttachment(ctx context.Context, username string, a appconfig.RoleUserAttachment, delete bool) error
 	PutPolicy(ctx context.Context, policyName string, policyDocument string) error
+}
+
+type Importable interface {
+	Import(ctx context.Context, reader io.Reader) error
 }
 
 type Storage interface {
@@ -55,14 +60,16 @@ func (c ConsoleEventer) Publish(ctx context.Context, eventType string, metadata 
 	return nil
 }
 
-type NoopReloadable struct{}
+type NoopStorage struct{}
 
-func (n NoopReloadable) Reload(ctx context.Context) error {
+func (n NoopStorage) Reload(ctx context.Context) error {
 	return nil
 }
 
-type NoopPrintable struct{}
-
-func (n NoopPrintable) Display(ctx context.Context) (string, error) {
+func (n NoopStorage) Display(ctx context.Context) (string, error) {
 	return "", nil
+}
+
+func (n NoopStorage) Import(ctx context.Context, r io.Reader) error {
+	return nil
 }
