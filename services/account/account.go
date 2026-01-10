@@ -98,10 +98,6 @@ func maxSessionDuration(duration time.Duration) string {
 	return strconv.Itoa(int((duration) / time.Second))
 }
 
-func ValidateAWSAccountID(accountID int) bool {
-	return accountID > 100000000000 && accountID <= 999999999999
-}
-
 func NewAccountService(store storage.Storage, aws aws.AwsApiCaller, ev storage.Eventer) AccountService {
 	return &accountService{
 		storage: store,

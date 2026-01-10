@@ -304,7 +304,7 @@ func (s *FileStore) Validate(ctx context.Context) error {
 		if name == "" {
 			return fmt.Errorf("account name must not be empty")
 		}
-		awsAccountId, err := strconv.Atoi(acc.AwsAccountId)
+		awsAccountId, err := strconv.ParseInt(acc.AwsAccountId, 10, 64)
 		if err != nil {
 			return err
 		}
