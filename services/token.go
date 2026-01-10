@@ -10,6 +10,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+var ErrInvalidClaims = errors.New("unable to parse claims")
+
+const DefaultTokenExpiration = time.Hour * 24
+
 type TokenService interface {
 	Create(ctx context.Context, usr *UserInfo, validate bool) (accessToken string, err error)
 	Validate(ctx context.Context, token string) (*UserInfo, error)
@@ -82,9 +86,7 @@ func (a *tokenServiceImpl) Validate(ctx context.Context, tokenStr string) (*User
 	}
 	claims, ok := token.Claims.(*UserClaims)
 	if !ok {
-		return nil, errors.New("unable to parse claims")
+		return nil, ErrInvalidClaims
 	}
 	return &claims.UserInfo, nil
 }
-
-const DefaultTokenExpiration = time.Hour * 24

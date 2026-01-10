@@ -430,7 +430,7 @@ func superOnlyMiddleware() func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user := getUser(r)
 			if !user.Superuser {
-				sendUnathorized(w, r, errors.New("only superusers can use this!"))
+				sendUnathorized(w, r, account.ErrNoPermission)
 				return
 			}
 			next.ServeHTTP(w, r)

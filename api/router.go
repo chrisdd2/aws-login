@@ -14,6 +14,11 @@ import (
 	"github.com/go-chi/render"
 )
 
+var (
+	ErrUnknownAuthType            = errors.New("unknown auth type")
+	ErrMissingAuthorizationHeader = errors.New("missing Authorization header")
+)
+
 type ApiError struct {
 	Message string `json:"message"`
 }
@@ -64,7 +69,7 @@ func V1Api(accountsSvc account.AccountService, idps []services.AuthService, role
 				return
 			}
 		}
-		sendError(w, r, errors.New("unknown auth type"), http.StatusBadRequest)
+		sendError(w, r, ErrUnknownAuthType, http.StatusBadRequest)
 	})
 	r.With(guardMiddleware(tokenSvc)).Route("/account", func(r chi.Router) {
 		r.Get("/console", func(w http.ResponseWriter, r *http.Request) {
@@ -137,7 +142,7 @@ func guardMiddleware(tokenService services.TokenService) func(next http.Handler)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 			if !ok {
-				sendError(w, r, errors.New("missing Authorization header"), http.StatusBadRequest)
+				sendError(w, r, ErrMissingAuthorizationHeader, http.StatusBadRequest)
 				return
 			}
 			info, err := tokenService.Validate(r.Context(), token)

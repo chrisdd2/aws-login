@@ -10,7 +10,12 @@ import (
 	"github.com/chrisdd2/aws-login/appconfig"
 )
 
-var ErrUserNotFound = errors.New("UserNotFound")
+var (
+	ErrUserNotFound    = errors.New("UserNotFound")
+	ErrPolicyNotFound  = errors.New("PolicyNotFound")
+	ErrAccountNotFound = errors.New("AccountNotFound")
+	ErrRoleNotFound  = errors.New("RoleNotFound")
+)
 
 type Reloadable interface {
 	Reload(ctx context.Context) error

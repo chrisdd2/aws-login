@@ -20,6 +20,8 @@ import (
 	"golang.org/x/text/language"
 )
 
+var ErrNoPermission = errors.New("no permission for this action (only superusers)")
+
 type DeploymentStatus struct {
 	StackExists    bool
 	NeedsUpdate    bool
@@ -60,7 +62,7 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 		return err
 	}
 	if !(user.Superuser) {
-		return errors.New("no permission for this action")
+		return ErrNoPermission
 	}
 
 	templateString, err := generateStackTemplate(ctx, a.storage, accountId)

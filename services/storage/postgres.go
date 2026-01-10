@@ -18,6 +18,10 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+var (
+	ErrInvalidSchemaVersion = errors.New("invalid schema version")
+)
+
 const (
 	schemaVersionTable = "aws_login_schema_table"
 	rolesTable         = "aws_login_roles"
@@ -91,7 +95,7 @@ func (p *PostgresStore) prepareDb(ctx context.Context) error {
 	case "2":
 		return nil
 	}
-	return errors.New("invalid schema version")
+	return ErrInvalidSchemaVersion
 }
 
 func (p *PostgresStore) v2Schema(ctx context.Context) error {

@@ -18,6 +18,13 @@ import (
 	"golang.org/x/oauth2"
 )
 
+var (
+	ErrInvalidAuthState    = errors.New("invalid oauth state")
+	ErrMissingPkceVerifier = errors.New("missing pkce verifier")
+	ErrMissingAuthCode     = errors.New("missing code parameter")
+	ErrMissingIdToken      = errors.New("missing id_token in token")
+)
+
 type RolePermissionClaim struct {
 	RoleName   string
 	Account    int
@@ -59,9 +66,9 @@ func generateGithubAccessTokenUrl(clientId, clientSecret, sessionCode string) st
 }
 
 type GithubService struct {
-	ClientSecret string
-	ClientId     string
-	AuthResponsePath  string
+	ClientSecret     string
+	ClientId         string
+	AuthResponsePath string
 }
 
 func (g *GithubService) Details() AuthServiceDetails {
@@ -278,16 +285,16 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 	state := query.Get("state")
 	stateCookie, err := r.Cookie("oauth_state")
 	if err != nil || state != stateCookie.Value {
-		return nil, errors.New("invalid oauth state")
+		return nil, ErrInvalidAuthState
 	}
 
 	pkceCookie, err := r.Cookie("pkce_verifier")
 	if err != nil {
-		return nil, errors.New("missing pkce verifier")
+		return nil, ErrMissingPkceVerifier
 	}
 	code := query.Get("code")
 	if code == "" {
-		return nil, errors.New("query.Get [missing code parameter]")
+		return nil, ErrMissingAuthCode
 	}
 	token, err := g.oauthCfg.Exchange(ctx,
 		code,
@@ -298,7 +305,7 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 	}
 	idTokenRaw, ok := token.Extra("id_token").(string)
 	if !ok {
-		return nil, errors.New("token.Extra [missing id_token in token]")
+		return nil, ErrMissingIdToken
 	}
 	idToken, err := g.verifier.Verify(ctx, idTokenRaw)
 	if err != nil {

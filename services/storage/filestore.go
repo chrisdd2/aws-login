@@ -111,7 +111,7 @@ func (s *FileStore) GetAccount(ctx context.Context, name string) (*appconfig.Acc
 	if idx != -1 {
 		return &s.Accounts[idx], nil
 	}
-	return nil, errors.New("AccountNotFound")
+	return nil, ErrAccountNotFound
 }
 
 func (s *FileStore) ListRolesForAccount(ctx context.Context, accountName string) ([]*appconfig.Role, error) {
@@ -128,9 +128,6 @@ func (s *FileStore) ListRolesForAccount(ctx context.Context, accountName string)
 	return roles, nil
 }
 func (s *FileStore) ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error) {
-	if userName == "" {
-		return nil, errors.New("username must be provided")
-	}
 	user, err := s.GetUser(ctx, userName)
 	if err != nil {
 		return nil, fmt.Errorf("storage.GetUser: %w", err)
@@ -155,7 +152,7 @@ func (s *FileStore) GetInlinePolicy(ctx context.Context, id string) (*appconfig.
 	if idx != -1 {
 		return &s.Policies[idx], nil
 	}
-	return nil, errors.New("PolicyNotFound")
+	return nil, ErrPolicyNotFound
 }
 func (s *FileStore) GetUser(ctx context.Context, id string) (*appconfig.User, error) {
 	if id == s.cfg.Auth.AdminUsername {
@@ -177,7 +174,7 @@ func (s *FileStore) GetRole(ctx context.Context, name string) (*appconfig.Role, 
 	if idx != -1 {
 		return &s.Roles[idx], nil
 	}
-	return nil, errors.New("RoleNotFound")
+	return nil, ErrRoleNotFound
 }
 
 func (s *FileStore) createAdminUser() *appconfig.User {

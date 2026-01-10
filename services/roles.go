@@ -12,9 +12,12 @@ import (
 	"github.com/chrisdd2/aws-login/services/storage"
 )
 
-var ErrAccountDisabled = errors.New("account is disabled")
-var ErrRoleDisabled = errors.New("role is disabled")
-var ErrRoleUnauthorized = errors.New("no permission to use this role")
+var (
+	ErrAccountDisabled   = errors.New("account is disabled")
+	ErrRoleDisabled      = errors.New("role is disabled")
+	ErrRoleUnauthorized  = errors.New("no permission to use this role")
+	ErrRoleNotAssociated = errors.New("account not associated with role")
+)
 
 type AwsCredentials struct {
 	AccessKeyId     string `json:"aws_access_key_id,omitempty"`
@@ -80,7 +83,7 @@ func (r *rolesService) Console(ctx context.Context, accountName string, roleName
 		return "", ErrAccountDisabled
 	}
 	if !slices.Contains(acc.Roles, roleName) {
-		return "", errors.New("account not associated with role")
+		return "", ErrRoleNotAssociated
 	}
 	// auth check
 	perms, err := r.UserPermissions(ctx, username, roleName, accountName)
@@ -117,7 +120,7 @@ func (r *rolesService) Credentials(ctx context.Context, accountName string, role
 		return AwsCredentials{}, ErrAccountDisabled
 	}
 	if !slices.Contains(acc.Roles, roleName) {
-		return AwsCredentials{}, errors.New("account not associated with role")
+		return AwsCredentials{}, ErrRoleNotAssociated
 	}
 
 	// auth check
