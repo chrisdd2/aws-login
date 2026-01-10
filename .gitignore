@@ -4,3 +4,5 @@ terraform
 events.jsonl
 app.conf.yml
 .config
+# Added by goreleaser init:
+dist/
