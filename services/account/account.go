@@ -8,6 +8,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io/fs"
+	"log"
 	"strconv"
 	"strings"
 	"text/template"
@@ -191,7 +193,8 @@ func generateStackTemplate(ctx context.Context, store storage.Storage, account s
 			MaxSessionDuration: item.MaxSessionDuration,
 		})
 	}
-	templateString, err := templateExecuteToString(baseStackTemplate, struct{ Roles []CfnRole }{Roles: cfnroles})
+	log.Println(roleStackTemplate.Templates())
+	templateString, err := templateExecuteToString(roleStackTemplate, struct{ Roles []CfnRole }{Roles: cfnroles})
 	if err != nil {
 		return "", err
 	}
@@ -221,16 +224,21 @@ func generateStackHash(templateString string) (string, error) {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
 }
 
-var (
-	//go:embed *.gotmpl
-	files             embed.FS
-	baseStackTemplate = template.Must(template.New("base-stack").Funcs(template.FuncMap{
+func loadTemplates(fs fs.FS, name string) *template.Template {
+	funcs := template.FuncMap{
 		"roleLogicalName":    roleLogicalName,
 		"maxSessionDuration": maxSessionDuration,
-	}).ParseFS(files, "role-stack.gotmpl"))
-	bootstrapStackTemplateCfn = template.Must(
-		template.New("bootstrap-stack").ParseFS(files, "bootstrap-stack.gotmpl"),
-	)
+	}
+	return template.Must(template.New(
+		strings.Split(name, ".")[0]).Funcs(funcs).ParseFS(fs, name),
+	).Lookup(name)
+}
+
+var (
+	//go:embed *.gotmpl
+	files                     embed.FS
+	roleStackTemplate         = loadTemplates(files, "role-stack.gotmpl")
+	bootstrapStackTemplateCfn = loadTemplates(files, "bootstrap-stack.gotmpl")
 )
 
 func (a *accountService) BootstrapTemplate(ctx context.Context, accountName string) (string, error) {
