@@ -33,7 +33,7 @@
                         <i class="fas fa-sign-out-alt"></i>
                     </a>
                     <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm uppercase">
+                        <div class="w-8 h-8 rounded-full bg-linear-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm uppercase">
                             {{if .Username}}{{printf "%.1s" .Username}}{{else}}<i class="fas fa-user"></i>{{end}}
                         </div>
                         <span class="text-gray-700 dark:text-white">{{if .Username}}{{.Username}}{{else}}Loading...{{end}}</span>
@@ -61,7 +61,9 @@
                             <th class="text-left py-3 px-4 font-semibold text-gray-700 dark:text-white whitespace-nowrap">ResourceStatus</th>
                         </tr>
                     </thead>
+
                     <tbody class="[&>tr:nth-child(even)]:bg-gray-50 dark:[&>tr:nth-child(even)]:bg-gray-700/50 [&>tr:hover]:bg-gray-100 dark:[&>tr:hover]:bg-gray-700">
+                        <span class="text-yellow-300 text-green-300 text-red-300 text-indigo-300 text-grey-300 hidden">force tailwind to include those colors</span>
                         {{range .Events}}
                         <tr class="border-b border-gray-200 dark:border-gray-700">
                             <td class="py-3 px-4 text-gray-900 dark:text-white text-nowrap">
@@ -76,7 +78,19 @@
                             <td class="py-3 px-4 text-gray-900 dark:text-white text-wrap">
                                 <span>{{.ResourceStatusReason}}</span>
                             </td>
-                            <td class="py-3 px-4 text-{{.Color}}-300 text-nowrap">
+                            {{ $classColor := "text-magenta-300" }}
+                            {{ if eq .Color "red" }}
+                                {{ $classColor = "text-red-300" }}
+                            {{ else if eq .Color "green" }}
+                                {{ $classColor = "text-green-300" }}
+                            {{ else if eq .Color "yellow" }}
+                                {{ $classColor = "text-yellow-300" }}
+                            {{ else if eq .Color "indigo" }}
+                                {{ $classColor = "text-indigo-300" }}
+                            {{ else if eq .Color "grey" }}
+                                {{ $classColor = "text-grey-300" }}
+                            {{ end }}
+                            <td class="py-3 px-4 {{$classColor}} text-nowrap">
                                 <span>{{.ResourceStatus}}</span>
                             </td>
                         </tr>
@@ -101,5 +115,3 @@
     </footer>
 </body>
 </html>
-
-
