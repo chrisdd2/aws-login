@@ -69,10 +69,10 @@ type AwsApiCaller interface {
 		SecretAccessKey string,
 		SessionToken string,
 		err error)
-	DeployStack(ctx context.Context, accountName string, accountId string, stackName string, templateText string, params map[string]string, tags map[string]string) error
+	DeployStack(ctx context.Context, accountName string, accountId string, stackName string, templateText string, params map[string]string) error
 	DestroyStack(ctx context.Context, accountName string, accountId string, stackName string) (stackId string, error error)
 	TopStackEvents(ctx context.Context, accountName string, accountId string, stackName string) ([]StackEvent, error)
-	StackTags(ctx context.Context, accountName string, accountId string, stackName string, tags map[string]string, readOnly bool) (map[string]string, error)
+	StackTemplate(ctx context.Context, accountName string, accountId string, stackName string) (string, error)
 	GenerateSigninUrl(ctx context.Context, roleArn string, sessionName string, redirectUrl string) (string, error)
 }
 type apiImpl struct {
@@ -90,6 +90,26 @@ func NewAwsApi(ctx context.Context, stsCl *sts.Client) (AwsApiCaller, error) {
 		return nil, err
 	}
 	return &ret, nil
+}
+
+func (a *apiImpl) StackTemplate(ctx context.Context, accountName string, accountId string, stackName string) (string, error) {
+	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(accountId, OpsRole.Value(accountName)))
+	if err != nil {
+		return "", fmt.Errorf("assumeRole: %w", err)
+	}
+	cfnCl := cloudformation.NewFromConfig(cfg)
+	resp, err := cfnCl.GetTemplate(ctx, &cloudformation.GetTemplateInput{
+		StackName:     &stackName,
+		TemplateStage: cfnTypes.TemplateStageOriginal,
+	})
+	if isStackMissingErr(err) {
+		return "", ErrStackNotExist
+	}
+	if err != nil {
+
+		return "", fmt.Errorf("cloudformation.GetTemplate: %w", err)
+	}
+	return aws.ToString(resp.TemplateBody), nil
 }
 
 func (a *apiImpl) WhoAmI(ctx context.Context) (account string, arn string, err error) {
@@ -144,7 +164,7 @@ func (a *apiImpl) DestroyStack(ctx context.Context, accountName string, accountI
 	}
 	return "", ErrInvalidCfnResponse
 }
-func (a *apiImpl) DeployStack(ctx context.Context, accountName string, accountId string, stackName string, templateText string, params map[string]string, tags map[string]string) error {
+func (a *apiImpl) DeployStack(ctx context.Context, accountName string, accountId string, stackName string, templateText string, params map[string]string) error {
 	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(accountId, OpsRole.Value(accountName)))
 	if err != nil {
 		return err
@@ -155,10 +175,10 @@ func (a *apiImpl) DeployStack(ctx context.Context, accountName string, accountId
 	}
 	params["ManagementRoleArn"] = a.arn
 	params["PermissionBoundaryName"] = boundaryName.Value(accountName)
-	return updateStack(ctx, cfnCl, stackName, templateText, params, tags)
+	return updateStack(ctx, cfnCl, stackName, templateText, params)
 }
 
-func updateStack(ctx context.Context, cfnCl *cloudformation.Client, stackName string, templateString string, params map[string]string, tags map[string]string) error {
+func updateStack(ctx context.Context, cfnCl *cloudformation.Client, stackName string, templateString string, params map[string]string) error {
 	cfnParams := []cfnTypes.Parameter{}
 	for k, v := range params {
 		cfnParams = append(cfnParams, cfnTypes.Parameter{
@@ -167,10 +187,6 @@ func updateStack(ctx context.Context, cfnCl *cloudformation.Client, stackName st
 		})
 	}
 
-	var cfnTags []cfnTypes.Tag
-	if tags != nil {
-		cfnTags = mapToTags(tags)
-	}
 	_, err := cfnCl.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: &stackName})
 	update := true
 	if err != nil {
@@ -186,7 +202,6 @@ func updateStack(ctx context.Context, cfnCl *cloudformation.Client, stackName st
 			TemplateBody: &templateString,
 			Parameters:   cfnParams,
 			Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam},
-			Tags:         cfnTags,
 		})
 		if err != nil && !isNoUpdateErr(err) {
 			return err
@@ -198,7 +213,7 @@ func updateStack(ctx context.Context, cfnCl *cloudformation.Client, stackName st
 		TemplateBody: &templateString,
 		Parameters:   cfnParams,
 		Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam},
-		Tags:         cfnTags})
+	})
 	return err
 }
 
@@ -316,46 +331,6 @@ func getStack(ctx context.Context, cfnCl *cloudformation.Client, stackName strin
 	return resp.Stacks[0], nil
 }
 
-func (a *apiImpl) StackTags(ctx context.Context, accountName string, accountId string, stackName string, tags map[string]string, readOnly bool) (map[string]string, error) {
-	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(accountId, OpsRole.Value(accountName)))
-	if err != nil {
-		return nil, fmt.Errorf("assumeRole: %w", err)
-	}
-	cfnCl := cloudformation.NewFromConfig(cfg)
-	if readOnly {
-		// just return the tags
-		stack, err := getStack(ctx, cfnCl, stackName)
-		if err != nil {
-			return nil, err
-		}
-		ret := map[string]string{}
-		for _, tag := range stack.Tags {
-			ret[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
-		}
-		return ret, nil
-	}
-	cfnTags := mapToTags(tags)
-	cfnParams := []cfnTypes.Parameter{
-		{ParameterKey: aws.String("ManagementRoleArn"), ParameterValue: &a.arn},
-		{ParameterKey: aws.String("PermissionBoundaryName"), ParameterValue: aws.String(boundaryName.Value(accountName))},
-	}
-	_, err = cfnCl.UpdateStack(ctx, &cloudformation.UpdateStackInput{
-		UsePreviousTemplate: aws.Bool(true),
-		Tags:                cfnTags, StackName: &stackName,
-		Parameters:   cfnParams,
-		Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam},
-	})
-	if isStackMissingErr(err) {
-		return nil, ErrStackNotExist
-	}
-	if err != nil {
-		return nil, err
-	}
-	// read again
-	return a.StackTags(ctx, accountName, accountId, stackName, nil, true)
-
-}
-
 func (a *apiImpl) TopStackEvents(ctx context.Context, accountName string, accountId string, stackName string) ([]StackEvent, error) {
 	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(accountId, OpsRole.Value(accountName)))
 	if err != nil {
@@ -378,14 +353,6 @@ func (a *apiImpl) TopStackEvents(ctx context.Context, accountName string, accoun
 		})
 	}
 	return ret, nil
-}
-
-func mapToTags(tags map[string]string) []cfnTypes.Tag {
-	ret := make([]cfnTypes.Tag, 0, len(tags))
-	for k, v := range tags {
-		ret = append(ret, cfnTypes.Tag{Key: &k, Value: &v})
-	}
-	return ret
 }
 
 type AccountIdentifier string

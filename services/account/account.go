@@ -3,13 +3,12 @@ package account
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"embed"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log"
+	"reflect"
 	"strconv"
 	"strings"
 	"text/template"
@@ -20,6 +19,7 @@ import (
 	"github.com/chrisdd2/aws-login/services/storage"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
+	"sigs.k8s.io/yaml"
 )
 
 var ErrNoPermission = errors.New("no permission for this action (only superusers)")
@@ -39,8 +39,6 @@ type AccountService interface {
 	ListAccounts(ctx context.Context) ([]*appconfig.Account, error)
 	BootstrapTemplate(ctx context.Context, accountName string) (string, error)
 }
-
-const stackHash = "al:stackHash"
 
 type accountService struct {
 	storage storage.Storage
@@ -71,10 +69,6 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 	if err != nil {
 		return fmt.Errorf("generateStackTemplate: %w", err)
 	}
-	h, err := generateStackHash(templateString)
-	if err != nil {
-		return err
-	}
 
 	// Deploy the stack
 	acc, err := a.storage.GetAccount(ctx, accountId)
@@ -82,7 +76,7 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 		return err
 	}
 	a.ev.Publish(ctx, "account_deploy", map[string]string{"username": userId, "account_name": accountId})
-	return a.aws.DeployStack(ctx, acc.Name, acc.AwsAccountId, aws.StackName.Value(accountId), templateString, nil, map[string]string{stackHash: h})
+	return a.aws.DeployStack(ctx, acc.Name, acc.AwsAccountId, aws.StackName.Value(accountId), templateString, nil)
 }
 func (a *accountService) GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error) {
 	return a.storage.GetAccount(ctx, name)
@@ -112,6 +106,18 @@ func (a *accountService) ListAccounts(ctx context.Context) ([]*appconfig.Account
 	return a.storage.ListAccounts(ctx)
 }
 
+func equalYaml(a string, b string) (bool, error) {
+	am := map[string]any{}
+	bm := map[string]any{}
+	if err := yaml.Unmarshal([]byte(a), &am, yaml.DisallowUnknownFields); err != nil {
+		return false, err
+	}
+	if err := yaml.Unmarshal([]byte(b), &bm, yaml.DisallowUnknownFields); err != nil {
+		return false, err
+	}
+	return reflect.DeepEqual(am, bm), nil
+}
+
 func (a *accountService) DeploymentStatus(ctx context.Context, accountName string) (DeploymentStatus, error) {
 	status := DeploymentStatus{
 		StackExists:    true,
@@ -126,12 +132,7 @@ func (a *accountService) DeploymentStatus(ctx context.Context, accountName strin
 	if err != nil {
 		return status, fmt.Errorf("generateStackTemplate: %w", err)
 	}
-	currentHash, err := generateStackHash(templateString)
-	if err != nil {
-		return status, err
-	}
-
-	tags, err := a.aws.StackTags(ctx, accountName, acc.AwsAccountId, aws.StackName.Value(accountName), nil, true)
+	currentTemplateString, err := a.aws.StackTemplate(ctx, accountName, acc.AwsAccountId, aws.StackName.Value(accountName))
 	if errors.Is(err, aws.ErrStackNotExist) {
 		status.StackExists = false
 		return status, nil
@@ -142,11 +143,11 @@ func (a *accountService) DeploymentStatus(ctx context.Context, accountName strin
 		return status, nil
 	}
 	if err != nil {
-		return status, fmt.Errorf("aws.StackTags: %w", err)
+		return status, fmt.Errorf("aws.StackTemplate: %w", err)
 	}
-	stackHash := tags[stackHash]
-	status.NeedsUpdate = stackHash != currentHash
-	return status, nil
+	equal, err := equalYaml(templateString, currentTemplateString)
+	status.NeedsUpdate = !equal
+	return status, err
 }
 func (a *accountService) StackUpdates(ctx context.Context, accountName string, stackId string) ([]aws.StackEvent, error) {
 	acc, err := a.storage.GetAccount(ctx, accountName)
@@ -213,15 +214,6 @@ func (a *accountService) DestroyStack(ctx context.Context, accountName string, u
 	}
 	return stackId, nil
 
-}
-
-func generateStackHash(templateString string) (string, error) {
-	h := sha256.New()
-	_, err := h.Write([]byte(templateString))
-	if err != nil {
-		return "", fmt.Errorf("sha256.Write: %w", err)
-	}
-	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
 }
 
 func loadTemplates(fs fs.FS, name string) *template.Template {
