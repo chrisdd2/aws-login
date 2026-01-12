@@ -4,13 +4,17 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
+	"syscall"
+	"time"
 
 	"log/slog"
 	"net/http"
@@ -86,8 +90,8 @@ func main() {
 		slog.Debug("cache", "cannot_create_dir", "aws-login", "err", err.Error())
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, cancel := shutdownContext(context.Background())
+	defer cancel(nil)
 
 	// AWS setup
 	// allow different aws config for the aws user used for permissions in the other accounts
@@ -176,19 +180,82 @@ func main() {
 	}))
 
 	r.Mount("/api", api.V1Api(accSvc, idps, roleSvc, tokenSvc))
-	r.Mount("/", webui.Router(tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg, eventer))
+
+	r.Mount("/", webui.Router(cancel, tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg, eventer))
 
 	metricsRouter := chi.NewRouter()
 	metricsRouter.Handle("/metrics", metrics.Handler())
+
+	metricsSrv := gracefullServer{
+		Name: "http_metrics",
+		Server: http.Server{
+			Handler: metricsRouter,
+			Addr:    appCfg.MetrisAddr,
+		},
+	}
 	go func() {
-		slog.Info("metrics", "address", appCfg.MetrisAddr)
-		if err := http.ListenAndServe(appCfg.MetrisAddr, metricsRouter); err != nil {
-			slog.Error("metrics", "err", err)
-		}
+		metricsSrv.Listen(cancel)
 	}()
 
-	slog.Info("http", "address", appCfg.ListenAddr, "url", fmt.Sprintf("http:/%s", appCfg.ListenAddr))
-	must(http.ListenAndServe(appCfg.ListenAddr, r))
+	srv := gracefullServer{
+		Name: "http",
+		Server: http.Server{
+			Handler: r,
+			Addr:    appCfg.ListenAddr,
+		},
+	}
+
+	go func() {
+		srv.Listen(cancel)
+	}()
+
+	// wait for exit
+	<-ctx.Done()
+
+	if cause := context.Cause(ctx); cause != nil {
+		slog.Info("shutting_down", "cause", cause.Error())
+	}
+
+	ctx, timeoutCancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer timeoutCancel()
+	srv.Shutdown(ctx)
+	metricsSrv.Shutdown(ctx)
+}
+
+func shutdownContext(parent context.Context) (context.Context, context.CancelCauseFunc) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		select {
+		case <-ctx.Done():
+			break
+		case v := <-sigChan:
+			cancel(fmt.Errorf("%s signal", v))
+			break
+		}
+		signal.Stop(sigChan)
+	}()
+	return ctx, cancel
+}
+
+type gracefullServer struct {
+	Name   string
+	Server http.Server
+}
+
+func (g *gracefullServer) Listen(cancel context.CancelCauseFunc) {
+	slog.Info(g.Name, "address", g.Server.Addr, "url", fmt.Sprintf("http:/%s", g.Server.Addr))
+	err := g.Server.ListenAndServe()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		slog.Info("http", "error", err.Error())
+		cancel(err)
+	}
+}
+func (g *gracefullServer) Shutdown(ctx context.Context) {
+	if err := g.Server.Shutdown(ctx); err != nil {
+		slog.Info(g.Name, "shutdown_error", err.Error())
+	}
 }
 
 func awsContext(ctx context.Context, environmentPrefix string) (awsConfig awsSdk.Config, arn string, err error) {

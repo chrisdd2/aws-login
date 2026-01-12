@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -44,6 +42,7 @@ func loginErrorString(queryParams url.Values) string {
 }
 
 func Router(
+	shutdownCtxCancel context.CancelCauseFunc,
 	tokenSvc services.TokenService,
 	authSvcs []services.AuthService,
 	rolesSvc services.RolesService,
@@ -256,9 +255,11 @@ func Router(
 		r.Get("/config", func(w http.ResponseWriter, r *http.Request) {
 			configHandler(w, r, printable, &cfg)
 		})
-		r.Get("/killme", func(w http.ResponseWriter, r *http.Request) {
-			log.Println("user decided to kill application")
-			os.Exit(-1)
+		r.Get("/shutdown", func(w http.ResponseWriter, r *http.Request) {
+			render.JSON(w, r, struct {
+				Message string `json:"message"`
+			}{Message: "shutting down"})
+			shutdownCtxCancel(errors.New("user_request"))
 		})
 	})
 	loggedIn.Route("/account", func(r chi.Router) {
