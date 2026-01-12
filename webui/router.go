@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -253,6 +255,10 @@ func Router(
 		})
 		r.Get("/config", func(w http.ResponseWriter, r *http.Request) {
 			configHandler(w, r, printable, &cfg)
+		})
+		r.Get("/killme", func(w http.ResponseWriter, r *http.Request) {
+			log.Println("user decided to kill application")
+			os.Exit(-1)
 		})
 	})
 	loggedIn.Route("/account", func(r chi.Router) {
