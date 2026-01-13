@@ -59,11 +59,18 @@ func ternary[T any](c bool, a T, b T) T {
 	return b
 }
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	appCfg := appconfig.AppConfig{}
 
 	flag.StringVar(&appCfg.ConfigFile, "config-file", "app.conf.yml", "config file path")
 	flag.Parse()
+	slog.Info("info", "version", version, "commit", commit, "date", date)
 
 	appCfg.SetEnvironmentVariablePrefix("app")
 	must(appCfg.LoadDefaults())

@@ -1,0 +1,110 @@
+name: master Build
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: master
+  cancel-in-progress: true
+
+env:
+  APP_NAME: aws-login
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            ext: ""
+            archive: tar.gz
+          - goos: windows
+            goarch: amd64
+            ext: ".exe"
+            archive: zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          VERSION=$(git rev-parse --short HEAD)
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          BIN_NAME=${APP_NAME}_${GOOS}-${GOARCH}${{ matrix.ext }}
+
+          go build \
+            -ldflags="-s -w \
+              -X main.version=$VERSION \
+              -X main.commit=$VERSION \
+              -X main.date=$DATE" \
+            -o dist/$BIN_NAME .
+
+          if [ "${{ matrix.archive }}" = "tar.gz" ]; then
+            tar -czf dist/$BIN_NAME.tar.gz -C dist $BIN_NAME
+            rm dist/$BIN_NAME
+          else
+            zip -j dist/$BIN_NAME.zip dist/$BIN_NAME
+            rm dist/$BIN_NAME
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          retention_days: 1
+          overwrite: true
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p dist
+          find artifacts -type f -exec mv {} dist/ \;
+          rm -rf artifacts
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+
+      - name: Publish master release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: master
+          name: master
+          prerelease: true
+          overwrite: true
+          files: |
+            dist/*
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
