@@ -308,8 +308,8 @@ func (p *PostgresStore) ListRolePermissions(
 	var ret []appconfig.RoleUserAttachment
 
 	for rows.Next() {
-		var perms string
-		if err := rows.Scan(&perms); err != nil {
+		var roleName, accountName, perms string
+		if err := rows.Scan(&roleName,&accountName,&perms); err != nil {
 			return nil, err
 		}
 
