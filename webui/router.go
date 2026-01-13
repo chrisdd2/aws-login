@@ -24,7 +24,6 @@ import (
 const authCookie = "aws-login-cookie"
 
 func loginErrorString(queryParams url.Values) string {
-
 	errorValue := queryParams.Get("error")
 	if errorValue == "" {
 		return ""

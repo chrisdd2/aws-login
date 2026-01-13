@@ -223,7 +223,7 @@ func main() {
 }
 
 func shutdownContext(parent context.Context) (context.Context, context.CancelCauseFunc) {
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancelCause(parent)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
