@@ -2,10 +2,12 @@ package templates
 
 import (
 	"embed"
+	"encoding/json"
 	"html/template"
 	"io"
 
 	"github.com/chrisdd2/aws-login/aws"
+	"github.com/chrisdd2/aws-login/services/storage"
 )
 
 //go:embed static webfonts
@@ -13,7 +15,15 @@ var Static embed.FS
 
 //go:embed *.html
 var pages embed.FS
-var pagesTmpls = template.Must(template.ParseFS(pages, "*.html"))
+
+func jsonFunc(v any) string {
+	data, _ := json.MarshalIndent(v, "", "  ")
+	return string(data)
+}
+
+var pagesTmpls = template.Must(template.New("").Funcs(template.FuncMap{
+	"json": jsonFunc,
+}).ParseFS(pages, "*.html"))
 
 type Navbar struct {
 	AppName  string
@@ -77,7 +87,7 @@ func WatchTemplate(w io.Writer, data WatchData) error {
 
 type ConfigurationData struct {
 	Navbar
-	Document map[string]string
+	Store *storage.InMemoryStore
 }
 
 func ConfigurationTemplate(w io.Writer, data ConfigurationData) error {

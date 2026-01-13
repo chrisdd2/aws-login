@@ -524,14 +524,14 @@ func friendlyName(email string) string {
 func configHandler(w http.ResponseWriter, r *http.Request, printable storage.Printable, cfg *appconfig.AppConfig) {
 	ctx := r.Context()
 	user := getUser(r)
-	prettyText, err := printable.Display(ctx)
+	st, err := printable.Display(ctx)
 	if err != nil {
 		sendError(w, r, err)
 		return
 	}
 	data := templates.ConfigurationData{
-		Navbar:   templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
-		Document: prettyText,
+		Navbar: templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
+		Store:  st,
 	}
 	if err := templates.ConfigurationTemplate(w, data); err != nil {
 		sendError(w, r, err)

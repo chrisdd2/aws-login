@@ -14,7 +14,7 @@ var (
 	ErrUserNotFound    = errors.New("UserNotFound")
 	ErrPolicyNotFound  = errors.New("PolicyNotFound")
 	ErrAccountNotFound = errors.New("AccountNotFound")
-	ErrRoleNotFound  = errors.New("RoleNotFound")
+	ErrRoleNotFound    = errors.New("RoleNotFound")
 )
 
 type Reloadable interface {
@@ -22,7 +22,7 @@ type Reloadable interface {
 }
 
 type Printable interface {
-	Display(ctx context.Context) (map[string]string, error)
+	Display(ctx context.Context) (*InMemoryStore, error)
 }
 
 type Importable interface {
@@ -64,10 +64,35 @@ func (n NoopStorage) Reload(ctx context.Context) error {
 	return nil
 }
 
-func (n NoopStorage) Display(ctx context.Context) (map[string]string, error) {
-	return map[string]string{}, nil
+func (n NoopStorage) Display(ctx context.Context) (*InMemoryStore, error) {
+	return &InMemoryStore{}, nil
 }
 
 func (n NoopStorage) Import(ctx context.Context, r io.Reader) error {
 	return nil
+}
+
+type InMemoryStore struct {
+	Users    []appconfig.User         `json:"users,omitempty"`
+	Accounts []appconfig.Account      `json:"accounts,omitempty"`
+	Roles    []appconfig.Role         `json:"roles,omitempty"`
+	Policies []appconfig.InlinePolicy `json:"policies,omitempty"`
+}
+
+func (s *InMemoryStore) Display(ctx context.Context) (*InMemoryStore, error) {
+	return s, nil
+	// marshal := func(v any) string {
+	// 	data, err := yaml.Marshal(v)
+	// 	if err != nil {
+	// 		return ""
+	// 	}
+	// 	return string(data)
+	// }
+	// data := map[string]string{
+	// 	"Accounts": marshal(s.Accounts),
+	// 	"Roles":    marshal(s.Roles),
+	// 	"Users":    marshal(s.Users),
+	// 	"Policies": marshal(s.Policies),
+	// }
+	// return data, nil
 }

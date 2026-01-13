@@ -26,10 +26,7 @@ import (
 )
 
 type FileStore struct {
-	Users     []appconfig.User         `json:"users,omitempty"`
-	Accounts  []appconfig.Account      `json:"accounts,omitempty"`
-	Roles     []appconfig.Role         `json:"roles,omitempty"`
-	Policies  []appconfig.InlinePolicy `json:"policies,omitempty"`
+	InMemoryStore
 	adminUser *appconfig.User
 	s3Cl      *s3.Client
 	cfg       *appconfig.AppConfig
@@ -403,22 +400,6 @@ func (s *FileStore) Validate(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func (s *FileStore) Display(ctx context.Context) (map[string]string, error) {
-	marshal := func(v any) string {
-		data, err := yaml.Marshal(v)
-		if err != nil {
-			return ""
-		}
-		return string(data)
-	}
-	data := map[string]string{
-		"Accounts": marshal(s.Accounts),
-		"Roles":    marshal(s.Roles),
-		"Users":    marshal(s.Users),
-		"Policies": marshal(s.Policies),
-	}
-	return data, nil
-}
 
 func (s *FileStore) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
 	return s.ev.Publish(ctx, eventType, metadata)

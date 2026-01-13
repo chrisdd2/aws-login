@@ -16,6 +16,7 @@ import (
 	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"sigs.k8s.io/yaml"
 )
 
 var (
@@ -309,7 +310,7 @@ func (p *PostgresStore) ListRolePermissions(
 
 	for rows.Next() {
 		var roleName, accountName, perms string
-		if err := rows.Scan(&roleName,&accountName,&perms); err != nil {
+		if err := rows.Scan(&roleName, &accountName, &perms); err != nil {
 			return nil, err
 		}
 
@@ -491,7 +492,7 @@ func (p *PostgresStore) Reload(ctx context.Context) error {
 	return nil
 }
 
-func (p *PostgresStore) Display(ctx context.Context) (map[string]string, error) {
+func (p *PostgresStore) Display(ctx context.Context) (*InMemoryStore, error) {
 	// try to convert the database into a filestore
 	userRoles := map[string][]appconfig.RoleUserAttachment{}
 	rows, err := p.queryFmt(ctx, "SELECT user_name,role_name,account_name,permissions FROM %s", userRolesTable)
@@ -572,7 +573,7 @@ func (p *PostgresStore) Display(ctx context.Context) (map[string]string, error) 
 			Enabled:            enabled,
 		})
 	}
-	s := &FileStore{Users: users, Accounts: accounts, Policies: policies, Roles: roles}
+	s := &InMemoryStore{Users: users, Accounts: accounts, Policies: policies, Roles: roles}
 
 	return s.Display(ctx)
 }
@@ -590,9 +591,13 @@ func (p *PostgresStore) Publish(ctx context.Context, eventType string, metadata 
 }
 
 func (p *PostgresStore) Import(ctx context.Context, r io.Reader) error {
-	fs := FileStore{}
-	if err := fs.LoadYaml(r); err != nil {
-		return fmt.Errorf("failed to parse YAML: %w", err)
+	fs := InMemoryStore{}
+	buf, err := io.ReadAll(r)
+	if err != nil {
+		return fmt.Errorf("io.ReadAll: %w", err)
+	}
+	if err := yaml.UnmarshalStrict(buf, &fs, yaml.DisallowUnknownFields); err != nil {
+		return fmt.Errorf("yaml.UnmarshalStrict: %w", err)
 	}
 
 	tx, err := p.db.BeginTx(ctx, nil)

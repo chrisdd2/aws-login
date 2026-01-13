@@ -32,3 +32,20 @@ users:
           - credential
           - console
     superuser: false
+
+policies:
+  - id: example-s3-read-policy
+    document: |
+      {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": [
+              "s3:GetObject",
+              "s3:GetObjectVersion"
+            ],
+            "Resource": "*"
+          }
+        ]
+      }
