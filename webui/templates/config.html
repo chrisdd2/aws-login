@@ -57,7 +57,7 @@
     </nav>
 
     <!-- Main Content -->
-    <div class="p-8 flex flex-col items-justify">
+    <div class="p-8 flex-1 flex flex-col items-justify">
         <!-- Toolbar -->
         <div class="flex items-center gap-1 z-10 bg-white/90 dark:bg-[#1a1a2e]/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-sm border border-gray-200 dark:border-gray-700 w-fit">
             <a href="/admin/reloadconfig" class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded
@@ -79,14 +79,34 @@
                     Import
                 </button>
             </form>
+
+            <div class="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1"></div>
+
+            <a href="/admin/exportconfig" class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded
+                 bg-gray-600 hover:bg-gray-500
+                 text-white  transition-colors"
+                 download="export.yml"
+                 >
+                <i class="fas fa-file-export"></i>
+                Export
+            </a>
+
+            <div class="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1"></div>
+
+            <a href="/admin/shutdown" class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded
+                 bg-red-600 hover:bg-red-700
+                 text-white shadow transition-colors">
+                <i class="fas fa-power-off"></i>
+                Shutdown
+            </a>
         </div>
-        <div id="configuration" class="flex flex-col gap-2 py-2 w-full">
+        <div id="configuration" class="flex flex-col -mt-0.5 w-full">
             <!-- Tab Navigation -->
-            <div class="flex gap-1 bg-gray-50 dark:bg-[#1a1a2e] px-4 pt-4 rounded-t-lg overflow-hidden" role="tablist">
-                <button id="tab-users" class="tab-button text-xs px-3 py-1.5 rounded-t bg-indigo-600 text-white" onclick="selectTab('users')" role="tab">Users</button>
-                <button id="tab-accounts" class="tab-button text-xs px-3 py-1.5 rounded-t bg-gray-500 hover:bg-gray-400 text-white" onclick="selectTab('accounts')" role="tab">Accounts</button>
-                <button id="tab-roles" class="tab-button text-xs px-3 py-1.5 rounded-t bg-gray-500 hover:bg-gray-400 text-white" onclick="selectTab('roles')" role="tab">Roles</button>
-                <button id="tab-policies" class="tab-button text-xs px-3 py-1.5 rounded-t bg-gray-500 hover:bg-gray-400 text-white" onclick="selectTab('policies')" role="tab">Policies</button>
+            <div class="flex gap-1 bg-white dark:bg-[#1a1a2e] px-4 pt-4 rounded-t-lg overflow-hidden" role="tablist">
+                <button id="tab-users" class="tab-button text-xs px-3 py-1.5 rounded-t-lg bg-indigo-600 text-white" onclick="selectTab('users')" role="tab">Users</button>
+                <button id="tab-accounts" class="tab-button text-xs px-3 py-1.5 rounded-t-lg bg-gray-400 dark:bg-gray-600 text-white" onclick="selectTab('accounts')" role="tab">Accounts</button>
+                <button id="tab-roles" class="tab-button text-xs px-3 py-1.5 rounded-t-lg bg-gray-400 dark:bg-gray-600 text-white" onclick="selectTab('roles')" role="tab">Roles</button>
+                <button id="tab-policies" class="tab-button text-xs px-3 py-1.5 rounded-t-lg bg-gray-400 dark:bg-gray-600 text-white" onclick="selectTab('policies')" role="tab">Policies</button>
             </div>
 
             <!-- Tab Content -->
@@ -316,10 +336,12 @@
 
         function selectTab(key) {
             document.querySelectorAll('.yaml-content').forEach(el => el.classList.add('hidden'));
-            document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('bg-indigo-600'));
-            document.querySelectorAll('.tab-button').forEach(el => el.classList.add('bg-gray-700'));
+            document.querySelectorAll('.tab-button').forEach(el => {
+                el.classList.remove('bg-indigo-600');
+                el.classList.add('bg-gray-400', 'dark:bg-gray-600');
+            });
             document.getElementById('yaml-' + key).classList.remove('hidden');
-            document.getElementById('tab-' + key).classList.remove('bg-gray-700');
+            document.getElementById('tab-' + key).classList.remove('bg-gray-400', 'dark:bg-gray-600');
             document.getElementById('tab-' + key).classList.add('bg-indigo-600');
             hljs.highlightAll();
         }

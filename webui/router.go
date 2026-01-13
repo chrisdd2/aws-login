@@ -19,6 +19,7 @@ import (
 	"github.com/chrisdd2/aws-login/webui/templates"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
+	"sigs.k8s.io/yaml"
 )
 
 const authCookie = "aws-login-cookie"
@@ -250,6 +251,21 @@ func Router(
 			}
 			ev.Publish(ctx, "config_import", map[string]string{"username": user.Username})
 			configHandler(w, r, printable, &cfg)
+		})
+		r.Get("/exportconfig", func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			st, err := printable.Display(ctx)
+			if err != nil {
+				sendError(w, r, err)
+				return
+			}
+			buf, err := yaml.Marshal(st)
+			if err != nil {
+				sendError(w, r, err)
+				return
+			}
+			w.Header().Add("Content-Type", "application/yaml")
+			w.Write(buf)
 		})
 		r.Get("/config", func(w http.ResponseWriter, r *http.Request) {
 			configHandler(w, r, printable, &cfg)
