@@ -65,7 +65,7 @@ type Account struct {
 	HasDeploy    bool
 }
 
-type AdminData struct {
+type AccountsData struct {
 	Navbar
 	Accounts []Account
 }
@@ -78,8 +78,8 @@ func RolesTemplate(w io.Writer, data RolesData) error {
 	return pagesTmpls.ExecuteTemplate(w, "roles.html", data)
 }
 
-func AdminTemplate(w io.Writer, data AdminData) error {
-	return pagesTmpls.ExecuteTemplate(w, "admin.html", data)
+func AccountsTemplate(w io.Writer, data AccountsData) error {
+	return pagesTmpls.ExecuteTemplate(w, "accounts.html", data)
 }
 func WatchTemplate(w io.Writer, data WatchData) error {
 	return pagesTmpls.ExecuteTemplate(w, "watch.html", data)

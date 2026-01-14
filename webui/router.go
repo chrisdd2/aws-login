@@ -196,48 +196,46 @@ func Router(
 	})
 
 	statusCache := StatusCache{accountsSvc: accountSrvc, in: sync.Map{}}
-	loggedIn.With(superOnlyMiddleware()).Route("/admin", func(r chi.Router) {
-		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			ctx := r.Context()
-			user := getUser(r)
+	loggedIn.With(superOnlyMiddleware()).Get("/admin", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		user := getUser(r)
 
-			accounts, err := accountSrvc.ListAccounts(ctx)
+		accounts, err := accountSrvc.ListAccounts(ctx)
+		if err != nil {
+			sendError(w, r, err)
+			return
+		}
+		templateAccounts := make([]templates.Account, 0, len(accounts))
+		for _, acc := range accounts {
+			status, err := statusCache.Status(ctx, acc.Name)
 			if err != nil {
 				sendError(w, r, err)
 				return
 			}
-			templateAccounts := make([]templates.Account, 0, len(accounts))
-			for _, acc := range accounts {
-				status, err := statusCache.Status(ctx, acc.Name)
-				if err != nil {
-					sendError(w, r, err)
-					return
-				}
-				templateAccounts = append(templateAccounts, templates.Account{
-					AccountName:  acc.Name,
-					AccountId:    acc.AwsAccountId,
-					UpdateStatus: deploymentStatusMessage(status),
-					HasStack:     status.StackExists,
-					HasDeploy:    !status.NeedsBootstrap,
-				})
-			}
-			data := templates.AdminData{
-				Navbar:   templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
-				Accounts: templateAccounts,
-			}
-			if err := templates.AdminTemplate(w, data); err != nil {
-				sendError(w, r, err)
-			}
+			templateAccounts = append(templateAccounts, templates.Account{
+				AccountName:  acc.Name,
+				AccountId:    acc.AwsAccountId,
+				UpdateStatus: deploymentStatusMessage(status),
+				HasStack:     status.StackExists,
+				HasDeploy:    !status.NeedsBootstrap,
+			})
+		}
+		data := templates.AccountsData{
+			Navbar:   templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
+			Accounts: templateAccounts,
+		}
+		if err := templates.AccountsTemplate(w, data); err != nil {
+			sendError(w, r, err)
+		}
+	})
+	loggedIn.With(superOnlyMiddleware()).Route("/config", func(r chi.Router) {
+		r.Get("/shutdown", func(w http.ResponseWriter, r *http.Request) {
+			render.JSON(w, r, struct {
+				Message string `json:"message"`
+			}{Message: "shutting down"})
+			shutdownCtxCancel(errors.New("user_request"))
 		})
-		r.Get("/reloadconfig", func(w http.ResponseWriter, r *http.Request) {
-			ctx := r.Context()
-			if err := reloadable.Reload(ctx); err != nil {
-				sendError(w, r, err)
-			}
-			slog.Info("reloaded config", "source", "admin_page")
-			http.Redirect(w, r, "/admin/config", http.StatusTemporaryRedirect)
-		})
-		r.Post("/importconfig", func(w http.ResponseWriter, r *http.Request) {
+		r.Post("/import", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			user := getUser(r)
 			file, _, err := r.FormFile("file")
@@ -252,7 +250,7 @@ func Router(
 			ev.Publish(ctx, "config_import", map[string]string{"username": user.Username})
 			configHandler(w, r, printable, &cfg)
 		})
-		r.Get("/exportconfig", func(w http.ResponseWriter, r *http.Request) {
+		r.Get("/export", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			st, err := printable.Display(ctx)
 			if err != nil {
@@ -267,14 +265,16 @@ func Router(
 			w.Header().Add("Content-Type", "application/yaml")
 			w.Write(buf)
 		})
-		r.Get("/config", func(w http.ResponseWriter, r *http.Request) {
-			configHandler(w, r, printable, &cfg)
+		r.Get("/reload", func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			if err := reloadable.Reload(ctx); err != nil {
+				sendError(w, r, err)
+			}
+			slog.Info("reloaded config", "source", "admin_page")
+			http.Redirect(w, r, "/config", http.StatusTemporaryRedirect)
 		})
-		r.Get("/shutdown", func(w http.ResponseWriter, r *http.Request) {
-			render.JSON(w, r, struct {
-				Message string `json:"message"`
-			}{Message: "shutting down"})
-			shutdownCtxCancel(errors.New("user_request"))
+		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			configHandler(w, r, printable, &cfg)
 		})
 	})
 	loggedIn.Route("/account", func(r chi.Router) {

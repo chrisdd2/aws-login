@@ -29,7 +29,7 @@
                     <a href="/admin" class="text-sm font-medium text-indigo-600 dark:text-indigo-300 hover:underline">
                         Admin
                     </a>
-                    <a href="/admin/config" class="text-sm font-medium text-indigo-600 dark:text-indigo-300 hover:underline">
+                    <a href="/config" class="text-sm font-medium text-indigo-600 dark:text-indigo-300 hover:underline">
                         Configuration
                     </a>
                     {{end}}
@@ -60,7 +60,7 @@
     <div class="p-8 flex-1 flex flex-col items-justify">
         <!-- Toolbar -->
         <div class="flex items-center gap-1 z-10 bg-white/90 dark:bg-[#1a1a2e]/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-sm border border-gray-200 dark:border-gray-700 w-fit">
-            <a href="/admin/reloadconfig" class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded
+            <a href="/config/reload" class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded
                  bg-indigo-600 hover:bg-indigo-700
                  text-white shadow transition-colors">
                 <i class="fas fa-sync-alt"></i>
@@ -69,7 +69,7 @@
 
             <div class="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1"></div>
 
-            <form action="/admin/importconfig" method="post" enctype="multipart/form-data" class="contents">
+            <form action="/config/import" method="post" enctype="multipart/form-data" class="contents">
                 <input type="file" name="file" id="importFile" accept=".yml,.yaml" class="hidden">
                 <button type="button" onclick="document.getElementById('importFile').click()"
                 class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded
@@ -82,7 +82,7 @@
 
             <div class="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1"></div>
 
-            <a href="/admin/exportconfig" class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded
+            <a href="/config/export" class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded
                  bg-gray-600 hover:bg-gray-500
                  text-white  transition-colors"
                  download="export.yml"
@@ -93,7 +93,7 @@
 
             <div class="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1"></div>
 
-            <a href="/admin/shutdown" class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded
+            <a href="/config/shutdown" class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded
                  bg-red-600 hover:bg-red-700
                  text-white shadow transition-colors">
                 <i class="fas fa-power-off"></i>
