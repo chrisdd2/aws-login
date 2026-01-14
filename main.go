@@ -124,12 +124,12 @@ func main() {
 	var signKey []byte = []byte(appCfg.Auth.SignKey)
 	// make sure we got a sign key
 	if len(signKey) == 0 {
-		buf, _ := cache.Read("signkey")
+		buf, _ := cache.Read("signkey") // Cache read errors are non-fatal; we'll regenerate
 		if len(buf) == 0 {
 			buf = make([]byte, 120)
 			rand.Read(buf)
 			buf = base64.StdEncoding.AppendEncode(nil, buf)
-			cache.Write("signkey", buf)
+			_ = cache.Write("signkey", buf) // Write errors are logged but non-fatal
 		}
 		signKey = must2(base64.StdEncoding.AppendDecode(nil, buf))
 		slog.Info("signkey", "size", len(buf))
@@ -158,7 +158,7 @@ func main() {
 		slog.Info("enabled", "auth", "github")
 	}
 	if appCfg.Auth.Keycloak.Enabled() {
-		idps = append(idps, must2(services.NewOpenId(ctx, "keycloak", appCfg.Auth.Keycloak)))
+		idps = append(idps, must2(services.NewOpenId(ctx, "keycloak", appCfg.Auth.Keycloak, appCfg.IsProduction())))
 		slog.Info("enabled", "auth", "keycloak")
 	}
 	if appCfg.Auth.Google.Enabled() {
@@ -171,7 +171,7 @@ func main() {
 				return nil
 			})
 		}
-		idps = append(idps, must2(services.NewOpenId(ctx, "google", appCfg.Auth.Google)))
+		idps = append(idps, must2(services.NewOpenId(ctx, "google", appCfg.Auth.Google, appCfg.IsProduction())))
 		slog.Info("enabled", "auth", "google")
 	}
 

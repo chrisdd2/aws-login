@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -91,7 +90,6 @@ func (p *PostgresStore) prepareDb(ctx context.Context) error {
 	}
 	switch version {
 	case "1":
-		log.Println("updating to v2 schema")
 		return p.v2Schema(ctx)
 	case "2":
 		return nil
@@ -234,19 +232,17 @@ func (tm TextMap) Serialize() string {
 }
 
 func (p *PostgresStore) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	log.Println(query)
 	return p.db.QueryContext(ctx, query, args...)
-}
-func (p *PostgresStore) queryFmt(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	return p.db.QueryContext(ctx, fmt.Sprintf(query, args...))
 }
 
 func (p *PostgresStore) adminRoles(ctx context.Context, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error) {
 	q := fmt.Sprintf("SELECT name, roles FROM %s WHERE 2 > 1", accountsTable)
+	var args []any
 	if accountName != "" {
-		q += fmt.Sprintf(" AND name = '%s'", accountName)
+		q += " AND name = $1"
+		args = append(args, accountName)
 	}
-	rows, err := p.query(ctx, q)
+	rows, err := p.query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +260,6 @@ func (p *PostgresStore) adminRoles(ctx context.Context, roleName string, account
 			ret = append(ret, appconfig.RoleUserAttachment{RoleName: role, AccountName: name.String, Permissions: appconfig.RolePermissionAll})
 		}
 	}
-	log.Println(ret)
 	return ret, nil
 }
 
@@ -309,14 +304,14 @@ func (p *PostgresStore) ListRolePermissions(
 	var ret []appconfig.RoleUserAttachment
 
 	for rows.Next() {
-		var roleName, accountName, perms string
-		if err := rows.Scan(&roleName, &accountName, &perms); err != nil {
+		var dbRoleName, dbAccountName, perms string
+		if err := rows.Scan(&dbRoleName, &dbAccountName, &perms); err != nil {
 			return nil, err
 		}
 
 		ret = append(ret, appconfig.RoleUserAttachment{
-			RoleName:    roleName,
-			AccountName: accountName,
+			RoleName:    dbRoleName,
+			AccountName: dbAccountName,
 			Permissions: parseArray(perms),
 		})
 	}
@@ -495,7 +490,7 @@ func (p *PostgresStore) Reload(ctx context.Context) error {
 func (p *PostgresStore) Display(ctx context.Context) (*InMemoryStore, error) {
 	// try to convert the database into a filestore
 	userRoles := map[string][]appconfig.RoleUserAttachment{}
-	rows, err := p.queryFmt(ctx, "SELECT user_name,role_name,account_name,permissions FROM %s", userRolesTable)
+	rows, err := p.query(ctx, fmt.Sprintf("SELECT user_name,role_name,account_name,permissions FROM %s", userRolesTable))
 	if err != nil {
 		return nil, err
 	}
@@ -508,7 +503,7 @@ func (p *PostgresStore) Display(ctx context.Context) (*InMemoryStore, error) {
 		userRoles[userName] = append(userRoles[userName], appconfig.RoleUserAttachment{RoleName: roleName, AccountName: accountName, Permissions: parseArray(permissions)})
 	}
 	users := []appconfig.User{}
-	rows, err = p.queryFmt(ctx, "SELECT name,superuser,friendly_name FROM %s", usersTable)
+	rows, err = p.query(ctx, fmt.Sprintf("SELECT name,superuser,friendly_name FROM %s", usersTable))
 	if err != nil {
 		return nil, err
 	}
@@ -522,7 +517,7 @@ func (p *PostgresStore) Display(ctx context.Context) (*InMemoryStore, error) {
 		users = append(users, appconfig.User{FriendlyName: friendlyName, Name: name, Roles: userRoles[name], Superuser: superuser})
 	}
 	policies := []appconfig.InlinePolicy{}
-	rows, err = p.queryFmt(ctx, "SELECT id,document FROM %s", policiesTable)
+	rows, err = p.query(ctx, fmt.Sprintf("SELECT id,document FROM %s", policiesTable))
 	if err != nil {
 		return nil, err
 	}
@@ -535,7 +530,7 @@ func (p *PostgresStore) Display(ctx context.Context) (*InMemoryStore, error) {
 		policies = append(policies, appconfig.InlinePolicy{Id: id, Document: document})
 	}
 	accounts := []appconfig.Account{}
-	rows, err = p.queryFmt(ctx, "SELECT aws_account_id,name,roles,enabled FROM %s", accountsTable)
+	rows, err = p.query(ctx, fmt.Sprintf("SELECT aws_account_id,name,roles,enabled FROM %s", accountsTable))
 	if err != nil {
 		return nil, err
 	}
@@ -550,7 +545,7 @@ func (p *PostgresStore) Display(ctx context.Context) (*InMemoryStore, error) {
 	}
 
 	roles := []appconfig.Role{}
-	rows, err = p.queryFmt(ctx, "SELECT name,max_session_duration,managed_policies,policies,enabled FROM %s", rolesTable)
+	rows, err = p.query(ctx, fmt.Sprintf("SELECT name,max_session_duration,managed_policies,policies,enabled FROM %s", rolesTable))
 	if err != nil {
 		return nil, err
 	}
@@ -579,7 +574,11 @@ func (p *PostgresStore) Display(ctx context.Context) (*InMemoryStore, error) {
 }
 
 func (p *PostgresStore) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
-	b, _ := json.Marshal(metadata)
+	b, err := json.Marshal(metadata)
+	if err != nil {
+		// Fallback to empty object if marshaling fails
+		b = []byte("{}")
+	}
 	if b == nil {
 		b = []byte{'{', '}'}
 	}

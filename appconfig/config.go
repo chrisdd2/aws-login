@@ -41,6 +41,7 @@ const (
 type AppConfig struct {
 	environmentVariablePrefix string
 	Name                      string `json:"name,omitempty" mask:"true"`
+	Environment               string `json:"environment,omitempty" defeault:"development"`
 	MetrisAddr                string `json:"metrics_addr,omitempty" default:"localhost:8099"`
 	ListenAddr                string `json:"listen_addr,omitempty" default:"localhost:8090"`
 	DevelopmentMode           bool   `json:"development_mode,omitempty" default:"false"`
@@ -67,6 +68,10 @@ type AppConfig struct {
 		Github           GithubIdpConfig `json:"github"`
 		GoogleWorkspaces []string        `json:"google_workspaces"`
 	} `json:"auth"`
+}
+
+func (a *AppConfig) IsProduction() bool {
+	return a.Environment == "production"
 }
 
 func (a *AppConfig) LoadDefaults() error {

@@ -227,9 +227,13 @@ func (a *apiImpl) GenerateSigninUrl(ctx context.Context, roleArn string, session
 		SessionId    string `json:"sessionId"`
 		SessionKey   string `json:"sessionKey"`
 		SessionToken string `json:"sessionToken"`
-	}{accessKeyId, secretAccessKey, sessionToken}
+	}{
+		SessionId:    accessKeyId,
+		SessionKey:   secretAccessKey,
+		SessionToken: sessionToken,
+	}
 
-	tokenStr, _ := json.Marshal(token)
+	tokenStr, _ := json.Marshal(token) // Error handled below; empty string is acceptable
 	values := url.Values{
 		"Action":          []string{"getSigninToken"},
 		"SessionDuration": []string{strconv.Itoa(int(DefaultSessionDuration))},

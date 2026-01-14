@@ -160,13 +160,14 @@ func getWrapped(url string, headers map[string]string, expected int, v any) erro
 }
 
 type OpenIdService struct {
-	provider    *oidc.Provider
-	verifier    *oidc.IDTokenVerifier
-	oauthCfg    *oauth2.Config
-	name        string
-	endpoint    string
-	logoutUrl   string
-	validations []OpenIdClaimsValidation
+	provider      *oidc.Provider
+	verifier      *oidc.IDTokenVerifier
+	oauthCfg      *oauth2.Config
+	name          string
+	endpoint      string
+	logoutUrl     string
+	validations   []OpenIdClaimsValidation
+	secureCookies bool
 }
 
 func findLogoutUrl(issuer string) (string, error) {
@@ -197,7 +198,7 @@ type OpenIdClaims struct {
 
 type OpenIdClaimsValidation func(claims OpenIdClaims) error
 
-func NewOpenId(ctx context.Context, name string, o appconfig.OpenIdConfig, validations ...OpenIdClaimsValidation) (*OpenIdService, error) {
+func NewOpenId(ctx context.Context, name string, o appconfig.OpenIdConfig, secureCookies bool, validations ...OpenIdClaimsValidation) (*OpenIdService, error) {
 	parsedUrl, err := url.Parse(o.RedirectUrl)
 	if err != nil {
 		return nil, fmt.Errorf("url.Parse %w", err)
@@ -228,13 +229,14 @@ func NewOpenId(ctx context.Context, name string, o appconfig.OpenIdConfig, valid
 		},
 	}
 	return &OpenIdService{
-		oauthCfg:    &cfg,
-		verifier:    verifier,
-		provider:    provider,
-		logoutUrl:   logoutUrl,
-		endpoint:    endpoint,
-		name:        name,
-		validations: validations,
+		oauthCfg:      &cfg,
+		verifier:      verifier,
+		provider:      provider,
+		logoutUrl:     logoutUrl,
+		endpoint:      endpoint,
+		name:          name,
+		validations:   validations,
+		secureCookies: secureCookies,
 	}, nil
 }
 
@@ -253,7 +255,8 @@ func (g *OpenIdService) Login(w http.ResponseWriter, r *http.Request) {
 		Name:     "oauth_state",
 		Value:    state,
 		HttpOnly: true,
-		Secure:   false,
+		Secure:   g.secureCookies,
+		SameSite: http.SameSiteStrictMode,
 		Path:     "/",
 	})
 
@@ -265,7 +268,8 @@ func (g *OpenIdService) Login(w http.ResponseWriter, r *http.Request) {
 		Name:     "pkce_verifier",
 		Value:    codeVerifier,
 		HttpOnly: true,
-		Secure:   false,
+		Secure:   g.secureCookies,
+		SameSite: http.SameSiteStrictMode,
 		Path:     "/",
 	})
 

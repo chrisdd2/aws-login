@@ -64,6 +64,7 @@ func Router(
 	}
 
 	hasAdminLogin := cfg.Auth.AdminPassword != "" && cfg.Auth.AdminUsername != ""
+	secureCookies := cfg.IsProduction()
 
 	r := chi.NewRouter()
 	// font awesome ruins me
@@ -105,7 +106,7 @@ func Router(
 			}
 			accessToken, _ := tokenSvc.Create(r.Context(), &services.UserInfo{Username: username, FriendlyName: friendlyName(username), Superuser: true, LoginType: "userpass"}, false)
 			ev.Publish(r.Context(), "user_login", map[string]string{"username": username, "login_type": loginType})
-			sendAccessToken(w, r, accessToken)
+			sendAccessToken(w, r, accessToken, secureCookies)
 			return
 		}
 		if err := templates.LoginTemplate(w, templates.LoginData{AppName: cfg.Name, HasAdminPrompt: hasAdminLogin, ErrorString: loginErrorString(urlParams)}); err != nil {
@@ -133,7 +134,7 @@ func Router(
 				return
 			}
 			ev.Publish(ctx, "user_login", map[string]string{"username": info.Username, "login_type": details.Name})
-			sendAccessToken(w, r, accessToken)
+			sendAccessToken(w, r, accessToken, secureCookies)
 		})
 
 	}
@@ -463,7 +464,7 @@ func superOnlyMiddleware() func(next http.Handler) http.Handler {
 	}
 }
 
-func sendAccessToken(w http.ResponseWriter, r *http.Request, accessToken string) {
+func sendAccessToken(w http.ResponseWriter, r *http.Request, accessToken string, secure bool) {
 	cookie := http.Cookie{
 		Name:     authCookie,
 		Value:    accessToken,
@@ -471,6 +472,8 @@ func sendAccessToken(w http.ResponseWriter, r *http.Request, accessToken string)
 		MaxAge:   int((time.Hour * 8) / time.Second),
 		Expires:  time.Now().UTC().Add(time.Hour * 8),
 		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteStrictMode,
 	}
 	http.SetCookie(w, &cookie)
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)

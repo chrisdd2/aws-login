@@ -31,7 +31,7 @@ func (u UserInfo) DebugPrint() {
 	fmt.Println("{")
 	fmt.Println("\tUsername:", u.Username)
 	fmt.Println("\tFriendlyName:", u.FriendlyName)
-	fmt.Println("\tSuperuse:", u.Superuser)
+	fmt.Println("\tSuperuser:", u.Superuser)
 	fmt.Println("\tLoginType:", u.LoginType)
 	fmt.Println("\tIdpToken:", u.IdpToken)
 	fmt.Println("}")
