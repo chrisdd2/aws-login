@@ -252,6 +252,7 @@ func Router(
 		})
 		r.Get("/export", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
+			user := getUser(r)
 			st, err := printable.Display(ctx)
 			if err != nil {
 				sendError(w, r, err)
@@ -262,6 +263,8 @@ func Router(
 				sendError(w, r, err)
 				return
 			}
+			ev.Publish(ctx, "config_export", map[string]string{"username": user.Username})
+
 			w.Header().Add("Content-Type", "application/yaml")
 			w.Write(buf)
 		})
