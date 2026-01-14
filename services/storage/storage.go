@@ -81,18 +81,4 @@ type InMemoryStore struct {
 
 func (s *InMemoryStore) Display(ctx context.Context) (*InMemoryStore, error) {
 	return s, nil
-	// marshal := func(v any) string {
-	// 	data, err := yaml.Marshal(v)
-	// 	if err != nil {
-	// 		return ""
-	// 	}
-	// 	return string(data)
-	// }
-	// data := map[string]string{
-	// 	"Accounts": marshal(s.Accounts),
-	// 	"Roles":    marshal(s.Roles),
-	// 	"Users":    marshal(s.Users),
-	// 	"Policies": marshal(s.Policies),
-	// }
-	// return data, nil
 }
