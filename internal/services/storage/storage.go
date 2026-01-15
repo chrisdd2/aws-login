@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"time"
 
@@ -72,7 +71,7 @@ func (n NoopStorage) Display(ctx context.Context) (*InMemoryStore, error) {
 	return &InMemoryStore{}, nil
 }
 
-func (n NoopStorage) Import(ctx context.Context, r io.Reader) error {
+func (n NoopStorage) Import(ctx context.Context, st *InMemoryStore) error {
 	return nil
 }
 
