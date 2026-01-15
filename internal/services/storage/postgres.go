@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"strings"
 	"time"
@@ -15,7 +14,6 @@ import (
 	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"sigs.k8s.io/yaml"
 )
 
 var (
@@ -589,15 +587,7 @@ func (p *PostgresStore) Publish(ctx context.Context, eventType string, metadata 
 	return nil
 }
 
-func (p *PostgresStore) Import(ctx context.Context, r io.Reader) error {
-	fs := InMemoryStore{}
-	buf, err := io.ReadAll(r)
-	if err != nil {
-		return fmt.Errorf("io.ReadAll: %w", err)
-	}
-	if err := yaml.UnmarshalStrict(buf, &fs, yaml.DisallowUnknownFields); err != nil {
-		return fmt.Errorf("yaml.UnmarshalStrict: %w", err)
-	}
+func (p *PostgresStore) Import(ctx context.Context, fs *InMemoryStore) error {
 
 	tx, err := p.db.BeginTx(ctx, nil)
 	if err != nil {

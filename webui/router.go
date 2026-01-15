@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -240,14 +241,25 @@ func Router(
 			ctx := r.Context()
 			user := getUser(r)
 			file, _, err := r.FormFile("file")
+			defer file.Close()
 			if err != nil {
 				sendError(w, r, err)
 				return
 			}
-			if err := importable.Import(ctx, file); err != nil {
+			fs := storage.InMemoryStore{}
+			buf, err := io.ReadAll(file)
+			if err != nil {
+				sendError(w, r, fmt.Errorf("io.ReadAll: %w", err))
+				return
+			}
+			if err := yaml.UnmarshalStrict(buf, &fs, yaml.DisallowUnknownFields); err != nil {
+				sendError(w, r, fmt.Errorf("yaml.UnmarshalStrict: %w", err))
+			}
+			if err := importable.Import(ctx, &fs); err != nil {
 				sendError(w, r, err)
 				return
 			}
+
 			ev.Publish(ctx, "config_import", map[string]string{"username": user.Username})
 			configHandler(w, r, printable, &cfg)
 		})

@@ -26,7 +26,11 @@ type Printable interface {
 }
 
 type Importable interface {
-	Import(ctx context.Context, reader io.Reader) error
+	Import(ctx context.Context, st *InMemoryStore) error
+}
+
+type UserRoleSyncer interface {
+	SyncUserRoles(ctx context.Context) error
 }
 
 type Storage interface {
