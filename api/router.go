@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/chrisdd2/aws-login/services"
-	"github.com/chrisdd2/aws-login/services/account"
+	"github.com/chrisdd2/aws-login/internal/services"
+	"github.com/chrisdd2/aws-login/internal/services/account"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
 )

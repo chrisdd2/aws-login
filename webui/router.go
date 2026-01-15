@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/chrisdd2/aws-login/appconfig"
-	"github.com/chrisdd2/aws-login/services"
-	"github.com/chrisdd2/aws-login/services/account"
-	"github.com/chrisdd2/aws-login/services/storage"
+	"github.com/chrisdd2/aws-login/internal/services"
+	"github.com/chrisdd2/aws-login/internal/services/account"
+	"github.com/chrisdd2/aws-login/internal/services/storage"
 	"github.com/chrisdd2/aws-login/webui/templates"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"

@@ -6,8 +6,8 @@ import (
 	"html/template"
 	"io"
 
-	"github.com/chrisdd2/aws-login/aws"
-	"github.com/chrisdd2/aws-login/services/storage"
+	"github.com/chrisdd2/aws-login/internal/aws"
+	"github.com/chrisdd2/aws-login/internal/services/storage"
 )
 
 //go:embed static webfonts

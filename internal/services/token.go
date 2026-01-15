@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/chrisdd2/aws-login/services/storage"
+	"github.com/chrisdd2/aws-login/internal/services/storage"
 	"github.com/golang-jwt/jwt/v5"
 )
 
