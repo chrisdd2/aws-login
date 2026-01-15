@@ -209,6 +209,20 @@ func (s *FileStore) ListAccounts(ctx context.Context) ([]*appconfig.Account, err
 	}
 	return ret, nil
 }
+func (s *FileStore) ListUsers(ctx context.Context) ([]string, error) {
+	ret := make([]string, 0, len(s.Users))
+	for _, usr := range s.Users {
+		ret = append(ret, usr.Name)
+	}
+	return ret, nil
+}
+func (s *FileStore) ListPolicies(ctx context.Context) ([]string, error) {
+	ret := make([]string, 0, len(s.Policies))
+	for _, p := range s.Policies {
+		ret = append(ret, p.Id)
+	}
+	return ret, nil
+}
 
 func (s *FileStore) Reload(ctx context.Context) error {
 	ret := &FileStore{}
@@ -399,7 +413,6 @@ func (s *FileStore) Validate(ctx context.Context) error {
 	}
 	return errors.Join(errs...)
 }
-
 
 func (s *FileStore) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
 	return s.ev.Publish(ctx, eventType, metadata)

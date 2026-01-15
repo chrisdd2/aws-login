@@ -21,8 +21,13 @@ func jsonFunc(v any) string {
 	return string(data)
 }
 
+func incFunc(n int) int {
+	return n + 1
+}
+
 var pagesTmpls = template.Must(template.New("").Funcs(template.FuncMap{
 	"json": jsonFunc,
+	"inc":  incFunc,
 }).ParseFS(pages, "*.html"))
 
 type Navbar struct {
@@ -87,7 +92,8 @@ func WatchTemplate(w io.Writer, data WatchData) error {
 
 type ConfigurationData struct {
 	Navbar
-	Store *storage.InMemoryStore
+	Store   *storage.InMemoryStore
+	Changes []storage.Change
 }
 
 func ConfigurationTemplate(w io.Writer, data ConfigurationData) error {

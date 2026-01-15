@@ -682,3 +682,151 @@ func (p *PostgresStore) Import(ctx context.Context, fs *InMemoryStore) error {
 
 	return nil
 }
+
+func (p *PostgresStore) ListUsers(ctx context.Context) ([]string, error) {
+	rows, err := p.db.QueryContext(ctx, fmt.Sprintf("SELECT name from %s", usersTable))
+	if err != nil {
+		return nil, err
+	}
+	ret := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		ret = append(ret, name)
+	}
+	return ret, nil
+}
+
+func (p *PostgresStore) ListPolicies(ctx context.Context) ([]string, error) {
+	rows, err := p.db.QueryContext(ctx, fmt.Sprintf("SELECT id from %s", policiesTable))
+	if err != nil {
+		return nil, err
+	}
+	ret := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ret = append(ret, id)
+	}
+	return ret, nil
+}
+
+func (p *PostgresStore) PutUser(ctx context.Context, u *appconfig.User, del bool) error {
+	if del {
+		// Delete user and their role attachments
+		if _, err := p.db.ExecContext(ctx,
+			fmt.Sprintf("DELETE FROM %s WHERE user_name = $1", userRolesTable),
+			u.Name); err != nil {
+			return fmt.Errorf("failed to delete user role attachments: %w", err)
+		}
+		if _, err := p.db.ExecContext(ctx,
+			fmt.Sprintf("DELETE FROM %s WHERE name = $1", usersTable),
+			u.Name); err != nil {
+			return fmt.Errorf("failed to delete user: %w", err)
+		}
+		return nil
+	}
+
+	// Upsert user
+	if _, err := p.db.ExecContext(ctx,
+		fmt.Sprintf(`INSERT INTO %s(name, superuser, friendly_name) VALUES($1, $2, $3)
+			ON CONFLICT (name) DO UPDATE SET superuser = $2, friendly_name = $3`,
+			usersTable),
+		u.Name, u.Superuser, u.FriendlyName); err != nil {
+		return fmt.Errorf("failed to upsert user: %w", err)
+	}
+
+	// Delete existing role attachments for this user
+	if _, err := p.db.ExecContext(ctx,
+		fmt.Sprintf("DELETE FROM %s WHERE user_name = $1", userRolesTable),
+		u.Name); err != nil {
+		return fmt.Errorf("failed to delete user role attachments: %w", err)
+	}
+
+	// Insert role attachments
+	for _, roleAttachment := range u.Roles {
+		permissionsStr := strings.Join(roleAttachment.Permissions, ",")
+		if _, err := p.db.ExecContext(ctx,
+			fmt.Sprintf("INSERT INTO %s(user_name, role_name, account_name, permissions) VALUES($1, $2, $3, $4)", userRolesTable),
+			u.Name, roleAttachment.RoleName, roleAttachment.AccountName, permissionsStr); err != nil {
+			return fmt.Errorf("failed to insert user role attachment: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (p *PostgresStore) PutAccount(ctx context.Context, a *appconfig.Account, del bool) error {
+	rolesStr := strings.Join(a.Roles, ",")
+
+	if del {
+		if _, err := p.db.ExecContext(ctx,
+			fmt.Sprintf("DELETE FROM %s WHERE name = $1", accountsTable),
+			a.Name); err != nil {
+			return fmt.Errorf("failed to delete account: %w", err)
+		}
+		return nil
+	}
+
+	// Upsert account
+	if _, err := p.db.ExecContext(ctx,
+		fmt.Sprintf(`INSERT INTO %s(aws_account_id, name, roles, enabled) VALUES($1, $2, $3, $4)
+			ON CONFLICT (aws_account_id) DO UPDATE SET name = $2, roles = $3, enabled = $4`,
+			accountsTable),
+		a.AwsAccountId, a.Name, rolesStr, a.Enabled); err != nil {
+		return fmt.Errorf("failed to upsert account: %w", err)
+	}
+
+	return nil
+}
+
+func (p *PostgresStore) PutRole(ctx context.Context, r *appconfig.Role, del bool) error {
+	policiesStr := TextMap(r.Policies).Serialize()
+	managedPoliciesStr := strings.Join(r.ManagedPolicies, ",")
+
+	if del {
+		if _, err := p.db.ExecContext(ctx,
+			fmt.Sprintf("DELETE FROM %s WHERE name = $1", rolesTable),
+			r.Name); err != nil {
+			return fmt.Errorf("failed to delete role: %w", err)
+		}
+		return nil
+	}
+
+	// Upsert role
+	if _, err := p.db.ExecContext(ctx,
+		fmt.Sprintf(`INSERT INTO %s(name, max_session_duration, managed_policies, policies, enabled) VALUES($1, $2, $3, $4, $5)
+			ON CONFLICT (name) DO UPDATE SET max_session_duration = $2, managed_policies = $3, policies = $4, enabled = $5`,
+			rolesTable),
+		r.Name, int(r.MaxSessionDuration), managedPoliciesStr, policiesStr, r.Enabled); err != nil {
+		return fmt.Errorf("failed to upsert role: %w", err)
+	}
+
+	return nil
+}
+
+func (p *PostgresStore) PutPolicy(ctx context.Context, pol *appconfig.InlinePolicy, del bool) error {
+	if del {
+		if _, err := p.db.ExecContext(ctx,
+			fmt.Sprintf("DELETE FROM %s WHERE id = $1", policiesTable),
+			pol.Id); err != nil {
+			return fmt.Errorf("failed to delete policy: %w", err)
+		}
+		return nil
+	}
+
+	// Upsert policy
+	if _, err := p.db.ExecContext(ctx,
+		fmt.Sprintf(`INSERT INTO %s(id, document) VALUES($1, $2)
+			ON CONFLICT (id) DO UPDATE SET document = $2`,
+			policiesTable),
+		pol.Id, pol.Document); err != nil {
+		return fmt.Errorf("failed to upsert policy: %w", err)
+	}
+
+	return nil
+}

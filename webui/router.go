@@ -23,6 +23,8 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+var ErrNotSupported = errors.New("not supported")
+
 const authCookie = "aws-login-cookie"
 
 func loginErrorString(queryParams url.Values) string {
@@ -51,18 +53,6 @@ func Router(
 	storageSvc storage.Storage,
 	cfg appconfig.AppConfig,
 	ev storage.Eventer) chi.Router {
-	reloadable, ok := storageSvc.(storage.Reloadable)
-	if !ok {
-		reloadable = storage.NoopStorage{}
-	}
-	printable, ok := storageSvc.(storage.Printable)
-	if !ok {
-		printable = storage.NoopStorage{}
-	}
-	importable, ok := storageSvc.(storage.Importable)
-	if !ok {
-		importable = storage.NoopStorage{}
-	}
 
 	hasAdminLogin := cfg.Auth.AdminPassword != "" && cfg.Auth.AdminUsername != ""
 	secureCookies := cfg.IsProduction()
@@ -241,11 +231,11 @@ func Router(
 			ctx := r.Context()
 			user := getUser(r)
 			file, _, err := r.FormFile("file")
-			defer file.Close()
 			if err != nil {
 				sendError(w, r, err)
 				return
 			}
+			defer file.Close()
 			fs := storage.InMemoryStore{}
 			buf, err := io.ReadAll(file)
 			if err != nil {
@@ -255,17 +245,27 @@ func Router(
 			if err := yaml.UnmarshalStrict(buf, &fs, yaml.DisallowUnknownFields); err != nil {
 				sendError(w, r, fmt.Errorf("yaml.UnmarshalStrict: %w", err))
 			}
-			if err := importable.Import(ctx, &fs); err != nil {
+			importable, ok := storageSvc.(storage.Importable)
+			if !ok {
+				sendError(w, r, ErrNotSupported)
+				return
+			}
+			changes, err := storage.ImportAll(ctx, importable, &fs, false)
+			if err != nil {
 				sendError(w, r, err)
 				return
 			}
 
 			ev.Publish(ctx, "config_import", map[string]string{"username": user.Username})
-			configHandler(w, r, printable, &cfg)
+			configHandler(w, r, storageSvc, &cfg, changes)
 		})
 		r.Get("/export", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			user := getUser(r)
+			printable, ok := storageSvc.(storage.Printable)
+			if !ok {
+				printable = storage.NoopStorage{}
+			}
 			st, err := printable.Display(ctx)
 			if err != nil {
 				sendError(w, r, err)
@@ -283,6 +283,10 @@ func Router(
 		})
 		r.Get("/reload", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
+			reloadable, ok := storageSvc.(storage.Reloadable)
+			if !ok {
+				reloadable = storage.NoopStorage{}
+			}
 			if err := reloadable.Reload(ctx); err != nil {
 				sendError(w, r, err)
 			}
@@ -290,7 +294,7 @@ func Router(
 			http.Redirect(w, r, "/config", http.StatusTemporaryRedirect)
 		})
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			configHandler(w, r, printable, &cfg)
+			configHandler(w, r, storageSvc, &cfg, nil)
 		})
 	})
 	loggedIn.Route("/account", func(r chi.Router) {
@@ -555,17 +559,22 @@ func friendlyName(email string) string {
 	return before
 }
 
-func configHandler(w http.ResponseWriter, r *http.Request, printable storage.Printable, cfg *appconfig.AppConfig) {
+func configHandler(w http.ResponseWriter, r *http.Request, storageSvc storage.Storage, cfg *appconfig.AppConfig, changes []storage.Change) {
 	ctx := r.Context()
 	user := getUser(r)
+	printable, ok := storageSvc.(storage.Printable)
+	if !ok {
+		printable = storage.NoopStorage{}
+	}
 	st, err := printable.Display(ctx)
 	if err != nil {
 		sendError(w, r, err)
 		return
 	}
 	data := templates.ConfigurationData{
-		Navbar: templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
-		Store:  st,
+		Navbar:  templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
+		Store:   st,
+		Changes: changes,
 	}
 	if err := templates.ConfigurationTemplate(w, data); err != nil {
 		sendError(w, r, err)

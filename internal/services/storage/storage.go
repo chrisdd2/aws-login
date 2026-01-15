@@ -24,24 +24,28 @@ type Printable interface {
 	Display(ctx context.Context) (*InMemoryStore, error)
 }
 
-type Importable interface {
-	Import(ctx context.Context, st *InMemoryStore) error
+type Writeable interface {
+	PutUser(ctx context.Context, u *appconfig.User, del bool) error
+	PutAccount(ctx context.Context, a *appconfig.Account, del bool) error
+	PutRole(ctx context.Context, r *appconfig.Role, del bool) error
+	PutPolicy(ctx context.Context, p *appconfig.InlinePolicy, del bool) error
 }
 
-type UserRoleSyncer interface {
-	SyncUserRoles(ctx context.Context) error
-}
-
-type Storage interface {
-	ListRolesForAccount(ctx context.Context, accountId string) ([]*appconfig.Role, error)
-
-	ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error)
-	GetInlinePolicy(ctx context.Context, id string) (*appconfig.InlinePolicy, error)
-
+type Readable interface {
 	GetRole(ctx context.Context, name string) (*appconfig.Role, error)
 	GetUser(ctx context.Context, name string) (*appconfig.User, error)
 	GetAccount(ctx context.Context, id string) (*appconfig.Account, error)
 	ListAccounts(ctx context.Context) ([]*appconfig.Account, error)
+	ListUsers(ctx context.Context) ([]string, error)
+	ListPolicies(ctx context.Context) ([]string, error)
+	ListRolesForAccount(ctx context.Context, accountId string) ([]*appconfig.Role, error)
+	GetInlinePolicy(ctx context.Context, id string) (*appconfig.InlinePolicy, error)
+}
+
+type Storage interface {
+	ListRolesForAccount(ctx context.Context, accountId string) ([]*appconfig.Role, error)
+	ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error)
+	Readable
 }
 type Event struct {
 	Id       string            `json:"id,omitempty"`
