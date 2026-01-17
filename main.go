@@ -25,6 +25,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/api"
 	"github.com/chrisdd2/aws-login/appconfig"
+	"github.com/chrisdd2/aws-login/internal"
 	"github.com/chrisdd2/aws-login/internal/aws"
 	"github.com/chrisdd2/aws-login/internal/services"
 	"github.com/chrisdd2/aws-login/internal/services/account"
@@ -175,6 +176,18 @@ func main() {
 		slog.Info("enabled", "auth", "google")
 	}
 
+	var syncer storage.SyncStorer
+	if appCfg.Storage.Sync.Keycloak.BaseUrl != "" {
+		syncer = internal.NewKeycloakSyncer(
+			appCfg.Storage.Sync.Keycloak.BaseUrl,
+			appCfg.Storage.Sync.Keycloak.Realm,
+			"admin-cli",
+			"",
+			appCfg.Storage.Sync.Keycloak.Username,
+			appCfg.Storage.Sync.Keycloak.Password,
+		)
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Logger)
@@ -187,8 +200,7 @@ func main() {
 	}))
 
 	r.Mount("/api", api.V1Api(accSvc, idps, roleSvc, tokenSvc))
-
-	r.Mount("/", webui.Router(cancel, tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg, eventer))
+	r.Mount("/", webui.Router(cancel, tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg, eventer, syncer))
 
 	metricsRouter := chi.NewRouter()
 	metricsRouter.Handle("/metrics", metrics.Handler())

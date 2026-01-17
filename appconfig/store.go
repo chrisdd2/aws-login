@@ -92,12 +92,7 @@ func (tm *TextMap) Value() (driver.Value, error) {
 	for k, v := range *tm {
 		fmt.Fprintf(&b, "%s:%s,", k, v)
 	}
-	ret := b.String()
-	if len(ret) > 0 {
-		// remove trailing comma
-		ret = ret[0 : len(ret)-2]
-	}
-	return ret, nil
+	return strings.TrimSuffix(b.String(), ","), nil
 }
 
 type TextArray []string

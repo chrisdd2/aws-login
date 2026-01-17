@@ -16,34 +16,15 @@ func TestSomething(t *testing.T) {
 		"postgres", "postgres", "localhost", 5432, "postgres",
 	)
 
-	pg, err := NewPostgresStore(ctx, &appconfig.AppConfig{
-		Storage: struct {
-			Type      string "json:\"type\" default:\"file\""
-			Directory string "json:\"dir,omitempty\" default:\".config\" "
-			Postgres  struct {
-				Host     string "json:\"host,omitempty\""
-				Port     int    "json:\"port,omitempty\""
-				Database string "json:\"database,omitempty\""
-				Username string "json:\"username,omitempty\""
-				Password string "json:\"password,omitempty\""
-			} "json:\"postgres\""
-		}{
-			Type: "postgres",
-			Postgres: struct {
-				Host     string "json:\"host,omitempty\""
-				Port     int    "json:\"port,omitempty\""
-				Database string "json:\"database,omitempty\""
-				Username string "json:\"username,omitempty\""
-				Password string "json:\"password,omitempty\""
-			}{
-				Host:     "localhost",
-				Port:     5432,
-				Database: "postgres",
-				Username: "postgres",
-				Password: "postgres",
-			},
-		},
-	})
+	cfg := appconfig.AppConfig{}
+	cfg.Storage.Type = "postgre"
+	cfg.Storage.Postgres.Host = "localhost"
+	cfg.Storage.Postgres.Port = 5432
+	cfg.Storage.Postgres.Database = "postgres"
+	cfg.Storage.Postgres.Password = "postgres"
+	cfg.Storage.Postgres.Username = "postgres"
+
+	pg, err := NewPostgresStore(ctx, &cfg)
 	require.NoError(t, err)
 	require.NoError(t, pg.prepareDb(ctx))
 

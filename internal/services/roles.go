@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"slices"
 
 	"github.com/chrisdd2/aws-login/appconfig"
@@ -122,7 +121,6 @@ func (r *rolesService) Credentials(ctx context.Context, accountName string, role
 	if err != nil {
 		return AwsCredentials{}, fmt.Errorf("storage.ListRoleAccountAttachments: %w", err)
 	}
-	log.Println(attachments)
 	if !slices.ContainsFunc(attachments, func(at appconfig.RoleAccountAttachment) bool {
 		return roleName == at.RoleName
 	}) {

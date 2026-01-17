@@ -2,51 +2,70 @@ package pg
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
-	"log"
 	"log/slog"
 	"strings"
 )
 
 func (p *PostgresStore) prepareDb(ctx context.Context) error {
-	var version string
-	err := p.db.QueryRowContext(ctx,
-		fmt.Sprintf(`SELECT max(version) as version FROM %s LIMIT 1`, schemaVersionTable),
-	).Scan(&version)
+	for {
+		var version string
+		err := p.db.QueryRowContext(ctx,
+			fmt.Sprintf(`SELECT max(version) as version FROM %s LIMIT 1`, schemaVersionTable),
+		).Scan(&version)
 
-	if err != nil {
-		if strings.Contains(err.Error(), "does not exist") {
-			if err := p.v1Schema(ctx); err != nil {
+		if err != nil {
+			if !strings.Contains(err.Error(), "does not exist") {
 				return err
 			}
-			if err := p.v2Schema(ctx); err != nil {
-				return err
-			}
-			return p.v3Schema(ctx)
+			version = "0"
 		}
-		if err == sql.ErrNoRows {
-			return p.v3Schema(ctx)
+		switch version {
+		case "0":
+			slog.Info("storage", "pg", "upgrading to v1")
+			err = p.v1Schema(ctx)
+		case "1":
+			slog.Info("storage", "pg", "upgrading to v2")
+			err = p.v2Schema(ctx)
+		case "2":
+			slog.Info("storage", "pg", "upgrading to v3")
+			err = p.v3Schema(ctx)
+		case "3":
+			slog.Info("storage", "pg", "upgrading to v4")
+			err = p.v4Schema(ctx)
+		case "4":
+			return nil
+		default:
+			return ErrInvalidSchemaVersion
 		}
+		if err != nil {
+			return err
+		}
+	}
+}
+
+func (p *PostgresStore) v4Schema(ctx context.Context) error {
+	return p.executeVersion(ctx, 4,
+		fmt.Sprintf("ALTER TABLE %s ADD UNIQUE (role_name,policy_id)", rolePolicyTable),
+		fmt.Sprintf("ALTER TABLE %s ADD UNIQUE (role_name,account_name)", roleAccountTable),
+		fmt.Sprintf("ALTER TABLE %s ADD UNIQUE (role_name,account_name,user_name)", userRolesTable),
+	)
+}
+
+func (p *PostgresStore) executeVersion(ctx context.Context, version int, queries ...string) error {
+	for _, q := range queries {
+		if _, err := p.db.ExecContext(ctx, q); err != nil {
+			return err
+		}
+	}
+	if _, err := p.db.ExecContext(ctx, fmt.Sprintf(`INSERT INTO %s(version) SELECT %d`, schemaVersionTable, version)); err != nil {
 		return err
 	}
-	switch version {
-	case "1":
-		slog.Info("storage", "pg", "upgrading to v2")
-		return p.v2Schema(ctx)
-	case "2":
-		slog.Info("storage", "pg", "upgrading to v3")
-		return p.v3Schema(ctx)
-	case "3":
-		return nil
-	}
-	return ErrInvalidSchemaVersion
+	return nil
 }
 
 func (p *PostgresStore) v3Schema(ctx context.Context) error {
-
-	queries := []string{
-
+	return p.executeVersion(ctx, 3,
 		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(role_name text,account_name text,disabled boolean,metadata text)", roleAccountTable),
 		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(role_name text,policy_id text,disabled boolean,metadata text)", rolePolicyTable),
 
@@ -82,37 +101,20 @@ func (p *PostgresStore) v3Schema(ctx context.Context) error {
 		// users
 		fmt.Sprintf("ALTER TABLE %s ADD COLUMN metadata TEXT", usersTable),
 		fmt.Sprintf("ALTER TABLE %s ADD COLUMN disabled boolean", usersTable),
-	}
-
-	for _, q := range queries {
-		if _, err := p.db.ExecContext(ctx, q); err != nil {
-			log.Println(q)
-			return err
-		}
-	}
-	if _, err := p.db.ExecContext(ctx, fmt.Sprintf(`INSERT INTO %s(version) SELECT 3`, schemaVersionTable)); err != nil {
-		return err
-	}
-	return nil
+	)
 }
 
 func (p *PostgresStore) v2Schema(ctx context.Context) error {
-	q := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+	return p.executeVersion(ctx, 2,
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 			id TEXT PRIMARY KEY,
 			time TEXT NOT NULL,
 			event_type TEXT NOT NULL,
 			metadata TEXT DEFAULT '{}'
-	)`, eventsTable)
-	if _, err := p.db.ExecContext(ctx, q); err != nil {
-		return err
-	}
-	if _, err := p.db.ExecContext(ctx, fmt.Sprintf(`INSERT INTO %s(version) SELECT 2`, schemaVersionTable)); err != nil {
-		return err
-	}
-	return nil
+	)`, eventsTable))
 }
 func (p *PostgresStore) v1Schema(ctx context.Context) error {
-	queries := []string{
+	return p.executeVersion(ctx, 1,
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 			aws_account_id TEXT PRIMARY KEY,
 			name TEXT UNIQUE NOT NULL,
@@ -153,12 +155,5 @@ func (p *PostgresStore) v1Schema(ctx context.Context) error {
 		fmt.Sprintf(`INSERT INTO %s(version)
 			SELECT '1' WHERE NOT EXISTS (SELECT 1 FROM %s)`,
 			schemaVersionTable, schemaVersionTable),
-	}
-
-	for _, q := range queries {
-		if _, err := p.db.ExecContext(ctx, q); err != nil {
-			return err
-		}
-	}
-	return nil
+	)
 }

@@ -55,6 +55,27 @@ func ImportAll(ctx context.Context, st Importable, store *InMemoryStore, del boo
 	}
 	changes = append(changes, policyChanges...)
 
+	// Import role policy attachments
+	rolePolicyChanges, err := ImportRolePolicyAttachments(ctx, st, store.RolePolicyAttachments, del)
+	if err != nil {
+		return nil, err
+	}
+	changes = append(changes, rolePolicyChanges...)
+
+	// Import role account attachments
+	roleAccountChanges, err := ImportRoleAccountAttachments(ctx, st, store.RoleAccountAttachments, del)
+	if err != nil {
+		return nil, err
+	}
+	changes = append(changes, roleAccountChanges...)
+
+	// Import role user attachments
+	roleUserChanges, err := ImportRoleUserAttachments(ctx, st, store.RoleUserAttachments, del)
+	if err != nil {
+		return nil, err
+	}
+	changes = append(changes, roleUserChanges...)
+
 	return changes, nil
 }
 
@@ -175,7 +196,60 @@ func ImportAccounts(ctx context.Context, imp Importable, accounts []*appconfig.A
 }
 
 func ImportRoles(ctx context.Context, imp Importable, roles []appconfig.Role, del bool) ([]Change, error) {
-	return nil, nil
+	var changes []Change
+
+	// Get existing roles from storage
+	existingRoles, err := imp.ListRoles(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list roles: %w", err)
+	}
+	existingSet := make(map[string]bool)
+	for _, r := range existingRoles {
+		existingSet[r] = true
+	}
+
+	// Track imported role names
+	importedSet := make(map[string]bool)
+
+	// Add/update roles
+	for i := range roles {
+		r := &roles[i]
+		if r.Delete {
+			if err := imp.PutRole(ctx, r); err != nil {
+				return nil, fmt.Errorf("delete role %s: %w", r.Name, err)
+			}
+			changes = append(changes, Change{Action: "delete", ObjectType: "role", Value: r.Name})
+			continue
+		}
+
+		importedSet[r.Name] = true
+		if existingSet[r.Name] {
+			if err := imp.PutRole(ctx, r); err != nil {
+				return nil, fmt.Errorf("update role %s: %w", r.Name, err)
+			}
+			changes = append(changes, Change{Action: "update", ObjectType: "role", Value: r.Name})
+		} else {
+			if err := imp.PutRole(ctx, r); err != nil {
+				return nil, fmt.Errorf("create role %s: %w", r.Name, err)
+			}
+			changes = append(changes, Change{Action: "create", ObjectType: "role", Value: r.Name})
+		}
+	}
+
+	// Delete roles not in import
+	if del {
+		for _, name := range existingRoles {
+			if !importedSet[name] {
+				role := &appconfig.Role{Name: name, CommonFields: appconfig.CommonFields{Delete: true}}
+				if err := imp.PutRole(ctx, role); err != nil {
+					return nil, fmt.Errorf("delete role %s: %w", name, err)
+				}
+				changes = append(changes, Change{Action: "delete", ObjectType: "role", Value: name})
+			}
+		}
+	}
+
+	return changes, nil
 }
 
 func ImportPolicies(ctx context.Context, imp Importable, policies []appconfig.Policy, del bool) ([]Change, error) {
@@ -217,6 +291,195 @@ func ImportPolicies(ctx context.Context, imp Importable, policies []appconfig.Po
 					return nil, fmt.Errorf("delete policy %s: %w", p, err)
 				}
 				changes = append(changes, Change{Action: "delete", ObjectType: "policy", Value: p})
+			}
+		}
+	}
+
+	return changes, nil
+}
+
+func roleUserAttachmentKey(at appconfig.RoleUserAttachment) string {
+	return at.Username + "|" + at.RoleName + "|" + at.AccountName
+}
+
+func rolePolicyAttachmentKey(at appconfig.RolePolicyAttachment) string {
+	return at.RoleName + "|" + at.PolicyId
+}
+
+func roleAccountAttachmentKey(at appconfig.RoleAccountAttachment) string {
+	return at.RoleName + "|" + at.AccountName
+}
+
+func ImportRoleUserAttachments(ctx context.Context, imp Importable, attachments []appconfig.RoleUserAttachment, del bool) ([]Change, error) {
+	var changes []Change
+
+	// Get existing attachments from storage
+	existingAttachments, err := imp.ListRoleUserAttachments(ctx, "", "", "")
+	if err != nil {
+		return nil, fmt.Errorf("list role user attachments: %w", err)
+	}
+	existingSet := make(map[string]bool)
+	for _, at := range existingAttachments {
+		existingSet[roleUserAttachmentKey(at)] = true
+	}
+
+	// Track imported attachment keys
+	importedSet := make(map[string]bool)
+
+	// Add/update attachments
+	for i := range attachments {
+		at := &attachments[i]
+		if at.Delete {
+			if err := imp.PutRoleUserAttachment(ctx, at); err != nil {
+				return nil, fmt.Errorf("delete role user attachment %s: %w", roleUserAttachmentKey(*at), err)
+			}
+			changes = append(changes, Change{Action: "delete", ObjectType: "role_user_attachment", Value: roleUserAttachmentKey(*at)})
+			continue
+		}
+
+		key := roleUserAttachmentKey(*at)
+		importedSet[key] = true
+		if existingSet[key] {
+			if err := imp.PutRoleUserAttachment(ctx, at); err != nil {
+				return nil, fmt.Errorf("update role user attachment %s: %w", key, err)
+			}
+			changes = append(changes, Change{Action: "update", ObjectType: "role_user_attachment", Value: key})
+		} else {
+			if err := imp.PutRoleUserAttachment(ctx, at); err != nil {
+				return nil, fmt.Errorf("create role user attachment %s: %w", key, err)
+			}
+			changes = append(changes, Change{Action: "create", ObjectType: "role_user_attachment", Value: key})
+		}
+	}
+
+	// Delete attachments not in import
+	if del {
+		for _, at := range existingAttachments {
+			key := roleUserAttachmentKey(at)
+			if !importedSet[key] {
+				 attachment := &appconfig.RoleUserAttachment{Username: at.Username, RoleName: at.RoleName, AccountName: at.AccountName, CommonFields: appconfig.CommonFields{Delete: true}}
+				if err := imp.PutRoleUserAttachment(ctx, attachment); err != nil {
+					return nil, fmt.Errorf("delete role user attachment %s: %w", key, err)
+				}
+				changes = append(changes, Change{Action: "delete", ObjectType: "role_user_attachment", Value: key})
+			}
+		}
+	}
+
+	return changes, nil
+}
+
+func ImportRolePolicyAttachments(ctx context.Context, imp Importable, attachments []appconfig.RolePolicyAttachment, del bool) ([]Change, error) {
+	var changes []Change
+
+	// Get existing attachments from storage
+	existingAttachments, err := imp.ListRolePolicyAttachments(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("list role policy attachments: %w", err)
+	}
+	existingSet := make(map[string]bool)
+	for _, at := range existingAttachments {
+		existingSet[rolePolicyAttachmentKey(at)] = true
+	}
+
+	// Track imported attachment keys
+	importedSet := make(map[string]bool)
+
+	// Add/update attachments
+	for i := range attachments {
+		at := &attachments[i]
+		if at.Delete {
+			if err := imp.PutRolePolicyAttachment(ctx, at); err != nil {
+				return nil, fmt.Errorf("delete role policy attachment %s: %w", rolePolicyAttachmentKey(*at), err)
+			}
+			changes = append(changes, Change{Action: "delete", ObjectType: "role_policy_attachment", Value: rolePolicyAttachmentKey(*at)})
+			continue
+		}
+
+		key := rolePolicyAttachmentKey(*at)
+		importedSet[key] = true
+		if existingSet[key] {
+			if err := imp.PutRolePolicyAttachment(ctx, at); err != nil {
+				return nil, fmt.Errorf("update role policy attachment %s: %w", key, err)
+			}
+			changes = append(changes, Change{Action: "update", ObjectType: "role_policy_attachment", Value: key})
+		} else {
+			if err := imp.PutRolePolicyAttachment(ctx, at); err != nil {
+				return nil, fmt.Errorf("create role policy attachment %s: %w", key, err)
+			}
+			changes = append(changes, Change{Action: "create", ObjectType: "role_policy_attachment", Value: key})
+		}
+	}
+
+	// Delete attachments not in import
+	if del {
+		for _, at := range existingAttachments {
+			key := rolePolicyAttachmentKey(at)
+			if !importedSet[key] {
+				attachment := &appconfig.RolePolicyAttachment{RoleName: at.RoleName, PolicyId: at.PolicyId, CommonFields: appconfig.CommonFields{Delete: true}}
+				if err := imp.PutRolePolicyAttachment(ctx, attachment); err != nil {
+					return nil, fmt.Errorf("delete role policy attachment %s: %w", key, err)
+				}
+				changes = append(changes, Change{Action: "delete", ObjectType: "role_policy_attachment", Value: key})
+			}
+		}
+	}
+
+	return changes, nil
+}
+
+func ImportRoleAccountAttachments(ctx context.Context, imp Importable, attachments []appconfig.RoleAccountAttachment, del bool) ([]Change, error) {
+	var changes []Change
+
+	// Get existing attachments from storage
+	existingAttachments, err := imp.ListRoleAccountAttachments(ctx, "", "")
+	if err != nil {
+		return nil, fmt.Errorf("list role account attachments: %w", err)
+	}
+	existingSet := make(map[string]bool)
+	for _, at := range existingAttachments {
+		existingSet[roleAccountAttachmentKey(at)] = true
+	}
+
+	// Track imported attachment keys
+	importedSet := make(map[string]bool)
+
+	// Add/update attachments
+	for i := range attachments {
+		at := &attachments[i]
+		if at.Delete {
+			if err := imp.PutRoleAccountAttachment(ctx, at); err != nil {
+				return nil, fmt.Errorf("delete role account attachment %s: %w", roleAccountAttachmentKey(*at), err)
+			}
+			changes = append(changes, Change{Action: "delete", ObjectType: "role_account_attachment", Value: roleAccountAttachmentKey(*at)})
+			continue
+		}
+
+		key := roleAccountAttachmentKey(*at)
+		importedSet[key] = true
+		if existingSet[key] {
+			if err := imp.PutRoleAccountAttachment(ctx, at); err != nil {
+				return nil, fmt.Errorf("update role account attachment %s: %w", key, err)
+			}
+			changes = append(changes, Change{Action: "update", ObjectType: "role_account_attachment", Value: key})
+		} else {
+			if err := imp.PutRoleAccountAttachment(ctx, at); err != nil {
+				return nil, fmt.Errorf("create role account attachment %s: %w", key, err)
+			}
+			changes = append(changes, Change{Action: "create", ObjectType: "role_account_attachment", Value: key})
+		}
+	}
+
+	// Delete attachments not in import
+	if del {
+		for _, at := range existingAttachments {
+			key := roleAccountAttachmentKey(at)
+			if !importedSet[key] {
+				attachment := &appconfig.RoleAccountAttachment{RoleName: at.RoleName, AccountName: at.AccountName, CommonFields: appconfig.CommonFields{Delete: true}}
+				if err := imp.PutRoleAccountAttachment(ctx, attachment); err != nil {
+					return nil, fmt.Errorf("delete role account attachment %s: %w", key, err)
+				}
+				changes = append(changes, Change{Action: "delete", ObjectType: "role_account_attachment", Value: key})
 			}
 		}
 	}

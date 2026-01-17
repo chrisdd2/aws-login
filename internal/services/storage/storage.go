@@ -43,6 +43,7 @@ type Readable interface {
 	ListAccounts(ctx context.Context) ([]appconfig.Account, error)
 	ListUsers(ctx context.Context) ([]string, error)
 	ListPolicies(ctx context.Context) ([]string, error)
+	ListRoles(ctx context.Context) ([]string, error)
 	ListRoleAccountAttachments(ctx context.Context, roleName string, accountName string) ([]appconfig.RoleAccountAttachment, error)
 	ListRoleUserAttachments(ctx context.Context, username string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error)
 	ListRolePolicyAttachments(ctx context.Context, roleName string) ([]appconfig.RolePolicyAttachment, error)

@@ -57,7 +57,15 @@ type AppConfig struct {
 			Username string `json:"username,omitempty"`
 			Password string `json:"password,omitempty"`
 		} `json:"postgres"`
-	} `json:"storage"`
+		Sync struct {
+			Keycloak struct {
+				BaseUrl  string `json:"base_url,omitempty"`
+				Realm    string `json:"realm,omitempty"`
+				Username string `json:"username,omitempty"`
+				Password string `json:"password,omitempty"`
+			} `json:"keycloak,omitempty"`
+		} `json:"sync,omitempty"`
+	} `json:"storage,omitempty"`
 
 	Auth struct {
 		AdminUsername    string          `json:"admin_username,omitempty"`

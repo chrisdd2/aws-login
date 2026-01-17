@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -53,7 +52,9 @@ func Router(
 	accountSrvc account.AccountService,
 	storageSvc storage.Storage,
 	cfg appconfig.AppConfig,
-	ev storage.Eventer) chi.Router {
+	ev storage.Eventer,
+	syncer storage.SyncStorer,
+) chi.Router {
 
 	hasAdminLogin := cfg.Auth.AdminPassword != "" && cfg.Auth.AdminUsername != ""
 	secureCookies := cfg.IsProduction()
@@ -93,7 +94,6 @@ func Router(
 			username := r.Form.Get("username")
 			password := r.Form.Get("password")
 			if !(username == cfg.Auth.AdminUsername && password == cfg.Auth.AdminPassword) {
-				log.Println("hi")
 				redirectWithParams(w, r, "/login", map[string]string{"error": "wrong_credentials"}, http.StatusSeeOther)
 				return
 			}
@@ -294,6 +294,30 @@ func Router(
 			}
 			slog.Info("reloaded config", "source", "admin_page")
 			http.Redirect(w, r, "/config", http.StatusTemporaryRedirect)
+		})
+		r.Get("/sync", func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			importable, ok := storageSvc.(storage.Importable)
+			if syncer == nil || !ok {
+				sendError(w, r, ErrNotSupported)
+				return
+			}
+			im, err := storage.Sync(ctx, syncer, storageSvc)
+			if err != nil {
+				sendError(w, r, err)
+				return
+			}
+			changesUsers, err := storage.ImportUsers(ctx, importable, im.Users, true)
+			if err != nil {
+				sendError(w, r, err)
+				return
+			}
+			changesUserAttachments, err := storage.ImportRoleUserAttachments(ctx, importable, im.RoleUserAttachments, true)
+			if err != nil {
+				sendError(w, r, err)
+				return
+			}
+			configHandler(w, r, storageSvc, &cfg, append(changesUsers, changesUserAttachments...))
 		})
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			configHandler(w, r, storageSvc, &cfg, nil)

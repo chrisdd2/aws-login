@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"reflect"
 	"slices"
 	"strings"
@@ -38,10 +37,20 @@ func put[T any](ctx context.Context, db *sql.DB, item T, tableName string, del b
 		v = v.Elem()
 	}
 
-	flt := make([]string, len(ids))
 	args := make([]any, len(ids))
 	for i, id := range ids {
 		args[i] = v.FieldByName(id).Interface()
+	}
+
+	fields := getFields(v.Type())
+	idJsonNames := []string{}
+	for _, f := range fields {
+		if slices.Contains(ids, f.name) {
+			idJsonNames = append(idJsonNames, f.jsonName)
+		}
+	}
+	flt := make([]string, len(ids))
+	for i, id := range idJsonNames {
 		flt[i] = fmt.Sprintf("%s = $%d", id, i+1)
 	}
 
@@ -53,7 +62,6 @@ func put[T any](ctx context.Context, db *sql.DB, item T, tableName string, del b
 		return nil
 	}
 
-	fields := getFields(v.Type())
 	columnList := make([]string, len(fields))
 	args = make([]any, len(fields))
 	placeholders := make([]string, len(fields))
@@ -69,15 +77,15 @@ func put[T any](ctx context.Context, db *sql.DB, item T, tableName string, del b
 		}
 		updateList = append(updateList, fmt.Sprintf("%s = $%d", c, i+1))
 	}
+
 	query := fmt.Sprintf(
 		"INSERT INTO %s(%s) VALUES(%s) ON CONFLICT (%s) DO UPDATE SET %s",
 		tableName,
 		strings.Join(columnList, ","),
 		strings.Join(placeholders, ","),
-		strings.Join(ids, ","),
+		strings.Join(idJsonNames, ","),
 		strings.Join(updateList, ","),
 	)
-
 	if _, err := db.ExecContext(ctx, query, args...); err != nil {
 		return fmt.Errorf("failed to upsert: %w", err)
 	}
@@ -92,8 +100,6 @@ func scan[T any](ctx context.Context, db *sql.DB, tableName string, filter strin
 		filter = " WHERE " + filter
 	}
 	query := fmt.Sprintf("SELECT %s FROM %s%s", strings.Join(columns, ","), tableName, filter)
-	log.Println(query)
-	log.Println(args)
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

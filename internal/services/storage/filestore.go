@@ -211,6 +211,13 @@ func (s *FileStore) ListPolicies(ctx context.Context) ([]string, error) {
 	}
 	return ret, nil
 }
+func (s *FileStore) ListRoles(ctx context.Context) ([]string, error) {
+	ret := make([]string, 0, len(s.Roles))
+	for _, r := range s.Roles {
+		ret = append(ret, r.Name)
+	}
+	return ret, nil
+}
 
 func (s *FileStore) GetPolicy(ctx context.Context, id string) (*appconfig.Policy, error) {
 	idx := slices.IndexFunc(s.Policies, func(item appconfig.Policy) bool {

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"reflect"
 	"strconv"
 	"strings"
@@ -184,7 +183,6 @@ func generateStackTemplate(ctx context.Context, store storage.Storage, account s
 			MaxSessionDuration: item.MaxSessionDuration,
 		})
 	}
-	log.Println(roleStackTemplate.Templates())
 	templateString, err := templateExecuteToString(roleStackTemplate, struct{ Roles []CfnRole }{Roles: cfnroles})
 	if err != nil {
 		return "", err

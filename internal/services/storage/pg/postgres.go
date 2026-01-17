@@ -309,6 +309,18 @@ func (p *PostgresStore) ListPolicies(ctx context.Context) ([]string, error) {
 	return ret, nil
 }
 
+func (p *PostgresStore) ListRoles(ctx context.Context) ([]string, error) {
+	items, err := scan[appconfig.Role](ctx, p.db, rolesTable, "")
+	if err != nil {
+		return nil, err
+	}
+	ret := []string{}
+	for _, item := range items {
+		ret = append(ret, item.Name)
+	}
+	return ret, nil
+}
+
 func (p *PostgresStore) PutUser(ctx context.Context, u *appconfig.User) error {
 	return put(ctx, p.db, u, usersTable, u.Delete, "Name")
 }
@@ -347,11 +359,14 @@ func (p *PostgresStore) ListRoleAccountAttachments(ctx context.Context, roleName
 	return scan[appconfig.RoleAccountAttachment](ctx, p.db, roleAccountTable, "account_name = $1 and role_name = $2", accountName, roleName)
 }
 func (p *PostgresStore) ListRoleUserAttachments(ctx context.Context, username string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error) {
-	if roleName == "" && accountName == "" {
-		return scan[appconfig.RoleUserAttachment](ctx, p.db, userRolesTable, "username = $1", roleName)
+	if roleName == "" && accountName == "" && username == "" {
+		return scan[appconfig.RoleUserAttachment](ctx, p.db, userRolesTable,"")
 	}
-	return scan[appconfig.RoleUserAttachment](ctx, p.db, userRolesTable, "username = $1 and role_name = $2", username, roleName)
+	if roleName == "" && accountName == "" {
+		return scan[appconfig.RoleUserAttachment](ctx, p.db, userRolesTable, "user_name = $1", username)
+	}
+	return scan[appconfig.RoleUserAttachment](ctx, p.db, userRolesTable, "user_name = $1 and role_name = $2 and account_name = $3", username, roleName, accountName)
 }
 func (p *PostgresStore) ListRolePolicyAttachments(ctx context.Context, roleName string) ([]appconfig.RolePolicyAttachment, error) {
-	return scan[appconfig.RolePolicyAttachment](ctx, p.db, rolePolicyTable, "role_name = $2", roleName)
+	return scan[appconfig.RolePolicyAttachment](ctx, p.db, rolePolicyTable, "role_name = $1", roleName)
 }
