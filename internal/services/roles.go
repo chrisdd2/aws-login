@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 
 	"github.com/chrisdd2/aws-login/appconfig"
@@ -42,7 +43,6 @@ func (c AwsCredentials) Format(t string) string {
 
 type RolesService interface {
 	UserPermissions(ctx context.Context, username string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error)
-	RolesForAccount(ctx context.Context, accountName string) ([]string, error)
 	Console(ctx context.Context, accountName string, roleName, username string) (string, error)
 	Credentials(ctx context.Context, accountName string, roleName, username string) (AwsCredentials, error)
 }
@@ -57,13 +57,6 @@ func NewRoleService(store storage.Storage, aws aws.AwsApiCaller, ev storage.Even
 	return &rolesService{store, aws, ev}
 }
 
-func (r *rolesService) RolesForAccount(ctx context.Context, accountName string) ([]string, error) {
-	acc, err := r.storage.GetAccount(ctx, accountName)
-	if err != nil {
-		return nil, err
-	}
-	return acc.Roles, nil
-}
 func (r *rolesService) UserPermissions(ctx context.Context, username string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error) {
 	return r.storage.ListRolePermissions(ctx, username, roleName, accountName)
 }
@@ -72,17 +65,23 @@ func (r *rolesService) Console(ctx context.Context, accountName string, roleName
 	if err != nil {
 		return "", fmt.Errorf("storage.GetRole: %w", err)
 	}
-	if !role.Enabled {
+	if role.Disabled {
 		return "", ErrRoleDisabled
 	}
 	acc, err := r.storage.GetAccount(ctx, accountName)
 	if err != nil {
 		return "", fmt.Errorf("storage.GetAccount: %w", err)
 	}
-	if !acc.Enabled {
+	if acc.Disabled {
 		return "", ErrAccountDisabled
 	}
-	if !slices.Contains(acc.Roles, roleName) {
+	attachments, err := r.storage.ListRoleAccountAttachments(ctx, roleName, accountName)
+	if err != nil {
+		return "", fmt.Errorf("storage.ListRoleAccountAttachments: %w", err)
+	}
+	if !slices.ContainsFunc(attachments, func(at appconfig.RoleAccountAttachment) bool {
+		return roleName == at.RoleName
+	}) {
 		return "", ErrRoleNotAssociated
 	}
 	// auth check
@@ -109,17 +108,24 @@ func (r *rolesService) Credentials(ctx context.Context, accountName string, role
 	if err != nil {
 		return AwsCredentials{}, fmt.Errorf("storage.GetRole: %w", err)
 	}
-	if !role.Enabled {
+	if role.Disabled {
 		return AwsCredentials{}, ErrRoleDisabled
 	}
 	acc, err := r.storage.GetAccount(ctx, accountName)
 	if err != nil {
 		return AwsCredentials{}, fmt.Errorf("storage.GetAccount: %w", err)
 	}
-	if !acc.Enabled {
+	if acc.Disabled {
 		return AwsCredentials{}, ErrAccountDisabled
 	}
-	if !slices.Contains(acc.Roles, roleName) {
+	attachments, err := r.storage.ListRoleAccountAttachments(ctx, roleName, accountName)
+	if err != nil {
+		return AwsCredentials{}, fmt.Errorf("storage.ListRoleAccountAttachments: %w", err)
+	}
+	log.Println(attachments)
+	if !slices.ContainsFunc(attachments, func(at appconfig.RoleAccountAttachment) bool {
+		return roleName == at.RoleName
+	}) {
 		return AwsCredentials{}, ErrRoleNotAssociated
 	}
 

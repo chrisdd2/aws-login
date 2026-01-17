@@ -29,6 +29,7 @@ import (
 	"github.com/chrisdd2/aws-login/internal/services"
 	"github.com/chrisdd2/aws-login/internal/services/account"
 	"github.com/chrisdd2/aws-login/internal/services/storage"
+	"github.com/chrisdd2/aws-login/internal/services/storage/pg"
 	"github.com/chrisdd2/aws-login/webui"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -113,11 +114,10 @@ func main() {
 	case appconfig.StorageTypeFile:
 		s := must2(storage.NewStaticStore(ctx, &appCfg, s3Config))
 		must(s.Reload(ctx))
-		must(s.Validate(ctx))
 		slog.Info("found", "accounts", len(s.Accounts), "users", len(s.Users), "roles", len(s.Roles))
 		storageSvc = s
 	case appconfig.StorageTypePostgres:
-		storageSvc = must2(storage.NewPostgresStore(ctx, &appCfg))
+		storageSvc = must2(pg.NewPostgresStore(ctx, &appCfg))
 	}
 
 	// sign key

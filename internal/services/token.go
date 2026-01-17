@@ -68,7 +68,7 @@ func (a *tokenServiceImpl) Create(ctx context.Context, usr *UserInfo, validate b
 		if err != nil {
 			return "", err
 		}
-		usr.Superuser = sgUser.Superuser
+		usr.Superuser = bool(sgUser.Superuser)
 	}
 	accessToken, err := a.signToken(*usr, DefaultTokenExpiration)
 	if err != nil {

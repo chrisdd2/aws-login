@@ -1,6 +1,9 @@
 package appconfig
 
 import (
+	"database/sql/driver"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -13,42 +16,116 @@ const (
 var RolePermissionAll []string = []string{RolePermissionConsole, RolePermissionCredentials}
 
 // import needs a delete flag
-type DeleteMarker struct {
-	Delete bool `json:"delete,omitempty"`
+type CommonFields struct {
+	Delete   bool         `json:"delete,omitempty"`
+	Disabled NullableBool `json:"disabled,omitempty"`
+	Metadata TextMap      `json:"metadata,omitempty"`
 }
 
-type InlinePolicy struct {
+type Policy struct {
 	Id       string `json:"id,omitempty"`
 	Document string `json:"document,omitempty"`
-	DeleteMarker
+	CommonFields
 }
 
 type Role struct {
-	Name               string            `json:"name,omitempty"`
-	Policies           map[string]string `json:"inline_policies,omitempty"`
-	ManagedPolicies    []string          `json:"managed_policies,omitempty"`
-	MaxSessionDuration time.Duration     `json:"max_session_duration,omitempty"`
-	Enabled            bool              `json:"enabled"`
-	DeleteMarker
+	Name               string        `json:"name,omitempty"`
+	ManagedPolicies    TextArray     `json:"managed_policies,omitempty"`
+	MaxSessionDuration time.Duration `json:"max_session_duration,omitempty"`
+	CommonFields
 }
 
-type RoleUserAttachment struct {
-	RoleName    string   `json:"role_name,omitempty"`
-	AccountName string   `json:"account_name,omitempty"`
-	Permissions []string `json:"permissions,omitempty"`
-}
 type User struct {
-	FriendlyName string               `json:"friendly_name,omitempty"`
-	Name         string               `json:"name,omitempty"`
-	Superuser    bool                 `json:"superuser,omitempty"`
-	Roles        []RoleUserAttachment `json:"roles,omitempty"`
-	DeleteMarker
+	FriendlyName string       `json:"friendly_name,omitempty"`
+	Name         string       `json:"name,omitempty"`
+	Superuser    NullableBool `json:"superuser,omitempty"`
+	CommonFields
 }
 
 type Account struct {
-	Name         string   `json:"name,omitempty"`
-	AwsAccountId string   `json:"aws_account_id,omitempty"`
-	Enabled      bool     `json:"enabled"`
-	Roles        []string `json:"roles,omitempty"`
-	DeleteMarker
+	Name         string `json:"name,omitempty"`
+	AwsAccountId string `json:"aws_account_id,omitempty"`
+	CommonFields
+}
+
+type RoleUserAttachment struct {
+	Username    string    `json:"user_name,omitempty"`
+	RoleName    string    `json:"role_name,omitempty"`
+	AccountName string    `json:"account_name,omitempty"`
+	Permissions TextArray `json:"permissions,omitempty"`
+	CommonFields
+}
+
+type RoleAccountAttachment struct {
+	RoleName    string `json:"role_name,omitempty"`
+	AccountName string `json:"account_name,omitempty"`
+	CommonFields
+}
+
+type RolePolicyAttachment struct {
+	RoleName string `json:"role_name,omitempty"`
+	PolicyId string `json:"policy_id,omitempty"`
+	CommonFields
+}
+
+type TextMap map[string]string
+
+// Scan implements the [Scanner] interface.
+func (tm *TextMap) Scan(value any) error {
+	ret := map[string]string{}
+	vstr, ok := value.(string)
+	if ok {
+		for i := range strings.SplitSeq(vstr, ",") {
+			k, v, ok := strings.Cut(i, ":")
+			if !ok {
+				continue
+			}
+			ret[k] = v
+		}
+	}
+	*tm = ret
+	return nil
+}
+
+func (tm *TextMap) Value() (driver.Value, error) {
+	var b strings.Builder
+	for k, v := range *tm {
+		fmt.Fprintf(&b, "%s:%s,", k, v)
+	}
+	ret := b.String()
+	if len(ret) > 0 {
+		// remove trailing comma
+		ret = ret[0 : len(ret)-2]
+	}
+	return ret, nil
+}
+
+type TextArray []string
+
+func (ta *TextArray) Scan(value any) error {
+	vstr, ok := value.(string)
+	if !ok {
+		return nil
+	}
+	*ta = strings.Split(vstr, ",")
+	return nil
+}
+
+func (tm *TextArray) Value() (driver.Value, error) {
+	return strings.Join([]string(*tm), ","), nil
+}
+
+type NullableBool bool
+
+func (b *NullableBool) Scan(value any) error {
+	v, ok := value.(bool)
+	if !ok {
+		return nil
+	}
+	*b = NullableBool(v)
+	return nil
+}
+
+func (b *NullableBool) Value() (driver.Value, error) {
+	return *b, nil
 }

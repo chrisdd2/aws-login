@@ -36,7 +36,7 @@ type AccountService interface {
 	StackUpdates(ctx context.Context, accountName string, stackId string) ([]aws.StackEvent, error)
 	DestroyStack(ctx context.Context, accountName string, username string) (string, error)
 	GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error)
-	ListAccounts(ctx context.Context) ([]*appconfig.Account, error)
+	ListAccounts(ctx context.Context) ([]appconfig.Account, error)
 	BootstrapTemplate(ctx context.Context, accountName string) (string, error)
 }
 
@@ -102,7 +102,7 @@ func NewAccountService(store storage.Storage, aws aws.AwsApiCaller, ev storage.E
 	}
 }
 
-func (a *accountService) ListAccounts(ctx context.Context) ([]*appconfig.Account, error) {
+func (a *accountService) ListAccounts(ctx context.Context) ([]appconfig.Account, error) {
 	return a.storage.ListAccounts(ctx)
 }
 
@@ -177,20 +177,10 @@ func generateStackTemplate(ctx context.Context, store storage.Storage, account s
 	roles, err := store.ListRolesForAccount(ctx, account)
 	cfnroles := []CfnRole{}
 	for _, item := range roles {
-		resolvedPolicies := map[string]string{}
-		for name, id := range item.Policies {
-			policy, err := store.GetInlinePolicy(ctx, id)
-			if err != nil {
-				return "", fmt.Errorf("storage.GetInlinePolicy: %w", err)
-			}
-			resolvedPolicies[name] = policy.Document
-		}
-
 		cfnroles = append(cfnroles, CfnRole{
 			LogicalName:        roleLogicalName(item.Name),
 			RoleName:           item.Name,
 			ManagedPolicies:    item.ManagedPolicies,
-			Policies:           resolvedPolicies,
 			MaxSessionDuration: item.MaxSessionDuration,
 		})
 	}

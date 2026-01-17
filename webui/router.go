@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -92,6 +93,7 @@ func Router(
 			username := r.Form.Get("username")
 			password := r.Form.Get("password")
 			if !(username == cfg.Auth.AdminUsername && password == cfg.Auth.AdminPassword) {
+				log.Println("hi")
 				redirectWithParams(w, r, "/login", map[string]string{"error": "wrong_credentials"}, http.StatusSeeOther)
 				return
 			}

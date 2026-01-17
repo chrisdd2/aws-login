@@ -86,7 +86,6 @@
                 </button>
             </form>
 
-            <div class="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1"></div>
 
             <a href="/config/export" class="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded
                  bg-gray-600 hover:bg-gray-500
@@ -183,7 +182,8 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {{range $i, $user := .Store.Users}}
+                        {{$store := .Store}}
+                        {{range $i, $user := $store.Users}}
                         <tr class="border-b dark:border-gray-700 dark:text-gray-300">
                             <td class="px-4 py-2">
                                 <button onclick="toggleExpand('user-{{$i}}')" class="cursor-pointer p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">
@@ -198,7 +198,8 @@
                         </tr>
                         <tr id="user-{{$i}}" class="hidden">
                             <td colspan="4" class="px-4 py-2 bg-gray-50 dark:bg-gray-800/50">
-                                {{if .Roles}}
+                                {{$userRoles := filterRoleUserAttachments $store.RoleUserAttachments .Name}}
+                                {{if $userRoles}}
                                 <div class="pl-12">
                                     <table class="w-full text-xs">
                                         <thead class="text-xs uppercase bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
@@ -209,7 +210,7 @@
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {{range .Roles}}
+                                            {{range $userRoles}}
                                             <tr class="border-b dark:border-gray-700">
                                                 <td class="px-3 py-1 font-mono text-gray-700 dark:text-gray-300">{{.RoleName}}</td>
                                                 <td class="px-3 py-1 font-mono text-gray-700 dark:text-gray-300">{{.AccountName}}</td>
@@ -241,11 +242,12 @@
                             <th class="px-4 py-2 w-8"></th>
                             <th class="px-4 py-2">Name</th>
                             <th class="px-4 py-2">AWS Account ID</th>
-                            <th class="px-4 py-2">Enabled</th>
+                            <th class="px-4 py-2">Disabled</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {{range $i, $account := .Store.Accounts}}
+                        {{$store := .Store}}
+                        {{range $i, $account := $store.Accounts}}
                         <tr class="border-b dark:border-gray-700 dark:text-gray-300">
                             <td class="px-4 py-2">
                                 <button onclick="toggleExpand('account-{{$i}}')" class="cursor-pointer p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">
@@ -255,17 +257,18 @@
                             <td class="px-4 py-2 font-mono">{{.Name}}</td>
                             <td class="px-4 py-2 font-mono">{{.AwsAccountId}}</td>
                             <td class="px-4 py-2">
-                                {{if .Enabled}}<i class="fas fa-check text-green-500"></i>{{else}}<i class="fas fa-times text-red-500"></i>{{end}}
+                                {{if .Disabled}}<i class="fas fa-check text-green-500"></i>{{else}}<i class="fas fa-times text-red-500"></i>{{end}}
                             </td>
                         </tr>
                         <tr id="account-{{$i}}" class="hidden">
                             <td colspan="4" class="px-4 py-2 bg-gray-50 dark:bg-gray-800/50">
-                                {{if .Roles}}
+                                {{$accountRoles := filterRoleAccountAttachments $store.RoleAccountAttachments .Name}}
+                                {{if $accountRoles}}
                                 <div class="pl-12">
                                     <span class="font-semibold text-xs uppercase text-gray-500 dark:text-gray-400">Roles:</span>
                                     <ul class="list-disc list-inside ml-2 mt-1 font-mono text-xs text-gray-700 dark:text-gray-300">
-                                        {{range .Roles}}
-                                        <li class="text-gray-700 dark:text-gray-300">{{.}}</li>
+                                        {{range $accountRoles}}
+                                        <li class="text-gray-700 dark:text-gray-300">{{.RoleName}}</li>
                                         {{end}}
                                     </ul>
                                 </div>
@@ -287,11 +290,12 @@
                             <th class="px-4 py-2 w-8"></th>
                             <th class="px-4 py-2">Name</th>
                             <th class="px-4 py-2">Max Session</th>
-                            <th class="px-4 py-2">Enabled</th>
+                            <th class="px-4 py-2">Disabled</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {{range $i, $role := .Store.Roles}}
+                        {{$store := .Store}}
+                        {{range $i, $role := $store.Roles}}
                         <tr class="border-b dark:border-gray-700 dark:text-gray-300">
                             <td class="px-4 py-2">
                                 <button onclick="toggleExpand('role-{{$i}}')" class="cursor-pointer p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">
@@ -301,12 +305,23 @@
                             <td class="px-4 py-2 font-mono">{{.Name}}</td>
                             <td class="px-4 py-2">{{.MaxSessionDuration}}</td>
                             <td class="px-4 py-2">
-                                {{if .Enabled}}<i class="fas fa-check text-green-500"></i>{{else}}<i class="fas fa-times text-red-500"></i>{{end}}
+                                {{if .Disabled}}<i class="fas fa-check text-green-500"></i>{{else}}<i class="fas fa-times text-red-500"></i>{{end}}
                             </td>
                         </tr>
                         <tr id="role-{{$i}}" class="hidden">
                             <td colspan="4" class="px-4 py-2 bg-gray-50 dark:bg-gray-800/50">
+                                {{$rolePolicies := filterRolePolicyAttachments $store.RolePolicyAttachments .Name}}
                                 <div class="pl-12 space-y-2">
+                                    {{if $rolePolicies}}
+                                    <div>
+                                        <span class="font-semibold text-xs uppercase text-gray-500 dark:text-gray-400">Policy Attachments:</span>
+                                        <ul class="list-disc list-inside ml-2 mt-1 font-mono text-xs text-gray-700 dark:text-gray-300">
+                                            {{range $rolePolicies}}
+                                            <li class="text-gray-700 dark:text-gray-300">{{.PolicyId}}</li>
+                                            {{end}}
+                                        </ul>
+                                    </div>
+                                    {{end}}
                                     {{if .ManagedPolicies}}
                                     <div>
                                         <span class="font-semibold text-xs uppercase text-gray-500 dark:text-gray-400">Managed Policies:</span>
@@ -315,19 +330,6 @@
                                             <li class="text-gray-700 dark:text-gray-300">{{.}}</li>
                                             {{end}}
                                         </ul>
-                                    </div>
-                                    {{end}}
-                                    {{if .Policies}}
-                                    <div>
-                                        <span class="font-semibold text-xs uppercase text-gray-500 dark:text-gray-400">Inline Policies:</span>
-                                        <dl class="ml-2 mt-1 space-y-1 font-mono text-xs">
-                                            {{range $key, $value := .Policies}}
-                                            <div>
-                                                <dt class="font-semibold text-gray-700 dark:text-gray-300">{{$key}}:</dt>
-                                                <dd class="ml-4 text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{{$value}}</dd>
-                                            </div>
-                                            {{end}}
-                                        </dl>
                                     </div>
                                     {{end}}
                                 </div>

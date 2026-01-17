@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"time"
 
 	"github.com/chrisdd2/aws-login/appconfig"
 )
@@ -25,33 +24,34 @@ type Printable interface {
 }
 
 type Writeable interface {
-	PutUser(ctx context.Context, u *appconfig.User, del bool) error
-	PutAccount(ctx context.Context, a *appconfig.Account, del bool) error
-	PutRole(ctx context.Context, r *appconfig.Role, del bool) error
-	PutPolicy(ctx context.Context, p *appconfig.InlinePolicy, del bool) error
+	PutUser(ctx context.Context, u *appconfig.User) error
+	PutAccount(ctx context.Context, a *appconfig.Account) error
+	PutPolicy(ctx context.Context, p *appconfig.Policy) error
+
+	PutRole(ctx context.Context, r *appconfig.Role) error
+	PutRoleAccountAttachment(ctx context.Context, r *appconfig.RoleAccountAttachment) error
+	PutRolePolicyAttachment(ctx context.Context, r *appconfig.RolePolicyAttachment) error
+	PutRoleUserAttachment(ctx context.Context, r *appconfig.RoleUserAttachment) error
 }
 
 type Readable interface {
 	GetRole(ctx context.Context, name string) (*appconfig.Role, error)
 	GetUser(ctx context.Context, name string) (*appconfig.User, error)
 	GetAccount(ctx context.Context, id string) (*appconfig.Account, error)
-	ListAccounts(ctx context.Context) ([]*appconfig.Account, error)
+	GetPolicy(ctx context.Context, id string) (*appconfig.Policy, error)
+
+	ListAccounts(ctx context.Context) ([]appconfig.Account, error)
 	ListUsers(ctx context.Context) ([]string, error)
 	ListPolicies(ctx context.Context) ([]string, error)
-	ListRolesForAccount(ctx context.Context, accountId string) ([]*appconfig.Role, error)
-	GetInlinePolicy(ctx context.Context, id string) (*appconfig.InlinePolicy, error)
+	ListRoleAccountAttachments(ctx context.Context, roleName string, accountName string) ([]appconfig.RoleAccountAttachment, error)
+	ListRoleUserAttachments(ctx context.Context, username string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error)
+	ListRolePolicyAttachments(ctx context.Context, roleName string) ([]appconfig.RolePolicyAttachment, error)
 }
 
 type Storage interface {
 	ListRolesForAccount(ctx context.Context, accountId string) ([]*appconfig.Role, error)
 	ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error)
 	Readable
-}
-type Event struct {
-	Id       string            `json:"id,omitempty"`
-	Time     time.Time         `json:"time"`
-	Type     string            `json:"type,omitempty"`
-	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 type Eventer interface {
@@ -80,10 +80,13 @@ func (n NoopStorage) Import(ctx context.Context, st *InMemoryStore) error {
 }
 
 type InMemoryStore struct {
-	Users    []appconfig.User         `json:"users,omitempty"`
-	Accounts []appconfig.Account      `json:"accounts,omitempty"`
-	Roles    []appconfig.Role         `json:"roles,omitempty"`
-	Policies []appconfig.InlinePolicy `json:"policies,omitempty"`
+	Users                  []appconfig.User                  `json:"users,omitempty"`
+	Accounts               []appconfig.Account               `json:"accounts,omitempty"`
+	Roles                  []appconfig.Role                  `json:"roles,omitempty"`
+	Policies               []appconfig.Policy                `json:"policies,omitempty"`
+	RolePolicyAttachments  []appconfig.RolePolicyAttachment  `json:"role_policy_attachments,omitempty"`
+	RoleUserAttachments    []appconfig.RoleUserAttachment    `json:"role_user_attachments,omitempty"`
+	RoleAccountAttachments []appconfig.RoleAccountAttachment `json:"role_account_attachments,omitempty"`
 }
 
 func (s *InMemoryStore) Display(ctx context.Context) (*InMemoryStore, error) {

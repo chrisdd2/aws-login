@@ -77,8 +77,8 @@ func ImportUsers(ctx context.Context, imp Importable, users []appconfig.User, de
 	// Add/update users
 	for i := range users {
 		u := &users[i]
-		if u.DeleteMarker.Delete {
-			if err := imp.PutUser(ctx, u, true); err != nil {
+		if u.Delete {
+			if err := imp.PutUser(ctx, u); err != nil {
 				return nil, fmt.Errorf("delete user %s: %w", u.Name, err)
 			}
 			changes = append(changes, Change{Action: "delete", ObjectType: "user", Value: u.Name})
@@ -88,13 +88,13 @@ func ImportUsers(ctx context.Context, imp Importable, users []appconfig.User, de
 		importedSet[u.Name] = true
 		if existingSet[u.Name] {
 			// Update existing user
-			if err := imp.PutUser(ctx, u, false); err != nil {
+			if err := imp.PutUser(ctx, u); err != nil {
 				return nil, fmt.Errorf("update user %s: %w", u.Name, err)
 			}
 			changes = append(changes, Change{Action: "update", ObjectType: "user", Value: u.Name})
 		} else {
 			// Create new user
-			if err := imp.PutUser(ctx, u, false); err != nil {
+			if err := imp.PutUser(ctx, u); err != nil {
 				return nil, fmt.Errorf("create user %s: %w", u.Name, err)
 			}
 			changes = append(changes, Change{Action: "create", ObjectType: "user", Value: u.Name})
@@ -105,8 +105,8 @@ func ImportUsers(ctx context.Context, imp Importable, users []appconfig.User, de
 	if del {
 		for _, name := range existingUsers {
 			if !importedSet[name] {
-				user := &appconfig.User{Name: name, DeleteMarker: appconfig.DeleteMarker{Delete: true}}
-				if err := imp.PutUser(ctx, user, true); err != nil {
+				user := &appconfig.User{Name: name, CommonFields: appconfig.CommonFields{Delete: true}}
+				if err := imp.PutUser(ctx, user); err != nil {
 					return nil, fmt.Errorf("delete user %s: %w", name, err)
 				}
 				changes = append(changes, Change{Action: "delete", ObjectType: "user", Value: name})
@@ -136,8 +136,8 @@ func ImportAccounts(ctx context.Context, imp Importable, accounts []*appconfig.A
 	// Add/update accounts
 	for i := range accounts {
 		a := accounts[i]
-		if a.DeleteMarker.Delete {
-			if err := imp.PutAccount(ctx, a, true); err != nil {
+		if a.Delete {
+			if err := imp.PutAccount(ctx, a); err != nil {
 				return nil, fmt.Errorf("delete account %s: %w", a.Name, err)
 			}
 			changes = append(changes, Change{Action: "delete", ObjectType: "account", Value: a.Name})
@@ -146,12 +146,12 @@ func ImportAccounts(ctx context.Context, imp Importable, accounts []*appconfig.A
 
 		importedSet[a.Name] = true
 		if existingSet[a.Name] {
-			if err := imp.PutAccount(ctx, a, false); err != nil {
+			if err := imp.PutAccount(ctx, a); err != nil {
 				return nil, fmt.Errorf("update account %s: %w", a.Name, err)
 			}
 			changes = append(changes, Change{Action: "update", ObjectType: "account", Value: a.Name})
 		} else {
-			if err := imp.PutAccount(ctx, a, false); err != nil {
+			if err := imp.PutAccount(ctx, a); err != nil {
 				return nil, fmt.Errorf("create account %s: %w", a.Name, err)
 			}
 			changes = append(changes, Change{Action: "create", ObjectType: "account", Value: a.Name})
@@ -162,8 +162,8 @@ func ImportAccounts(ctx context.Context, imp Importable, accounts []*appconfig.A
 	if del {
 		for _, a := range existingAccounts {
 			if !importedSet[a.Name] {
-				account := &appconfig.Account{Name: a.Name, DeleteMarker: appconfig.DeleteMarker{Delete: true}}
-				if err := imp.PutAccount(ctx, account, true); err != nil {
+				account := &appconfig.Account{Name: a.Name, CommonFields: appconfig.CommonFields{Delete: true}}
+				if err := imp.PutAccount(ctx, account); err != nil {
 					return nil, fmt.Errorf("delete account %s: %w", a.Name, err)
 				}
 				changes = append(changes, Change{Action: "delete", ObjectType: "account", Value: a.Name})
@@ -175,69 +175,10 @@ func ImportAccounts(ctx context.Context, imp Importable, accounts []*appconfig.A
 }
 
 func ImportRoles(ctx context.Context, imp Importable, roles []appconfig.Role, del bool) ([]Change, error) {
-	var changes []Change
-
-	// Get existing roles by listing accounts and their roles
-	accounts, err := imp.ListAccounts(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list accounts: %w", err)
-	}
-
-	existingRoles := make(map[string]bool)
-	for _, a := range accounts {
-		accountRoles, err := imp.ListRolesForAccount(ctx, a.Name)
-		if err != nil {
-			return nil, fmt.Errorf("list roles for account %s: %w", a.Name, err)
-		}
-		for _, r := range accountRoles {
-			existingRoles[r.Name] = true
-		}
-	}
-
-	importedSet := make(map[string]bool)
-
-	// Add/update roles
-	for i := range roles {
-		r := &roles[i]
-		if r.DeleteMarker.Delete {
-			if err := imp.PutRole(ctx, r, true); err != nil {
-				return nil, fmt.Errorf("delete role %s: %w", r.Name, err)
-			}
-			changes = append(changes, Change{Action: "delete", ObjectType: "role", Value: r.Name})
-			continue
-		}
-
-		importedSet[r.Name] = true
-		if existingRoles[r.Name] {
-			if err := imp.PutRole(ctx, r, false); err != nil {
-				return nil, fmt.Errorf("update role %s: %w", r.Name, err)
-			}
-			changes = append(changes, Change{Action: "update", ObjectType: "role", Value: r.Name})
-		} else {
-			if err := imp.PutRole(ctx, r, false); err != nil {
-				return nil, fmt.Errorf("create role %s: %w", r.Name, err)
-			}
-			changes = append(changes, Change{Action: "create", ObjectType: "role", Value: r.Name})
-		}
-	}
-
-	// Delete roles not in import
-	if del {
-		for roleName := range existingRoles {
-			if !importedSet[roleName] {
-				role := &appconfig.Role{Name: roleName, DeleteMarker: appconfig.DeleteMarker{Delete: true}}
-				if err := imp.PutRole(ctx, role, true); err != nil {
-					return nil, fmt.Errorf("delete role %s: %w", roleName, err)
-				}
-				changes = append(changes, Change{Action: "delete", ObjectType: "role", Value: roleName})
-			}
-		}
-	}
-
-	return changes, nil
+	return nil, nil
 }
 
-func ImportPolicies(ctx context.Context, imp Importable, policies []appconfig.InlinePolicy, del bool) ([]Change, error) {
+func ImportPolicies(ctx context.Context, imp Importable, policies []appconfig.Policy, del bool) ([]Change, error) {
 	var changes []Change
 
 	// Get existing policies
@@ -255,34 +196,24 @@ func ImportPolicies(ctx context.Context, imp Importable, policies []appconfig.In
 	// Add/update policies
 	for i := range policies {
 		p := &policies[i]
-		if p.DeleteMarker.Delete {
-			if err := imp.PutPolicy(ctx, p, true); err != nil {
-				return nil, fmt.Errorf("delete policy %s: %w", p.Id, err)
-			}
-			changes = append(changes, Change{Action: "delete", ObjectType: "policy", Value: p.Id})
-			continue
+
+		if err := imp.PutPolicy(ctx, p); err != nil {
+			return nil, fmt.Errorf("put policy %s: %w", p.Id, err)
 		}
 
+		changes = append(changes, Change{
+			Action:     action(p.Delete, existingSet[p.Id]),
+			ObjectType: "policy",
+			Value:      p.Id})
 		importedSet[p.Id] = true
-		if existingSet[p.Id] {
-			if err := imp.PutPolicy(ctx, p, false); err != nil {
-				return nil, fmt.Errorf("update policy %s: %w", p.Id, err)
-			}
-			changes = append(changes, Change{Action: "update", ObjectType: "policy", Value: p.Id})
-		} else {
-			if err := imp.PutPolicy(ctx, p, false); err != nil {
-				return nil, fmt.Errorf("create policy %s: %w", p.Id, err)
-			}
-			changes = append(changes, Change{Action: "create", ObjectType: "policy", Value: p.Id})
-		}
 	}
 
 	// Delete policies not in import
 	if del {
 		for _, p := range existingPolicies {
 			if !importedSet[p] {
-				policy := &appconfig.InlinePolicy{Id: p, DeleteMarker: appconfig.DeleteMarker{Delete: true}}
-				if err := imp.PutPolicy(ctx, policy, true); err != nil {
+				policy := &appconfig.Policy{Id: p, CommonFields: appconfig.CommonFields{Delete: true}}
+				if err := imp.PutPolicy(ctx, policy); err != nil {
 					return nil, fmt.Errorf("delete policy %s: %w", p, err)
 				}
 				changes = append(changes, Change{Action: "delete", ObjectType: "policy", Value: p})
@@ -291,4 +222,14 @@ func ImportPolicies(ctx context.Context, imp Importable, policies []appconfig.In
 	}
 
 	return changes, nil
+}
+
+func action(del bool, exists bool) string {
+	if del {
+		return "delete"
+	}
+	if exists {
+		return "update"
+	}
+	return "create"
 }

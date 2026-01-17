@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io"
 
+	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/internal/aws"
 	"github.com/chrisdd2/aws-login/internal/services/storage"
 )
@@ -25,9 +26,42 @@ func incFunc(n int) int {
 	return n + 1
 }
 
+func filterRoleUserAttachments(attachments []appconfig.RoleUserAttachment, username string) []appconfig.RoleUserAttachment {
+	var result []appconfig.RoleUserAttachment
+	for _, a := range attachments {
+		if a.Username == username {
+			result = append(result, a)
+		}
+	}
+	return result
+}
+
+func filterRoleAccountAttachments(attachments []appconfig.RoleAccountAttachment, accountName string) []appconfig.RoleAccountAttachment {
+	var result []appconfig.RoleAccountAttachment
+	for _, a := range attachments {
+		if a.AccountName == accountName {
+			result = append(result, a)
+		}
+	}
+	return result
+}
+
+func filterRolePolicyAttachments(attachments []appconfig.RolePolicyAttachment, roleName string) []appconfig.RolePolicyAttachment {
+	var result []appconfig.RolePolicyAttachment
+	for _, a := range attachments {
+		if a.RoleName == roleName {
+			result = append(result, a)
+		}
+	}
+	return result
+}
+
 var pagesTmpls = template.Must(template.New("").Funcs(template.FuncMap{
-	"json": jsonFunc,
-	"inc":  incFunc,
+	"json":                     jsonFunc,
+	"inc":                      incFunc,
+	"filterRoleUserAttachments":    filterRoleUserAttachments,
+	"filterRoleAccountAttachments": filterRoleAccountAttachments,
+	"filterRolePolicyAttachments":  filterRolePolicyAttachments,
 }).ParseFS(pages, "*.html"))
 
 type Navbar struct {

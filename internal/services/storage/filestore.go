@@ -2,10 +2,8 @@ package storage
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,9 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -76,28 +72,13 @@ func (s *FileStore) LoadJson(r io.Reader) error {
 
 func NewStaticStore(ctx context.Context, cfg *appconfig.AppConfig, awsCfg aws.Config) (*FileStore, error) {
 	s := &FileStore{cfg: cfg, s3Cl: s3.NewFromConfig(awsCfg)}
-	if strings.HasPrefix(cfg.Storage.Directory, "s3://") {
-		s3Url, err := url.Parse(cfg.Storage.Directory)
-		if err != nil {
-			return nil, err
-		}
-		bucket, key := s3Url.Hostname(), strings.TrimPrefix(s3Url.Path, "/")
-		s3Eventer, err := NewS3Eventer(s3.NewFromConfig(awsCfg), bucket, key)
-		if err != nil {
-			return nil, err
-		}
-		go s3Eventer.CommitLoop(ctx, time.Minute, 100, time.Minute*10)
-		s.ev = s3Eventer
-		slog.Info("enabled", "eventer", "s3")
-	} else {
-		filename := filepath.Join(cfg.Storage.Directory, "events.json")
-		f, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-		if err != nil {
-			return nil, err
-		}
-		s.ev = &fileEventer{f: f, w: bufio.NewWriter(f)}
-		slog.Info("enabled", "eventer", "file")
+	filename := filepath.Join(cfg.Storage.Directory, "events.json")
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		return nil, err
 	}
+	s.ev = &fileEventer{f: f, w: bufio.NewWriter(f)}
+	slog.Info("enabled", "eventer", "file")
 	return s, nil
 }
 
@@ -113,13 +94,16 @@ func (s *FileStore) GetAccount(ctx context.Context, name string) (*appconfig.Acc
 
 func (s *FileStore) ListRolesForAccount(ctx context.Context, accountName string) ([]*appconfig.Role, error) {
 	roles := []*appconfig.Role{}
-	acc, err := s.GetAccount(ctx, accountName)
-	if err != nil {
-		return nil, err
-	}
-	for _, role := range s.Roles {
-		if slices.Contains(acc.Roles, role.Name) {
-			roles = append(roles, &role)
+	for _, ra := range s.RoleAccountAttachments {
+		if ra.AccountName != accountName {
+			continue
+		}
+		role, err := s.GetRole(ctx, ra.RoleName)
+		if err != nil {
+			continue
+		}
+		if !role.Disabled {
+			roles = append(roles, role)
 		}
 	}
 	return roles, nil
@@ -129,21 +113,28 @@ func (s *FileStore) ListRolePermissions(ctx context.Context, userName string, ro
 	if err != nil {
 		return nil, fmt.Errorf("storage.GetUser: %w", err)
 	}
-	attachments := user.Roles
+	ats := []appconfig.RoleUserAttachment{}
 	// superusers see the same roles as the admin user
 	if user.Superuser {
-		attachments = s.createAdminUser().Roles
+		for _, at := range s.RoleAccountAttachments {
+			// admins see any role that can actually be used
+			ats = append(ats, appconfig.RoleUserAttachment{
+				Username:    userName,
+				RoleName:    at.RoleName,
+				AccountName: at.AccountName,
+				Permissions: appconfig.RolePermissionAll,
+			})
+		}
 	}
-	ats := []appconfig.RoleUserAttachment{}
-	for _, at := range attachments {
-		if (accountName == "" || at.AccountName == accountName) && (roleName == "" || at.RoleName == roleName) {
+	for _, at := range s.RoleUserAttachments {
+		if matchOrEmpty(accountName, at.AccountName) && matchOrEmpty(roleName, at.RoleName) && matchOrEmpty(userName, at.Username) {
 			ats = append(ats, at)
 		}
 	}
 	return ats, nil
 }
-func (s *FileStore) GetInlinePolicy(ctx context.Context, id string) (*appconfig.InlinePolicy, error) {
-	idx := slices.IndexFunc(s.Policies, func(acc appconfig.InlinePolicy) bool {
+func (s *FileStore) GetInlinePolicy(ctx context.Context, id string) (*appconfig.Policy, error) {
+	idx := slices.IndexFunc(s.Policies, func(acc appconfig.Policy) bool {
 		return id == acc.Id
 	})
 	if idx != -1 {
@@ -180,14 +171,12 @@ func (s *FileStore) createAdminUser() *appconfig.User {
 	}
 	// make a role attachment for every role available
 	attachments := []appconfig.RoleUserAttachment{}
-	for _, acc := range s.Accounts {
-		for _, role := range acc.Roles {
-			attachments = append(attachments,
-				appconfig.RoleUserAttachment{
-					RoleName:    role,
-					AccountName: acc.Name,
-					Permissions: []string{appconfig.RolePermissionConsole, appconfig.RolePermissionCredentials}})
-		}
+	for _, ra := range s.RoleAccountAttachments {
+		attachments = append(attachments,
+			appconfig.RoleUserAttachment{
+				RoleName:    ra.RoleName,
+				AccountName: ra.AccountName,
+				Permissions: []string{appconfig.RolePermissionConsole, appconfig.RolePermissionCredentials}})
 	}
 	friendlyName, _, _ := strings.Cut(s.cfg.Auth.AdminUsername, "@")
 
@@ -195,17 +184,16 @@ func (s *FileStore) createAdminUser() *appconfig.User {
 		Name:         s.cfg.Auth.AdminUsername,
 		Superuser:    true,
 		FriendlyName: friendlyName,
-		Roles:        attachments,
 	}
 	s.adminUser = user
 	return user
 
 }
 
-func (s *FileStore) ListAccounts(ctx context.Context) ([]*appconfig.Account, error) {
-	ret := make([]*appconfig.Account, 0, len(s.Accounts))
+func (s *FileStore) ListAccounts(ctx context.Context) ([]appconfig.Account, error) {
+	ret := make([]appconfig.Account, 0, len(s.Accounts))
 	for _, acc := range s.Accounts {
-		ret = append(ret, &acc)
+		ret = append(ret, acc)
 	}
 	return ret, nil
 }
@@ -222,6 +210,52 @@ func (s *FileStore) ListPolicies(ctx context.Context) ([]string, error) {
 		ret = append(ret, p.Id)
 	}
 	return ret, nil
+}
+
+func (s *FileStore) GetPolicy(ctx context.Context, id string) (*appconfig.Policy, error) {
+	idx := slices.IndexFunc(s.Policies, func(item appconfig.Policy) bool {
+		return item.Id == id
+	})
+	if idx != -1 {
+		return &s.Policies[idx], nil
+	}
+	return nil, ErrPolicyNotFound
+}
+
+func (s *FileStore) ListRoleAccountAttachments(ctx context.Context, roleName string, accountName string) ([]appconfig.RoleAccountAttachment, error) {
+	return slices.Collect(func(yield func(appconfig.RoleAccountAttachment) bool) {
+		for _, at := range s.RoleAccountAttachments {
+			if matchOrEmpty(roleName, at.RoleName) && matchOrEmpty(accountName, at.AccountName) {
+				if !yield(at) {
+					break
+				}
+			}
+		}
+	}), nil
+}
+
+func (s *FileStore) ListRolePolicyAttachments(ctx context.Context, roleName string) ([]appconfig.RolePolicyAttachment, error) {
+	return slices.Collect(func(yield func(appconfig.RolePolicyAttachment) bool) {
+		for _, at := range s.RolePolicyAttachments {
+			if matchOrEmpty(roleName, at.RoleName) {
+				if !yield(at) {
+					break
+				}
+			}
+		}
+	}), nil
+}
+
+func (s *FileStore) ListRoleUserAttachments(ctx context.Context, username string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error) {
+	return slices.Collect(func(yield func(appconfig.RoleUserAttachment) bool) {
+		for _, at := range s.RoleUserAttachments {
+			if matchOrEmpty(roleName, at.RoleName) && matchOrEmpty(username, at.Username) && matchOrEmpty(accountName, at.AccountName) {
+				if !yield(at) {
+					break
+				}
+			}
+		}
+	}), nil
 }
 
 func (s *FileStore) Reload(ctx context.Context) error {
@@ -285,133 +319,11 @@ func (s *FileStore) Reload(ctx context.Context) error {
 			ret = ret.Merge(&o, false)
 		}
 	}
-	if err := ret.Validate(ctx); err != nil {
-		return err
-	}
 	s.Reset()
 	s.Merge(ret, true)
 	// reset admin
 	s.adminUser = nil
 	return nil
-}
-
-func duplicates[T any](arr []T, selector func(a T) string) error {
-	visited := map[string]struct{}{}
-	for _, a := range arr {
-		v := selector(a)
-		_, ok := visited[v]
-		if !ok {
-			visited[v] = struct{}{}
-			continue
-		}
-		return fmt.Errorf("found duplicate [%s]", v)
-	}
-	return nil
-}
-
-func (s *FileStore) Validate(ctx context.Context) error {
-	verifyAccount := func(ctx context.Context, acc appconfig.Account) error {
-		name := strings.TrimSpace(acc.Name)
-		if name == "" {
-			return fmt.Errorf("account name must not be empty")
-		}
-		awsAccountId, err := strconv.ParseInt(acc.AwsAccountId, 10, 64)
-		if err != nil {
-			return err
-		}
-		if awsAccountId < 100000000000 || awsAccountId > 999999999999 {
-			// aws account is a 12digit number
-			return fmt.Errorf("invalid account number [%s]", acc.AwsAccountId)
-		}
-		// verify that all roles referred exist
-		for _, role := range acc.Roles {
-			_, err := s.GetRole(ctx, role)
-			if err != nil {
-				return fmt.Errorf("missing role [%s]", role)
-			}
-		}
-		return nil
-	}
-	verifyUser := func(ctx context.Context, u appconfig.User) error {
-		name := strings.TrimSpace(u.Name)
-		if name == "" {
-			return fmt.Errorf("username must not be empty")
-		}
-		for _, a := range u.Roles {
-			_, err := s.GetRole(ctx, a.RoleName)
-			if err != nil {
-				return fmt.Errorf("missing role [%s]", a.RoleName)
-			}
-			_, err = s.GetAccount(ctx, a.AccountName)
-			if err != nil {
-				return fmt.Errorf("missing account [%s]", a.AccountName)
-			}
-		}
-		return nil
-	}
-	verifyRole := func(ctx context.Context, r appconfig.Role) error {
-		name := strings.TrimSpace(r.Name)
-		if name == "" {
-			return fmt.Errorf("rolename must not be empty")
-		}
-		for _, v := range r.Policies {
-			_, err := s.GetInlinePolicy(ctx, v)
-			if err != nil {
-				return fmt.Errorf("missing policy [%s]", v)
-			}
-		}
-		return nil
-	}
-	verifyPolicy := func(p appconfig.InlinePolicy) error {
-		if strings.TrimSpace(p.Id) == "" {
-			return fmt.Errorf("policy id must not be empty")
-		}
-		if strings.TrimSpace(p.Document) == "" {
-			return fmt.Errorf("policy document must not be empty")
-		}
-		return nil
-	}
-	err := errors.Join(
-		duplicates(s.Roles, func(r appconfig.Role) string { return r.Name }),
-		duplicates(s.Accounts, func(r appconfig.Account) string { return r.Name }),
-		duplicates(s.Users, func(r appconfig.User) string { return r.Name }),
-		duplicates(s.Policies, func(r appconfig.InlinePolicy) string { return r.Id }),
-	)
-	if err != nil {
-		return err
-	}
-	// verify that roles and accounts to match
-	errs := []error{}
-	for _, acc := range s.Accounts {
-		// validate account id
-		err := verifyAccount(ctx, acc)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: [%w]", acc.Name, err))
-			continue
-		}
-	}
-	for _, user := range s.Users {
-		err := verifyUser(ctx, user)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: [%w]", user.Name, err))
-			continue
-		}
-	}
-	for _, role := range s.Roles {
-		err := verifyRole(ctx, role)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: [%w]", role.Name, err))
-			continue
-		}
-	}
-	for _, policy := range s.Policies {
-		err := verifyPolicy(policy)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: [%w]", policy.Id, err))
-			continue
-		}
-	}
-	return errors.Join(errs...)
 }
 
 func (s *FileStore) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
@@ -428,6 +340,12 @@ func (f *fileEventer) Close() {
 	f.f.Close()
 }
 func (f *fileEventer) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
+	type Event struct {
+		Id       string            `json:"id,omitempty"`
+		Time     time.Time         `json:"time"`
+		Type     string            `json:"type,omitempty"`
+		Metadata map[string]string `json:"metadata,omitempty"`
+	}
 	b, err := json.Marshal(Event{
 		Id:       uuid.NewString(),
 		Time:     time.Now().UTC(),
@@ -442,72 +360,6 @@ func (f *fileEventer) Publish(ctx context.Context, eventType string, metadata ma
 	return f.w.Flush()
 }
 
-type s3Eventer struct {
-	s3             *s3.Client
-	bucket         string
-	key            string
-	lastCommitTime time.Time
-	buffered       []Event
-	bufferedLock   sync.Mutex
-}
-
-func NewS3Eventer(s3Cl *s3.Client, bucket string, key string) (*s3Eventer, error) {
-	return &s3Eventer{
-		s3:           s3Cl,
-		bucket:       bucket,
-		key:          key,
-		bufferedLock: sync.Mutex{},
-	}, nil
-}
-
-func (s *s3Eventer) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
-	s.bufferedLock.Lock()
-	s.buffered = append(s.buffered, Event{
-		Id:       uuid.NewString(),
-		Time:     time.Now().UTC(),
-		Type:     eventType,
-		Metadata: metadata,
-	})
-	s.bufferedLock.Unlock()
-	return nil
-}
-
-func (s *s3Eventer) CommitLoop(ctx context.Context, commitInternal time.Duration, commitNumEventThreshold int, commitTimeWindow time.Duration) {
-	done := ctx.Done()
-	ticker := time.Tick(commitInternal)
-	for {
-		select {
-		case <-done:
-			return
-		case <-ticker:
-			if err := s.commit(ctx, commitNumEventThreshold, commitTimeWindow); err != nil {
-				slog.Info("s3eventer", "commit_error", err)
-			}
-		}
-	}
-}
-func (s *s3Eventer) commit(ctx context.Context, commitThreshold int, commitWindow time.Duration) error {
-	if len(s.buffered) == 0 {
-		return nil
-	}
-	if len(s.buffered) < commitThreshold && s.lastCommitTime.Sub(time.Now().UTC()) < commitWindow {
-		return nil
-	}
-	buf := bytes.Buffer{}
-	commitTime := time.Now().UTC()
-	enc := json.NewEncoder(&buf)
-	s.bufferedLock.Lock()
-	events := s.buffered
-	for _, ev := range events {
-		enc.Encode(ev)
-		buf.WriteByte('\n')
-	}
-	s.buffered = nil
-	s.lastCommitTime = commitTime
-	s.bufferedLock.Unlock()
-	s3Key := fmt.Sprintf("%s-%d", s.key, commitTime.UnixMilli())
-	if _, err := s.s3.PutObject(ctx, &s3.PutObjectInput{Body: &buf, Key: &s3Key, Bucket: &s.bucket}); err != nil {
-		return err
-	}
-	return nil
+func matchOrEmpty(a string, b string) bool {
+	return a == "" || a == b
 }
