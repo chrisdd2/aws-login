@@ -310,7 +310,7 @@ func (p *PostgresStore) ListPolicies(ctx context.Context) ([]string, error) {
 }
 
 func (p *PostgresStore) PutUser(ctx context.Context, u *appconfig.User) error {
-	return put(ctx, p.db, u, rolesTable, u.Delete, "Name")
+	return put(ctx, p.db, u, usersTable, u.Delete, "Name")
 }
 
 func (p *PostgresStore) PutAccount(ctx context.Context, a *appconfig.Account) error {
