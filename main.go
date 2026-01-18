@@ -200,7 +200,7 @@ func main() {
 	}))
 
 	r.Mount("/api", api.V1Api(accSvc, idps, roleSvc, tokenSvc))
-	r.Mount("/", webui.Router(cancel, tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg, eventer, syncer))
+	r.Mount("/", webui.Router(cancel, tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg, eventer, syncer, appCfg.Storage.Sync.Keycloak.SuperUserRole))
 
 	metricsRouter := chi.NewRouter()
 	metricsRouter.Handle("/metrics", metrics.Handler())

@@ -103,7 +103,13 @@ func (p *PostgresStore) ListRolePermissions(
 		}
 		ret := make([]appconfig.RoleUserAttachment, 0, len(ats))
 		for _, at := range ats {
-			ret = append(ret, appconfig.RoleUserAttachment{Username: userName, RoleName: at.RoleName, AccountName: at.AccountName, Permissions: appconfig.RolePermissionAll})
+			ret = append(ret, appconfig.RoleUserAttachment{
+				RoleUserAttachmentId: appconfig.RoleUserAttachmentId{
+					Username:    userName,
+					RoleName:    at.RoleName,
+					AccountName: at.AccountName,
+				},
+				Permissions: appconfig.RolePermissionAll})
 		}
 		return ret, nil
 	}
@@ -360,7 +366,7 @@ func (p *PostgresStore) ListRoleAccountAttachments(ctx context.Context, roleName
 }
 func (p *PostgresStore) ListRoleUserAttachments(ctx context.Context, username string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error) {
 	if roleName == "" && accountName == "" && username == "" {
-		return scan[appconfig.RoleUserAttachment](ctx, p.db, userRolesTable,"")
+		return scan[appconfig.RoleUserAttachment](ctx, p.db, userRolesTable, "")
 	}
 	if roleName == "" && accountName == "" {
 		return scan[appconfig.RoleUserAttachment](ctx, p.db, userRolesTable, "user_name = $1", username)

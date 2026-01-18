@@ -59,10 +59,11 @@ type AppConfig struct {
 		} `json:"postgres"`
 		Sync struct {
 			Keycloak struct {
-				BaseUrl  string `json:"base_url,omitempty"`
-				Realm    string `json:"realm,omitempty"`
-				Username string `json:"username,omitempty"`
-				Password string `json:"password,omitempty"`
+				BaseUrl       string `json:"base_url,omitempty"`
+				Realm         string `json:"realm,omitempty"`
+				Username      string `json:"username,omitempty"`
+				Password      string `json:"password,omitempty"`
+				SuperUserRole string `json:"superuser_role,omitempty"`
 			} `json:"keycloak,omitempty"`
 		} `json:"sync,omitempty"`
 	} `json:"storage,omitempty"`

@@ -119,9 +119,11 @@ func (s *FileStore) ListRolePermissions(ctx context.Context, userName string, ro
 		for _, at := range s.RoleAccountAttachments {
 			// admins see any role that can actually be used
 			ats = append(ats, appconfig.RoleUserAttachment{
-				Username:    userName,
-				RoleName:    at.RoleName,
-				AccountName: at.AccountName,
+				RoleUserAttachmentId: appconfig.RoleUserAttachmentId{
+					Username:    userName,
+					RoleName:    at.RoleName,
+					AccountName: at.AccountName,
+				},
 				Permissions: appconfig.RolePermissionAll,
 			})
 		}
@@ -169,17 +171,7 @@ func (s *FileStore) createAdminUser() *appconfig.User {
 	if s.adminUser != nil {
 		return s.adminUser
 	}
-	// make a role attachment for every role available
-	attachments := []appconfig.RoleUserAttachment{}
-	for _, ra := range s.RoleAccountAttachments {
-		attachments = append(attachments,
-			appconfig.RoleUserAttachment{
-				RoleName:    ra.RoleName,
-				AccountName: ra.AccountName,
-				Permissions: []string{appconfig.RolePermissionConsole, appconfig.RolePermissionCredentials}})
-	}
 	friendlyName, _, _ := strings.Cut(s.cfg.Auth.AdminUsername, "@")
-
 	user := &appconfig.User{
 		Name:         s.cfg.Auth.AdminUsername,
 		Superuser:    true,

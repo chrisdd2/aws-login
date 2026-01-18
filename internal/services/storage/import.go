@@ -357,7 +357,9 @@ func ImportRoleUserAttachments(ctx context.Context, imp Importable, attachments 
 		for _, at := range existingAttachments {
 			key := roleUserAttachmentKey(at)
 			if !importedSet[key] {
-				 attachment := &appconfig.RoleUserAttachment{Username: at.Username, RoleName: at.RoleName, AccountName: at.AccountName, CommonFields: appconfig.CommonFields{Delete: true}}
+				attachment := &appconfig.RoleUserAttachment{
+					RoleUserAttachmentId: at.RoleUserAttachmentId,
+					CommonFields:         appconfig.CommonFields{Delete: true}}
 				if err := imp.PutRoleUserAttachment(ctx, attachment); err != nil {
 					return nil, fmt.Errorf("delete role user attachment %s: %w", key, err)
 				}

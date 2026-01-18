@@ -37,17 +37,19 @@ func put[T any](ctx context.Context, db *sql.DB, item T, tableName string, del b
 		v = v.Elem()
 	}
 
-	args := make([]any, len(ids))
-	for i, id := range ids {
-		args[i] = v.FieldByName(id).Interface()
-	}
-
 	fields := getFields(v.Type())
 	idJsonNames := []string{}
-	for _, f := range fields {
-		if slices.Contains(ids, f.name) {
-			idJsonNames = append(idJsonNames, f.jsonName)
+	args := []any{}
+	for _, id := range ids {
+		name := id
+		for _, f := range fields {
+			if id == f.name {
+				name = f.jsonName
+				break
+			}
 		}
+		idJsonNames = append(idJsonNames, name)
+		args = append(args, v.FieldByName(id).Interface())
 	}
 	flt := make([]string, len(ids))
 	for i, id := range idJsonNames {
@@ -55,8 +57,8 @@ func put[T any](ctx context.Context, db *sql.DB, item T, tableName string, del b
 	}
 
 	if del {
-		if _, err := db.ExecContext(ctx,
-			fmt.Sprintf("DELETE FROM %s WHERE %s", tableName, strings.Join(flt, " AND ")), args...); err != nil {
+		q := fmt.Sprintf("DELETE FROM %s WHERE %s", tableName, strings.Join(flt, " AND "))
+		if _, err := db.ExecContext(ctx, q, args...); err != nil {
 			return fmt.Errorf("failed to delete: %w", err)
 		}
 		return nil

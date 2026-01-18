@@ -48,10 +48,14 @@ type Account struct {
 	CommonFields
 }
 
+type RoleUserAttachmentId struct {
+	Username    string `json:"user_name,omitempty"`
+	RoleName    string `json:"role_name,omitempty"`
+	AccountName string `json:"account_name,omitempty"`
+}
+
 type RoleUserAttachment struct {
-	Username    string    `json:"user_name,omitempty"`
-	RoleName    string    `json:"role_name,omitempty"`
-	AccountName string    `json:"account_name,omitempty"`
+	RoleUserAttachmentId
 	Permissions TextArray `json:"permissions,omitempty"`
 	CommonFields
 }

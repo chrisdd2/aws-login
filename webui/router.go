@@ -54,6 +54,7 @@ func Router(
 	cfg appconfig.AppConfig,
 	ev storage.Eventer,
 	syncer storage.SyncStorer,
+	superUserRole string,
 ) chi.Router {
 
 	hasAdminLogin := cfg.Auth.AdminPassword != "" && cfg.Auth.AdminUsername != ""
@@ -302,7 +303,7 @@ func Router(
 				sendError(w, r, ErrNotSupported)
 				return
 			}
-			im, err := storage.Sync(ctx, syncer, storageSvc)
+			im, err := storage.Sync(ctx, syncer, storageSvc, superUserRole)
 			if err != nil {
 				sendError(w, r, err)
 				return
