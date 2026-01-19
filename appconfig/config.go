@@ -41,7 +41,7 @@ const (
 type AppConfig struct {
 	environmentVariablePrefix string
 	Name                      string `json:"name,omitempty" mask:"true"`
-	Environment               string `json:"environment,omitempty" defeault:"development"`
+	Environment               string `json:"environment,omitempty" default:"development"`
 	MetrisAddr                string `json:"metrics_addr,omitempty" default:"localhost:8099"`
 	ListenAddr                string `json:"listen_addr,omitempty" default:"localhost:8090"`
 	DevelopmentMode           bool   `json:"development_mode,omitempty" default:"false"`
@@ -52,7 +52,7 @@ type AppConfig struct {
 		Directory string `json:"dir,omitempty" default:".config" `
 		Postgres  struct {
 			Host     string `json:"host,omitempty"`
-			Port     int    `json:"port,omitempty"`
+			Port     int    `json:"port,omitempty" default:"5432"`
 			Database string `json:"database,omitempty"`
 			Username string `json:"username,omitempty"`
 			Password string `json:"password,omitempty"`
@@ -64,7 +64,7 @@ type AppConfig struct {
 				Username      string `json:"username,omitempty"`
 				Password      string `json:"password,omitempty"`
 				SuperUserRole string `json:"superuser_role,omitempty"`
-			} `json:"keycloak,omitempty"`
+			} `json:"keycloak"`
 		} `json:"sync,omitempty"`
 	} `json:"storage,omitempty"`
 
