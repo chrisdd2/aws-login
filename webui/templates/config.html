@@ -332,6 +332,16 @@
                                         </ul>
                                     </div>
                                     {{end}}
+                                    {{ if .Metadata }}
+                                    <div>
+                                        <span class="font-semibold text-xs uppercase text-gray-500 dark:text-gray-400">Metadata:</span>
+                                        <ul class="list-disc list-inside ml-2 mt-1 font-mono text-xs text-gray-700 dark:text-gray-300">
+                                            {{range $key, $value := .Metadata}}
+                                            <li class="text-gray-700 dark:text-gray-300">{{$key}}: {{$value}}</li>
+                                            {{end}}
+                                        </ul>
+                                    </div>
+                                    {{end}}
                                 </div>
                             </td>
                         </tr>
