@@ -107,7 +107,7 @@ func (k *keycloakSyncer) ensureToken(ctx context.Context) error {
 
 func (k *keycloakSyncer) get(ctx context.Context, path string) (*http.Response, error) {
 	if err := k.ensureToken(ctx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("keycloakSyncer.get: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, k.apiURL(path), nil)
@@ -133,7 +133,7 @@ func (k *keycloakSyncer) get(ctx context.Context, path string) (*http.Response, 
 func (k *keycloakSyncer) getUsers(ctx context.Context) ([]keycloakUser, error) {
 	resp, err := k.get(ctx, "users")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("keycloakSyncer.getUsers: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -148,7 +148,7 @@ func (k *keycloakSyncer) getUsers(ctx context.Context) ([]keycloakUser, error) {
 func (k *keycloakSyncer) getUserRoles(ctx context.Context, userID string) ([]KeycloakRoleRef, error) {
 	resp, err := k.get(ctx, fmt.Sprintf("users/%s/role-mappings/realm/composite", userID))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("keycloakSyncer.getUserRoles: %w", err)
 	}
 	defer resp.Body.Close()
 

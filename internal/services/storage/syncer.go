@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"slices"
 
@@ -16,14 +17,14 @@ type SyncStorer interface {
 func Sync(ctx context.Context, ss SyncStorer, s Readable, superUserRole string) (*InMemoryStore, error) {
 	ssUsers, err := ss.Users(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("syncStorer.Users: %w", err)
 	}
 	// loop though our roles
 	// based on the metadata, we identify the roles that a user might have
 	// for each user of those role we create the appropriate attachment
 	roles, err := s.ListRoleAccountAttachments(ctx, "", "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("storage.ListRoleAccountAttachments: %w", err)
 	}
 
 	rolesWithGrants := map[string]appconfig.RoleUserAttachment{}
@@ -36,7 +37,7 @@ func Sync(ctx context.Context, ss SyncStorer, s Readable, superUserRole string) 
 	for _, r := range roles {
 		role, err := s.GetRole(ctx, r.RoleName)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("storage.GetRole: %w", err)
 		}
 		for i, roleTag := range []string{
 			role.Metadata["sync_role_credentials"],
@@ -57,7 +58,7 @@ func Sync(ctx context.Context, ss SyncStorer, s Readable, superUserRole string) 
 	for i, u := range ssUsers {
 		userRoles, err := ss.RolesForUser(ctx, u.Name)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("syncStorer.RolesForUser: %w", err)
 		}
 		for _, r := range userRoles {
 			if superUserRole != "" && superUserRole == r {

@@ -124,7 +124,7 @@ func scan[T any](ctx context.Context, db *sql.DB, tableName string, filter strin
 	slog.Debug("postgres", "reflect_put", query)
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("db.QueryContext: %w", err)
 	}
 	defer rows.Close()
 
@@ -132,7 +132,7 @@ func scan[T any](ctx context.Context, db *sql.DB, tableName string, filter strin
 	for rows.Next() {
 		k := new(T)
 		if err := rows.Scan(scanArgs(reflect.ValueOf(k))...); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("rows.Scan: %w", err)
 		}
 		ret = append(ret, *k)
 	}

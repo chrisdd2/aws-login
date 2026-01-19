@@ -55,18 +55,18 @@ func NewPostgresStore(ctx context.Context, cfg *appconfig.AppConfig) (*PostgresS
 
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sql.Open: %w", err)
 	}
 
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
-		return nil, err
+		return nil, fmt.Errorf("db.PingContext: %w", err)
 	}
 
 	store := &PostgresStore{db: db, cfg: cfg}
 	if err := store.prepareDb(ctx); err != nil {
 		db.Close()
-		return nil, err
+		return nil, fmt.Errorf("PostgresStore.prepareDb: %w", err)
 	}
 	return store, nil
 }
@@ -74,13 +74,13 @@ func NewPostgresStore(ctx context.Context, cfg *appconfig.AppConfig) (*PostgresS
 func (p *PostgresStore) ListRolesForAccount(ctx context.Context, accountName string) ([]*appconfig.Role, error) {
 	ats, err := p.ListRoleAccountAttachments(ctx, "", accountName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ListRoleAccountAttachments: %w", err)
 	}
 	ret := make([]*appconfig.Role, 0, len(ats))
 	for _, at := range ats {
 		role, err := p.GetRole(ctx, at.RoleName)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("GetRole: %w", err)
 		}
 		ret = append(ret, role)
 	}
@@ -95,12 +95,12 @@ func (p *PostgresStore) ListRolePermissions(
 ) ([]appconfig.RoleUserAttachment, error) {
 	usr, err := p.GetUser(ctx, userName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GetUser: %w", err)
 	}
 	if userName == p.cfg.Auth.AdminUsername || usr.Superuser {
 		ats, err := p.ListRoleAccountAttachments(ctx, roleName, accountName)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("ListRoleAccountAttachments: %w", err)
 		}
 		ret := make([]appconfig.RoleUserAttachment, 0, len(ats))
 		for _, at := range ats {
@@ -120,7 +120,7 @@ func (p *PostgresStore) ListRolePermissions(
 func (p *PostgresStore) GetPolicy(ctx context.Context, id string) (*appconfig.Policy, error) {
 	items, err := scan[appconfig.Policy](ctx, p.db, policiesTable, "id =$1", id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	if len(items) < 1 {
 		return nil, storage.ErrPolicyNotFound
@@ -131,7 +131,7 @@ func (p *PostgresStore) GetPolicy(ctx context.Context, id string) (*appconfig.Po
 func (p *PostgresStore) GetRole(ctx context.Context, name string) (*appconfig.Role, error) {
 	items, err := scan[appconfig.Role](ctx, p.db, rolesTable, "name = $1", name)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	if len(items) < 1 {
 		return nil, storage.ErrRoleNotFound
@@ -150,7 +150,7 @@ func (p *PostgresStore) GetUser(ctx context.Context, name string) (*appconfig.Us
 	}
 	items, err := scan[appconfig.User](ctx, p.db, usersTable, "name = $1", name)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	if len(items) < 1 {
 		return nil, storage.ErrUserNotFound
@@ -161,7 +161,7 @@ func (p *PostgresStore) GetUser(ctx context.Context, name string) (*appconfig.Us
 func (p *PostgresStore) GetAccount(ctx context.Context, accountName string) (*appconfig.Account, error) {
 	items, err := scan[appconfig.Account](ctx, p.db, accountsTable, "name = $1", accountName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	if len(items) < 1 {
 		return nil, storage.ErrAccountNotFound
@@ -182,31 +182,31 @@ func (p *PostgresStore) Display(ctx context.Context) (*storage.InMemoryStore, er
 	// try to convert the database into a inmemory store
 	roleUserAttachments, err := scan[appconfig.RoleUserAttachment](ctx, p.db, userRolesTable, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	roleAccountAttachments, err := scan[appconfig.RoleAccountAttachment](ctx, p.db, roleAccountTable, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	rolePolicyAttachments, err := scan[appconfig.RolePolicyAttachment](ctx, p.db, rolePolicyTable, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	users, err := scan[appconfig.User](ctx, p.db, usersTable, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	accounts, err := scan[appconfig.Account](ctx, p.db, accountsTable, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	roles, err := scan[appconfig.Role](ctx, p.db, rolesTable, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	policies, err := scan[appconfig.Policy](ctx, p.db, policiesTable, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	s := storage.InMemoryStore{
 		Accounts:               accounts,
@@ -233,7 +233,7 @@ func (p *PostgresStore) Publish(ctx context.Context, eventType string, metadata 
 	}
 	if _, err := p.db.ExecContext(ctx,
 		fmt.Sprintf("INSERT INTO %s(id,time,event_type,metadata) VALUES($1,$2,$3,$4)", eventsTable), uuid.NewString(), time.Now().UTC().String(), eventType, string(b)); err != nil {
-		return err
+		return fmt.Errorf("db.ExecContext: %w", err)
 	}
 	return nil
 }
@@ -296,7 +296,7 @@ func (p *PostgresStore) Import(ctx context.Context, fs *storage.InMemoryStore) e
 func (p *PostgresStore) ListUsers(ctx context.Context) ([]string, error) {
 	users, err := scan[appconfig.User](ctx, p.db, usersTable, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	ret := []string{}
 	for _, usr := range users {
@@ -308,7 +308,7 @@ func (p *PostgresStore) ListUsers(ctx context.Context) ([]string, error) {
 func (p *PostgresStore) ListPolicies(ctx context.Context) ([]string, error) {
 	items, err := scan[appconfig.Policy](ctx, p.db, policiesTable, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	ret := []string{}
 	for _, item := range items {
@@ -320,7 +320,7 @@ func (p *PostgresStore) ListPolicies(ctx context.Context) ([]string, error) {
 func (p *PostgresStore) ListRoles(ctx context.Context) ([]string, error) {
 	items, err := scan[appconfig.Role](ctx, p.db, rolesTable, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	ret := []string{}
 	for _, item := range items {

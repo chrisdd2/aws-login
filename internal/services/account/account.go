@@ -57,7 +57,7 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 	// Permission check
 	user, err := a.storage.GetUser(ctx, userId)
 	if err != nil {
-		return err
+		return fmt.Errorf("storage.GetUser: %w", err)
 	}
 	if !(user.Superuser) {
 		return ErrNoPermission
@@ -71,7 +71,7 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 	// Deploy the stack
 	acc, err := a.storage.GetAccount(ctx, accountId)
 	if err != nil {
-		return err
+		return fmt.Errorf("storage.GetAccount: %w", err)
 	}
 	a.storage.Publish(ctx, "account_deploy", map[string]string{"username": userId, "account_name": accountId})
 	return a.aws.DeployStack(ctx, acc.Name, acc.AwsAccountId, aws.StackName.Value(accountId), templateString, nil)
@@ -149,14 +149,14 @@ func (a *accountService) DeploymentStatus(ctx context.Context, accountName strin
 func (a *accountService) StackUpdates(ctx context.Context, accountName string, stackId string) ([]aws.StackEvent, error) {
 	acc, err := a.storage.GetAccount(ctx, accountName)
 	if err != nil {
-		return nil, fmt.Errorf("accountService.StackUpdates: storage.GetAccount: %w", err)
+		return nil, fmt.Errorf("storage.GetAccount: %w", err)
 	}
 	if stackId == "" {
 		stackId = aws.StackName.Value(accountName)
 	}
 	events, err := a.aws.TopStackEvents(ctx, accountName, acc.AwsAccountId, stackId)
 	if err != nil {
-		return nil, fmt.Errorf("accountService.StackUpdates: aws.WatchStackEvents: %w", err)
+		return nil, fmt.Errorf("aws.TopStackEvents: %w", err)
 	}
 	return events, nil
 }
@@ -183,7 +183,7 @@ func generateStackTemplate(ctx context.Context, store storage.Storage, account s
 	}
 	templateString, err := templateExecuteToString(roleStackTemplate, struct{ Roles []CfnRole }{Roles: cfnroles})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("templateExecuteToString: %w", err)
 	}
 	return templateString, nil
 }
@@ -191,12 +191,12 @@ func generateStackTemplate(ctx context.Context, store storage.Storage, account s
 func (a *accountService) DestroyStack(ctx context.Context, accountName string, username string) (string, error) {
 	acc, err := a.storage.GetAccount(ctx, accountName)
 	if err != nil {
-		return "", fmt.Errorf("accountService.DestroyStack: storage.GetAccount: %w", err)
+		return "", fmt.Errorf("storage.GetAccount: %w", err)
 	}
 	a.storage.Publish(ctx, "account_destroy", map[string]string{"username": username, "account_name": accountName})
 	stackId, err := a.aws.DestroyStack(ctx, accountName, acc.AwsAccountId, aws.StackName.Value(accountName))
 	if err != nil {
-		return "", fmt.Errorf("accountService.DestroyStack: aws.DestroyStack: %w", err)
+		return "", fmt.Errorf("aws.DestroyStack: %w", err)
 	}
 	return stackId, nil
 
@@ -222,11 +222,11 @@ var (
 func (a *accountService) BootstrapTemplate(ctx context.Context, accountName string) (string, error) {
 	_, err := a.storage.GetAccount(ctx, accountName)
 	if err != nil {
-		return "", fmt.Errorf("accountService.BootstrapTemplate: storage.GetAccount: %w", err)
+		return "", fmt.Errorf("storage.GetAccount: %w", err)
 	}
 	_, arn, err := a.aws.WhoAmI(ctx)
 	if err != nil {
-		return "", fmt.Errorf("accountService.BootstrapTemplate: aws.WhoAmi: %w", err)
+		return "", fmt.Errorf("aws.WhoAmI: %w", err)
 	}
 	tmpl := bootstrapStackTemplateCfn
 	return templateExecuteToString(tmpl,

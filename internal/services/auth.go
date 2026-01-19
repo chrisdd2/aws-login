@@ -102,7 +102,7 @@ func (g *GithubService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 	if err := getWrapped(url, map[string]string{
 		"Accept": "application/json",
 	}, http.StatusOK, &token); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getWrapped: %w", err)
 	}
 	return g.TokenLogin(r, token.AccessToken)
 }
@@ -112,7 +112,7 @@ func (g *GithubService) TokenLogin(r *http.Request, tokenString string) (*AuthIn
 		Login string `json:"login"`
 	}{}
 	if err := fetchJsonAuthed(GithubUserApiUrl, tokenString, &loginInfo); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetchJsonAuthed: %w", err)
 	}
 	emails := []struct {
 		Email    string `json:"email,omitempty"`
@@ -120,7 +120,7 @@ func (g *GithubService) TokenLogin(r *http.Request, tokenString string) (*AuthIn
 		Primary  bool   `json:"primary,omitempty"`
 	}{}
 	if err := fetchJsonAuthed(GIthubUserEmailApiUrl, tokenString, &emails); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetchJsonAuthed: %w", err)
 	}
 	userEmail := ""
 	for _, email := range emails {
@@ -142,14 +142,14 @@ func fetchJsonAuthed(url string, accessToken string, v any) error {
 func getWrapped(url string, headers map[string]string, expected int, v any) error {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("http.NewRequest: %w", err)
 	}
 	for k, v := range headers {
 		req.Header.Add(k, v)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("http.DefaultClient.Do: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != expected {
@@ -178,11 +178,11 @@ func findLogoutUrl(issuer string) (string, error) {
 	}{}
 	resp, err := http.Get(wellKnown)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("http.Get: %w", err)
 	}
 	defer resp.Body.Close()
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return "", err
+		return "", fmt.Errorf("json.Decode: %w", err)
 	}
 	return info.EndSessionEndpoint, nil
 }

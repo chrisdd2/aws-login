@@ -66,13 +66,13 @@ func (a *tokenServiceImpl) Create(ctx context.Context, usr *UserInfo, validate b
 	if validate {
 		sgUser, err := a.storage.GetUser(ctx, usr.Username)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("storage.GetUser: %w", err)
 		}
 		usr.Superuser = bool(sgUser.Superuser)
 	}
 	accessToken, err := a.signToken(*usr, DefaultTokenExpiration)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("jwt.SignedString: %w", err)
 	}
 	return accessToken, nil
 }
@@ -82,7 +82,7 @@ func (a *tokenServiceImpl) Validate(ctx context.Context, tokenStr string) (*User
 		return a.key, nil
 	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("jwt.ParseWithClaims: %w", err)
 	}
 	claims, ok := token.Claims.(*UserClaims)
 	if !ok {

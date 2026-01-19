@@ -87,7 +87,7 @@ func NewAwsApi(ctx context.Context, stsCl *sts.Client) (AwsApiCaller, error) {
 	ret := apiImpl{stsCl: stsCl}
 	_, _, err := ret.WhoAmI(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sts.GetCallerIdentity: %w", err)
 	}
 	return &ret, nil
 }
@@ -116,7 +116,7 @@ func (a *apiImpl) WhoAmI(ctx context.Context) (account string, arn string, err e
 	if a.account == "" {
 		resp, err := a.stsCl.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 		if err != nil {
-			return "", "", err
+			return "", "", fmt.Errorf("sts.GetCallerIdentity: %w", err)
 		}
 		a.account = aws.ToString(resp.Account)
 		a.arn = aws.ToString(resp.Arn)
@@ -145,7 +145,7 @@ func (a *apiImpl) GetCredentials(
 func (a *apiImpl) DestroyStack(ctx context.Context, accountName string, accountId string, stackName string) (stackId string, err error) {
 	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(accountId, OpsRole.Value(accountName)))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("assumeRole: %w", err)
 	}
 	cfnCl := cloudformation.NewFromConfig(cfg)
 	resp, err := cfnCl.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: &stackName})
@@ -153,7 +153,7 @@ func (a *apiImpl) DestroyStack(ctx context.Context, accountName string, accountI
 		return "", ErrStackNotExist
 	}
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("cloudformation.DescribeStacks: %w", err)
 	}
 	_, err = cfnCl.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: &stackName})
 	if err != nil {
@@ -167,7 +167,7 @@ func (a *apiImpl) DestroyStack(ctx context.Context, accountName string, accountI
 func (a *apiImpl) DeployStack(ctx context.Context, accountName string, accountId string, stackName string, templateText string, params map[string]string) error {
 	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(accountId, OpsRole.Value(accountName)))
 	if err != nil {
-		return err
+		return fmt.Errorf("assumeRole: %w", err)
 	}
 	cfnCl := cloudformation.NewFromConfig(cfg)
 	if params == nil {
@@ -193,7 +193,7 @@ func updateStack(ctx context.Context, cfnCl *cloudformation.Client, stackName st
 		if isStackMissingErr(err) {
 			update = false
 		} else {
-			return err
+			return fmt.Errorf("cloudformation.DescribeStacks: %w", err)
 		}
 	}
 	if update {
@@ -204,7 +204,7 @@ func updateStack(ctx context.Context, cfnCl *cloudformation.Client, stackName st
 			Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam},
 		})
 		if err != nil && !isNoUpdateErr(err) {
-			return err
+			return fmt.Errorf("cloudformation.UpdateStack: %w", err)
 		}
 		return nil
 	}
@@ -214,7 +214,7 @@ func updateStack(ctx context.Context, cfnCl *cloudformation.Client, stackName st
 		Parameters:   cfnParams,
 		Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam},
 	})
-	return err
+	return fmt.Errorf("cloudformation.CreateStack: %w", err)
 }
 
 func (a *apiImpl) GenerateSigninUrl(ctx context.Context, roleArn string, sessionName string, redirectUrl string) (string, error) {
@@ -242,7 +242,7 @@ func (a *apiImpl) GenerateSigninUrl(ctx context.Context, roleArn string, session
 
 	awsResp, err := http.Get(fmt.Sprintf("%s?%s", signInUrl, values.Encode()))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("http.Get: %w", err)
 	}
 	defer awsResp.Body.Close()
 	if awsResp.StatusCode != http.StatusOK {
@@ -255,7 +255,7 @@ func (a *apiImpl) GenerateSigninUrl(ctx context.Context, roleArn string, session
 	}{}
 	err = json.NewDecoder(awsResp.Body).Decode(&signinToken)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("json.Decode: %w", err)
 	}
 	// construct signin url
 	values = url.Values{
@@ -305,7 +305,7 @@ func assumeRole(ctx context.Context, stsCl *sts.Client, roleArn string) (aws.Con
 		aro.Duration = time.Minute * 15 // minimum
 	})))
 	if err != nil {
-		return aws.Config{}, err
+		return aws.Config{}, fmt.Errorf("config.LoadDefaultConfig: %w", err)
 	}
 	// sanity check for assume role permissions
 	if _, err := sts.NewFromConfig(cfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{}); err != nil {
@@ -316,7 +316,7 @@ func assumeRole(ctx context.Context, stsCl *sts.Client, roleArn string) (aws.Con
 				return cfg, ErrNotAuthorized
 			}
 		}
-		return cfg, err
+		return cfg, fmt.Errorf("sts.GetCallerIdentity: %w", err)
 	}
 	return cfg, nil
 }
@@ -338,13 +338,13 @@ func getStack(ctx context.Context, cfnCl *cloudformation.Client, stackName strin
 func (a *apiImpl) TopStackEvents(ctx context.Context, accountName string, accountId string, stackName string) ([]StackEvent, error) {
 	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(accountId, OpsRole.Value(accountName)))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("assumeRole: %w", err)
 	}
 
 	cfnCl := cloudformation.NewFromConfig(cfg)
 	resp, err := cfnCl.DescribeStackEvents(ctx, &cloudformation.DescribeStackEventsInput{StackName: &stackName})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cloudformation.DescribeStackEvents: %w", err)
 	}
 	ret := make([]StackEvent, 0, len(resp.StackEvents))
 	for _, ev := range resp.StackEvents {

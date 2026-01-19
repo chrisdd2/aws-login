@@ -62,7 +62,7 @@ func (s *FileStore) Merge(o *FileStore, inPlace bool) *FileStore {
 func (s *FileStore) LoadYaml(r io.Reader) error {
 	buf, err := io.ReadAll(r)
 	if err != nil {
-		return err
+		return fmt.Errorf("io.ReadAll: %w", err)
 	}
 	return yaml.Unmarshal(buf, s, yaml.DisallowUnknownFields)
 }
@@ -264,14 +264,14 @@ func (s *FileStore) Reload(ctx context.Context) error {
 		// its s3
 		s3Url, err := url.Parse(sgDir)
 		if err != nil {
-			return err
+			return fmt.Errorf("url.Parse: %w", err)
 		}
 		bucket, path := s3Url.Hostname(), strings.TrimPrefix(s3Url.Path, "/")
 		pages := s3.NewListObjectsV2Paginator(s.s3Cl, &s3.ListObjectsV2Input{Bucket: &bucket, Prefix: &path})
 		for pages.HasMorePages() {
 			page, err := pages.NextPage(ctx)
 			if err != nil {
-				return err
+				return fmt.Errorf("pages.NextPage: %w", err)
 			}
 			for _, obj := range page.Contents {
 				name := aws.ToString(obj.Key)
@@ -280,13 +280,13 @@ func (s *FileStore) Reload(ctx context.Context) error {
 				}
 				resp, err := s.s3Cl.GetObject(ctx, &s3.GetObjectInput{Bucket: &bucket, Key: obj.Key})
 				if err != nil {
-					return err
+					return fmt.Errorf("s3Cl.GetObject: %w", err)
 				}
 				o := FileStore{}
 				slog.Info("load_config", "type", "s3", "filename", fmt.Sprintf("s3://%s/%s", bucket, name))
 				if err := o.LoadYaml(resp.Body); err != nil {
 					resp.Body.Close()
-					return err
+					return fmt.Errorf("o.LoadYaml: %w", err)
 				}
 				resp.Body.Close()
 				ret = ret.Merge(&o, false)
@@ -295,7 +295,7 @@ func (s *FileStore) Reload(ctx context.Context) error {
 	} else {
 		entries, err := os.ReadDir(sgDir)
 		if err != nil {
-			return err
+			return fmt.Errorf("os.ReadDir: %w", err)
 		}
 		for _, entry := range entries {
 			name := filepath.Join(sgDir, entry.Name())
@@ -308,12 +308,12 @@ func (s *FileStore) Reload(ctx context.Context) error {
 			o := FileStore{}
 			f, err := os.Open(name)
 			if err != nil {
-				return err
+				return fmt.Errorf("os.Open: %w", err)
 			}
 			defer f.Close()
 			slog.Info("load_config", "type", "filesystem", "filename", name)
 			if err := o.LoadYaml(f); err != nil {
-				return err
+				return fmt.Errorf("o.LoadYaml: %w", err)
 			}
 			ret = ret.Merge(&o, false)
 		}
@@ -353,7 +353,7 @@ func (f *fileEventer) Publish(ctx context.Context, eventType string, metadata ma
 		Metadata: metadata,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("json.Marshal: %w", err)
 	}
 	f.w.Write(b)
 	f.w.WriteByte('\n')

@@ -16,7 +16,7 @@ func (p *PostgresStore) prepareDb(ctx context.Context) error {
 
 		if err != nil {
 			if !strings.Contains(err.Error(), "does not exist") {
-				return err
+				return fmt.Errorf("db.QueryRowContext: %w", err)
 			}
 			version = "0"
 		}
@@ -42,7 +42,7 @@ func (p *PostgresStore) prepareDb(ctx context.Context) error {
 			return ErrInvalidSchemaVersion
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("v%dSchema: %w", version, err)
 		}
 	}
 }
@@ -64,11 +64,11 @@ func (p *PostgresStore) v4Schema(ctx context.Context) error {
 func (p *PostgresStore) executeVersion(ctx context.Context, version int, queries ...string) error {
 	for _, q := range queries {
 		if _, err := p.db.ExecContext(ctx, q); err != nil {
-			return err
+			return fmt.Errorf("db.ExecContext: %w", err)
 		}
 	}
 	if _, err := p.db.ExecContext(ctx, fmt.Sprintf(`INSERT INTO %s(version) SELECT %d`, schemaVersionTable, version)); err != nil {
-		return err
+		return fmt.Errorf("db.ExecContext: %w", err)
 	}
 	return nil
 }

@@ -83,7 +83,7 @@ func Router(
 			}{Name: idp.Details().Name, Desc: fmt.Sprintf("Sign in with %s", prettyName)})
 		}
 		if err := templates.LoginTemplate(w, data); err != nil {
-			sendError(w, r, err)
+			sendError(w, r, fmt.Errorf("templates.LoginTemplate: %w", err))
 		}
 	})
 	r.Post("/login", func(w http.ResponseWriter, r *http.Request) {
@@ -103,7 +103,7 @@ func Router(
 			return
 		}
 		if err := templates.LoginTemplate(w, templates.LoginData{AppName: cfg.Name, HasAdminPrompt: hasAdminLogin, ErrorString: loginErrorString(urlParams)}); err != nil {
-			sendError(w, r, err)
+			sendError(w, r, fmt.Errorf("templates.LoginTemplate: %w", err))
 		}
 	})
 
@@ -139,14 +139,14 @@ func Router(
 		var err error
 		roles, err = rolesSvc.UserPermissions(ctx, user.Username, "", "")
 		if err != nil {
-			sendError(w, r, err)
+			sendError(w, r, fmt.Errorf("rolesSvc.UserPermissions: %w", err))
 			return
 		}
 		templateRoles := make([]templates.Role, 0, len(roles))
 		for _, role := range roles {
 			acc, err := accountSrvc.GetFromAccountName(ctx, role.AccountName)
 			if err != nil {
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("accountSrvc.GetFromAccountName: %w", err))
 				return
 			}
 			templateRoles = append(templateRoles, templates.Role{
@@ -162,7 +162,7 @@ func Router(
 			Roles:  templateRoles,
 		}
 		if err := templates.RolesTemplate(w, data); err != nil {
-			sendError(w, r, err)
+			sendError(w, r, fmt.Errorf("templates.RolesTemplate: %w", err))
 		}
 	}
 	loggedIn.Get("/", mainHandler)
@@ -196,14 +196,14 @@ func Router(
 
 		accounts, err := accountSrvc.ListAccounts(ctx)
 		if err != nil {
-			sendError(w, r, err)
+			sendError(w, r, fmt.Errorf("accountSrvc.ListAccounts: %w", err))
 			return
 		}
 		templateAccounts := make([]templates.Account, 0, len(accounts))
 		for _, acc := range accounts {
 			status, err := statusCache.Status(ctx, acc.Name)
 			if err != nil {
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("statusCache.Status: %w", err))
 				return
 			}
 			templateAccounts = append(templateAccounts, templates.Account{
@@ -219,7 +219,7 @@ func Router(
 			Accounts: templateAccounts,
 		}
 		if err := templates.AccountsTemplate(w, data); err != nil {
-			sendError(w, r, err)
+			sendError(w, r, fmt.Errorf("templates.AccountsTemplate: %w", err))
 		}
 	})
 	loggedIn.With(superOnlyMiddleware()).Route("/config", func(r chi.Router) {
@@ -234,7 +234,7 @@ func Router(
 			user := getUser(r)
 			file, _, err := r.FormFile("file")
 			if err != nil {
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("r.FormFile: %w", err))
 				return
 			}
 			defer file.Close()
@@ -254,7 +254,7 @@ func Router(
 			}
 			changes, err := storage.ImportAll(ctx, importable, &fs, false)
 			if err != nil {
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("storage.ImportAll: %w", err))
 				return
 			}
 
@@ -271,12 +271,12 @@ func Router(
 			}
 			st, err := printable.Display(ctx)
 			if err != nil {
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("printable.Display: %w", err))
 				return
 			}
 			buf, err := yaml.Marshal(st)
 			if err != nil {
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("yaml.Marshal: %w", err))
 				return
 			}
 			storageSvc.Publish(ctx, "config_export", map[string]string{"username": user.Username})
@@ -291,7 +291,7 @@ func Router(
 				sendError(w, r, ErrNotSupported)
 			}
 			if err := reloadable.Reload(ctx); err != nil {
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("reloadable.Reload: %w", err))
 			}
 			slog.Info("reloaded config", "source", "admin_page")
 			http.Redirect(w, r, "/config", http.StatusTemporaryRedirect)
@@ -303,21 +303,21 @@ func Router(
 				sendError(w, r, ErrNotSupported)
 				return
 			}
-			im, err := storage.Sync(ctx, syncer, storageSvc, superUserRole)
-			if err != nil {
-				sendError(w, r, err)
-				return
-			}
 			usr := getUser(r)
 			storageSvc.Publish(ctx, "sync_users", map[string]string{"username": usr.Username})
+			im, err := storage.Sync(ctx, syncer, storageSvc, superUserRole)
+			if err != nil {
+				sendError(w, r, fmt.Errorf("storage.Sync: %w", err))
+				return
+			}
 			changesUsers, err := storage.ImportUsers(ctx, importable, im.Users, true)
 			if err != nil {
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("storage.ImportUsers: %w", err))
 				return
 			}
 			changesUserAttachments, err := storage.ImportRoleUserAttachments(ctx, importable, im.RoleUserAttachments, true)
 			if err != nil {
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("storage.ImportRoleUserAttachments: %w", err))
 				return
 			}
 			configHandler(w, r, storageSvc, &cfg, append(changesUsers, changesUserAttachments...))
@@ -345,7 +345,7 @@ func Router(
 					sendUnathorized(w, r, err)
 					return
 				}
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("rolesSvc.Console: %w", err))
 				return
 			}
 			http.Redirect(w, r, url, http.StatusTemporaryRedirect)
@@ -369,7 +369,7 @@ func Router(
 					sendUnathorized(w, r, err)
 					return
 				}
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("rolesSvc.Credentials: %w", err))
 				return
 			}
 
@@ -389,7 +389,7 @@ func Router(
 			}
 			templateString, err := accountSrvc.BootstrapTemplate(ctx, account)
 			if err != nil {
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("accountSrvc.BootstrapTemplate: %w", err))
 				return
 			}
 			render.PlainText(w, r, templateString)
@@ -413,7 +413,7 @@ func Router(
 				return
 			}
 			if err := accountSrvc.Deploy(ctx, user.Username, account); err != nil {
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("accountSrvc.Deploy: %w", err))
 				return
 			}
 			redirectWithParams(w, r, "/account/watch", map[string]string{"account": account}, http.StatusTemporaryRedirect)
@@ -432,14 +432,14 @@ func Router(
 			stackId := query.Get("stackId")
 			events, err := accountSrvc.StackUpdates(ctx, account, stackId)
 			if err != nil {
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("accountSrvc.StackUpdates: %w", err))
 				return
 			}
 			if err := templates.WatchTemplate(w, templates.WatchData{
 				Navbar: templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
 				Events: events,
 			}); err != nil {
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("templates.WatchTemplate: %w", err))
 			}
 
 		})
@@ -454,7 +454,7 @@ func Router(
 			user := getUser(r)
 			stackId, err := accountSrvc.DestroyStack(ctx, account, user.Username)
 			if err != nil {
-				sendError(w, r, err)
+				sendError(w, r, fmt.Errorf("accountSrvc.DestroyStack: %w", err))
 				return
 			}
 			redirectWithParams(w, r, "/account/watch", map[string]string{"account": account, "stackId": stackId}, http.StatusTemporaryRedirect)
@@ -598,7 +598,7 @@ func configHandler(w http.ResponseWriter, r *http.Request, storageSvc storage.St
 	}
 	st, err := printable.Display(ctx)
 	if err != nil {
-		sendError(w, r, err)
+		sendError(w, r, fmt.Errorf("printable.Display: %w", err))
 		return
 	}
 	data := templates.ConfigurationData{
@@ -607,6 +607,6 @@ func configHandler(w http.ResponseWriter, r *http.Request, storageSvc storage.St
 		Changes: changes,
 	}
 	if err := templates.ConfigurationTemplate(w, data); err != nil {
-		sendError(w, r, err)
+		sendError(w, r, fmt.Errorf("templates.ConfigurationTemplate: %w", err))
 	}
 }
