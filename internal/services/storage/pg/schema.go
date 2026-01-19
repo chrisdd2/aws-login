@@ -42,7 +42,7 @@ func (p *PostgresStore) prepareDb(ctx context.Context) error {
 			return ErrInvalidSchemaVersion
 		}
 		if err != nil {
-			return fmt.Errorf("v%dSchema: %w", version, err)
+			return fmt.Errorf("v%sSchema: %w", version, err)
 		}
 	}
 }
