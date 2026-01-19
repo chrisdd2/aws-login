@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"slices"
 	"strings"
@@ -12,10 +13,11 @@ import (
 
 func create[T any](tableName string) string {
 	t := reflect.TypeOf(*new(T))
-	names := fieldNames(t)
-	types := fieldTypes(t)
-	columns := make([]string, len(names))
-	for i := range names {
+	fields := getFields(t)
+	columns := make([]string, len(fields))
+	unique := []string{}
+	for i := range fields {
+		fld := fields[i]
 		typeStr := map[reflect.Kind]string{
 			reflect.Bool:    "boolean",
 			reflect.Int16:   "int2",
@@ -23,22 +25,36 @@ func create[T any](tableName string) string {
 			reflect.Int64:   "int8",
 			reflect.Float64: "float8",
 			reflect.Float32: "float8",
-		}[types[i].Kind()]
+		}[fld.typ.Kind()]
 		if typeStr == "" {
 			typeStr = "text"
 		}
-		columns[i] = fmt.Sprintf("%s %s", names[i], typeStr)
+		if fld.unique {
+			unique = append(unique, fld.jsonName)
+		}
+		columns[i] = fmt.Sprintf("%s %s", fld.jsonName, typeStr)
 	}
-	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(%s)", tableName, strings.Join(columns, ","))
+	if len(unique) > 0 {
+		columns = append(columns, fmt.Sprintf("UNIQUE (%s)", strings.Join(unique, ",")))
+	}
+	q := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(%s)", tableName, strings.Join(columns, ","))
+	slog.Debug("postgres", "reflect_create", q)
+	return q
 }
 
-func put[T any](ctx context.Context, db *sql.DB, item T, tableName string, del bool, ids ...string) error {
+func put[T any](ctx context.Context, db *sql.DB, item T, tableName string, del bool) error {
 	v := reflect.ValueOf(item)
 	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 
 	fields := getFields(v.Type())
+	ids := []string{}
+	for _, f := range fields {
+		if f.unique {
+			ids = append(ids, f.name)
+		}
+	}
 	idJsonNames := []string{}
 	args := []any{}
 	for _, id := range ids {
@@ -59,6 +75,7 @@ func put[T any](ctx context.Context, db *sql.DB, item T, tableName string, del b
 
 	if del {
 		q := fmt.Sprintf("DELETE FROM %s WHERE %s", tableName, strings.Join(flt, " AND "))
+		slog.Debug("postgres", "reflect_put", q)
 		if _, err := db.ExecContext(ctx, q, args...); err != nil {
 			return fmt.Errorf("failed to delete: %w", err)
 		}
@@ -89,6 +106,7 @@ func put[T any](ctx context.Context, db *sql.DB, item T, tableName string, del b
 		strings.Join(idJsonNames, ","),
 		strings.Join(updateList, ","),
 	)
+	slog.Debug("postgres", "reflect_put", query)
 	if _, err := db.ExecContext(ctx, query, args...); err != nil {
 		return fmt.Errorf("failed to upsert: %w", err)
 	}
@@ -103,6 +121,7 @@ func scan[T any](ctx context.Context, db *sql.DB, tableName string, filter strin
 		filter = " WHERE " + filter
 	}
 	query := fmt.Sprintf("SELECT %s FROM %s%s", strings.Join(columns, ","), tableName, filter)
+	slog.Debug("postgres", "reflect_put", query)
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -144,6 +163,7 @@ type fieldInfo struct {
 	name     string
 	jsonName string
 	typ      reflect.Type
+	unique   bool
 }
 
 var _typeCache = sync.Map{}
@@ -169,7 +189,13 @@ func getFields(t reflect.Type) []fieldInfo {
 		if strings.ToLower(name) == "delete" {
 			continue
 		}
-		fields = append(fields, fieldInfo{name: sf.Name, jsonName: name, typ: sf.Type})
+		fld := fieldInfo{
+			name:     sf.Name,
+			jsonName: name,
+			typ:      sf.Type,
+			unique:   sf.Tag.Get("sql") == "unique",
+		}
+		fields = append(fields, fld)
 	}
 	_typeCache.Store(t, fields)
 	return fields

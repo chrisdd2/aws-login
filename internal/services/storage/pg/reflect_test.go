@@ -3,6 +3,7 @@ package pg
 import (
 	"database/sql"
 	"fmt"
+	"math/rand"
 	"reflect"
 	"sync"
 	"testing"
@@ -10,6 +11,8 @@ import (
 	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 func TestCreate_TableGeneration(t *testing.T) {
@@ -21,37 +24,37 @@ func TestCreate_TableGeneration(t *testing.T) {
 		{
 			name:     "Account table",
 			table:    create[appconfig.Account]("accounts"),
-			expected: "CREATE TABLE IF NOT EXISTS accounts(name text,aws_account_id text,disabled boolean,metadata text)",
+			expected: "CREATE TABLE IF NOT EXISTS accounts(name text,aws_account_id text,disabled boolean,metadata text,UNIQUE (name,aws_account_id))",
 		},
 		{
 			name:     "User table",
 			table:    create[appconfig.User]("users"),
-			expected: "CREATE TABLE IF NOT EXISTS users(friendly_name text,name text,superuser boolean,disabled boolean,metadata text)",
+			expected: "CREATE TABLE IF NOT EXISTS users(friendly_name text,name text,superuser boolean,disabled boolean,metadata text,UNIQUE (name))",
 		},
 		{
 			name:     "Role table",
 			table:    create[appconfig.Role]("roles"),
-			expected: "CREATE TABLE IF NOT EXISTS roles(name text,managed_policies text,max_session_duration int8,disabled boolean,metadata text)",
+			expected: "CREATE TABLE IF NOT EXISTS roles(name text,managed_policies text,max_session_duration int8,disabled boolean,metadata text,UNIQUE (name))",
 		},
 		{
 			name:     "Policy table",
 			table:    create[appconfig.Policy]("policies"),
-			expected: "CREATE TABLE IF NOT EXISTS policies(id text,document text,disabled boolean,metadata text)",
+			expected: "CREATE TABLE IF NOT EXISTS policies(id text,document text,disabled boolean,metadata text,UNIQUE (id))",
 		},
 		{
 			name:     "RoleAccountAttachment table",
 			table:    create[appconfig.RoleAccountAttachment]("role_accounts"),
-			expected: "CREATE TABLE IF NOT EXISTS role_accounts(role_name text,account_name text,disabled boolean,metadata text)",
+			expected: "CREATE TABLE IF NOT EXISTS role_accounts(role_name text,account_name text,disabled boolean,metadata text,UNIQUE (role_name,account_name))",
 		},
 		{
 			name:     "RolePolicyAttachment table",
 			table:    create[appconfig.RolePolicyAttachment]("role_policies"),
-			expected: "CREATE TABLE IF NOT EXISTS role_policies(role_name text,policy_id text,disabled boolean,metadata text)",
+			expected: "CREATE TABLE IF NOT EXISTS role_policies(role_name text,policy_id text,disabled boolean,metadata text,UNIQUE (role_name,policy_id))",
 		},
 		{
 			name:     "RoleUserAttachment table",
 			table:    create[appconfig.RoleUserAttachment]("user_roles"),
-			expected: "CREATE TABLE IF NOT EXISTS user_roles(user_name text,role_name text,account_name text,permissions text,disabled boolean,metadata text)",
+			expected: "CREATE TABLE IF NOT EXISTS user_roles(user_name text,role_name text,account_name text,permissions text,disabled boolean,metadata text,UNIQUE (user_name,role_name,account_name))",
 		},
 	}
 
@@ -140,7 +143,7 @@ func TestPut_Upsert(t *testing.T) {
 			Name:         "test-account-insert",
 			AwsAccountId: "123456789",
 		}
-		err := put(ctx, db, account, accountsTable, false, "Name")
+		err := put(ctx, db, account, accountsTable, false)
 		require.NoError(t, err)
 
 		// Verify it was inserted
@@ -155,11 +158,11 @@ func TestPut_Upsert(t *testing.T) {
 			Name:         "test-account-update",
 			AwsAccountId: "111111111",
 		}
-		require.NoError(t, put(ctx, db, account, accountsTable, false, "Name"))
+		require.NoError(t, put(ctx, db, account, accountsTable, false))
 
 		// Update with new values - Account uses Metadata for extra fields
 		account.Metadata = appconfig.TextMap{"key": "updated-value"}
-		require.NoError(t, put(ctx, db, account, accountsTable, false, "Name"))
+		require.NoError(t, put(ctx, db, account, accountsTable, false))
 
 		// Verify only one record exists
 		accounts, err := scan[appconfig.Account](ctx, db, accountsTable, "name = $1", "test-account-update")
@@ -173,11 +176,11 @@ func TestPut_Upsert(t *testing.T) {
 			Name:         "test-account-fields",
 			AwsAccountId: "222222222",
 		}
-		require.NoError(t, put(ctx, db, account, accountsTable, false, "Name"))
+		require.NoError(t, put(ctx, db, account, accountsTable, false))
 
 		// Update metadata only
 		account.Metadata = appconfig.TextMap{"newkey": "newvalue"}
-		require.NoError(t, put(ctx, db, account, accountsTable, false, "Name"))
+		require.NoError(t, put(ctx, db, account, accountsTable, false))
 
 		// Verify AwsAccountId is preserved
 		accounts, err := scan[appconfig.Account](ctx, db, accountsTable, "name = $1", "test-account-fields")
@@ -197,10 +200,10 @@ func TestPut_Delete(t *testing.T) {
 			Name:         "to-delete",
 			AwsAccountId: "999",
 		}
-		require.NoError(t, put(ctx, db, account, accountsTable, false, "Name"))
+		require.NoError(t, put(ctx, db, account, accountsTable, false))
 
 		// Delete it
-		require.NoError(t, put(ctx, db, account, accountsTable, true, "Name"))
+		require.NoError(t, put(ctx, db, account, accountsTable, true))
 
 		// Verify deletion
 		accounts, err := scan[appconfig.Account](ctx, db, accountsTable, "name = $1", "to-delete")
@@ -213,7 +216,7 @@ func TestPut_Delete(t *testing.T) {
 			Name:         "nonexistent-delete",
 			AwsAccountId: "000",
 		}
-		err := put(ctx, db, account, accountsTable, true, "Name")
+		err := put(ctx, db, account, accountsTable, true)
 		assert.NoError(t, err) // Should not error
 	})
 }
@@ -228,7 +231,7 @@ func TestPut_PointerHandling(t *testing.T) {
 			AwsAccountId: "333",
 		}
 		// Pass pointer
-		err := put(ctx, db, account, accountsTable, false, "Name")
+		err := put(ctx, db, account, accountsTable, false)
 		require.NoError(t, err)
 
 		accounts, err := scan[appconfig.Account](ctx, db, accountsTable, "name = $1", "pointer-test")
@@ -248,7 +251,7 @@ func TestScan(t *testing.T) {
 				Name:         fmt.Sprintf("scan-test-%d", i),
 				AwsAccountId: fmt.Sprintf("21111111%d", i),
 			}
-			require.NoError(t, put(ctx, db, account, accountsTable, false, "Name"))
+			require.NoError(t, put(ctx, db, account, accountsTable, false))
 		}
 
 		accounts, err := scan[appconfig.Account](ctx, db, accountsTable, "")
@@ -261,7 +264,7 @@ func TestScan(t *testing.T) {
 			Name:         "filter-test",
 			AwsAccountId: "444",
 		}
-		require.NoError(t, put(ctx, db, account, accountsTable, false, "Name"))
+		require.NoError(t, put(ctx, db, account, accountsTable, false))
 
 		accounts, err := scan[appconfig.Account](ctx, db, accountsTable, "name = $1", "filter-test")
 		require.NoError(t, err)
@@ -308,10 +311,24 @@ func TestScanArgs(t *testing.T) {
 // setupTestDB creates a test database connection
 // Note: Requires a running PostgreSQL instance
 func setupTestDB(t *testing.T) *sql.DB {
+	randomPort := rand.Intn(0xFFFF-1025) + 1024
+	container, err := testcontainers.Run(t.Context(), "postgres",
+		testcontainers.WithExposedPorts(fmt.Sprintf("%d:5432", randomPort)),
+		testcontainers.WithEnv(map[string]string{
+			"POSTGRES_DB":       "postgres",
+			"POSTGRES_USER":     "postgres",
+			"POSTGRES_PASSWORD": "postgres",
+		}),
+		testcontainers.WithAdditionalWaitStrategy(wait.ForListeningPort("5432/tcp")),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		container.Terminate(t.Context())
+	})
 	ctx := t.Context()
 	dsn := fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s",
-		"postgres", "postgres", "localhost", 5432, "postgres",
+		"postgres", "postgres", "localhost", randomPort, "postgres",
 	)
 
 	db, err := sql.Open("pgx", dsn)

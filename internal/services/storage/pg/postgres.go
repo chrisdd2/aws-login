@@ -328,31 +328,31 @@ func (p *PostgresStore) ListRoles(ctx context.Context) ([]string, error) {
 }
 
 func (p *PostgresStore) PutUser(ctx context.Context, u *appconfig.User) error {
-	return put(ctx, p.db, u, usersTable, u.Delete, "Name")
+	return put(ctx, p.db, u, usersTable, u.Delete)
 }
 
 func (p *PostgresStore) PutAccount(ctx context.Context, a *appconfig.Account) error {
-	return put(ctx, p.db, a, accountsTable, a.Delete, "Name")
+	return put(ctx, p.db, a, accountsTable, a.Delete)
 }
 
 func (p *PostgresStore) PutRole(ctx context.Context, r *appconfig.Role) error {
-	return put(ctx, p.db, r, rolesTable, r.Delete, "Name")
+	return put(ctx, p.db, r, rolesTable, r.Delete)
 }
 
 func (p *PostgresStore) PutPolicy(ctx context.Context, pol *appconfig.Policy) error {
-	return put(ctx, p.db, pol, policiesTable, pol.Delete, "Id")
+	return put(ctx, p.db, pol, policiesTable, pol.Delete)
 }
 
 func (p *PostgresStore) PutRoleAccountAttachment(ctx context.Context, ra *appconfig.RoleAccountAttachment) error {
-	return put(ctx, p.db, ra, roleAccountTable, ra.Delete, "RoleName", "AccountName")
+	return put(ctx, p.db, ra, roleAccountTable, ra.Delete)
 }
 
 func (p *PostgresStore) PutRolePolicyAttachment(ctx context.Context, rp *appconfig.RolePolicyAttachment) error {
-	return put(ctx, p.db, rp, rolePolicyTable, rp.Delete, "RoleName", "PolicyId")
+	return put(ctx, p.db, rp, rolePolicyTable, rp.Delete)
 }
 
 func (p *PostgresStore) PutRoleUserAttachment(ctx context.Context, ru *appconfig.RoleUserAttachment) error {
-	return put(ctx, p.db, ru, userRolesTable, ru.Delete, "RoleName", "Username", "AccountName")
+	return put(ctx, p.db, ru, userRolesTable, ru.Delete)
 }
 
 func (p *PostgresStore) ListRoleAccountAttachments(ctx context.Context, roleName, accountName string) ([]appconfig.RoleAccountAttachment, error) {

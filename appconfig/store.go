@@ -23,13 +23,13 @@ type CommonFields struct {
 }
 
 type Policy struct {
-	Id       string `json:"id,omitempty"`
+	Id       string `json:"id,omitempty" sql:"unique"`
 	Document string `json:"document,omitempty"`
 	CommonFields
 }
 
 type Role struct {
-	Name               string        `json:"name,omitempty"`
+	Name               string        `json:"name,omitempty" sql:"unique"`
 	ManagedPolicies    TextArray     `json:"managed_policies,omitempty"`
 	MaxSessionDuration time.Duration `json:"max_session_duration,omitempty"`
 	CommonFields
@@ -37,21 +37,21 @@ type Role struct {
 
 type User struct {
 	FriendlyName string       `json:"friendly_name,omitempty"`
-	Name         string       `json:"name,omitempty"`
+	Name         string       `json:"name,omitempty" sql:"unique"`
 	Superuser    NullableBool `json:"superuser,omitempty"`
 	CommonFields
 }
 
 type Account struct {
-	Name         string `json:"name,omitempty"`
-	AwsAccountId string `json:"aws_account_id,omitempty"`
+	Name         string `json:"name,omitempty" sql:"unique"`
+	AwsAccountId string `json:"aws_account_id,omitempty" sql:"unique"`
 	CommonFields
 }
 
 type RoleUserAttachmentId struct {
-	Username    string `json:"user_name,omitempty"`
-	RoleName    string `json:"role_name,omitempty"`
-	AccountName string `json:"account_name,omitempty"`
+	Username    string `json:"user_name,omitempty" sql:"unique"`
+	RoleName    string `json:"role_name,omitempty" sql:"unique"`
+	AccountName string `json:"account_name,omitempty" sql:"unique"`
 }
 
 type RoleUserAttachment struct {
@@ -61,14 +61,14 @@ type RoleUserAttachment struct {
 }
 
 type RoleAccountAttachment struct {
-	RoleName    string `json:"role_name,omitempty"`
-	AccountName string `json:"account_name,omitempty"`
+	RoleName    string `json:"role_name,omitempty" sql:"unique"`
+	AccountName string `json:"account_name,omitempty" sql:"unique"`
 	CommonFields
 }
 
 type RolePolicyAttachment struct {
-	RoleName string `json:"role_name,omitempty"`
-	PolicyId string `json:"policy_id,omitempty"`
+	RoleName string `json:"role_name,omitempty" sql:"unique"`
+	PolicyId string `json:"policy_id,omitempty" sql:"unique"`
 	CommonFields
 }
 
