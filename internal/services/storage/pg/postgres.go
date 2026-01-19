@@ -71,7 +71,7 @@ func NewPostgresStore(ctx context.Context, cfg *appconfig.AppConfig) (*PostgresS
 }
 
 func (p *PostgresStore) ListRolesForAccount(ctx context.Context, accountName string) ([]*appconfig.Role, error) {
-	ats, err := p.ListRoleAccountAttachments(ctx, accountName, "")
+	ats, err := p.ListRoleAccountAttachments(ctx, "", accountName)
 	if err != nil {
 		return nil, err
 	}
