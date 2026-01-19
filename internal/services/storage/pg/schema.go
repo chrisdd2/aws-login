@@ -34,6 +34,9 @@ func (p *PostgresStore) prepareDb(ctx context.Context) error {
 			slog.Info("storage", "pg", "upgrading to v4")
 			err = p.v4Schema(ctx)
 		case "4":
+			slog.Info("storage", "pg", "upgrading to v5")
+			err = p.v5Schema(ctx)
+		case "5":
 			return nil
 		default:
 			return ErrInvalidSchemaVersion
@@ -42,6 +45,12 @@ func (p *PostgresStore) prepareDb(ctx context.Context) error {
 			return err
 		}
 	}
+}
+
+func (p *PostgresStore) v5Schema(ctx context.Context) error {
+	return p.executeVersion(ctx, 5,
+		fmt.Sprintf("ALTER TABLE %s ADD UNIQUE (name,aws_account_id)", accountsTable),
+	)
 }
 
 func (p *PostgresStore) v4Schema(ctx context.Context) error {
@@ -151,9 +160,5 @@ func (p *PostgresStore) v1Schema(ctx context.Context) error {
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 			version TEXT PRIMARY KEY
 		)`, schemaVersionTable),
-
-		fmt.Sprintf(`INSERT INTO %s(version)
-			SELECT '1' WHERE NOT EXISTS (SELECT 1 FROM %s)`,
-			schemaVersionTable, schemaVersionTable),
 	)
 }

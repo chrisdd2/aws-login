@@ -13,9 +13,12 @@ import (
 )
 
 type KeycloakRoleRef struct {
-	Name   string `json:"name"`
-	Type   string `json:"type"`
-	Client string `json:"client,omitempty"`
+	ClientRole  bool   `json:"clientRole,omitempty"`
+	Composite   bool   `json:"composite,omitempty"`
+	ContainerId string `json:"containerId,omitempty"`
+	Description string `json:"description,omitempty"`
+	Id          string `json:"id,omitempty"`
+	Name        string `json:"name,omitempty"`
 }
 
 type keycloakUser struct {
@@ -143,35 +146,15 @@ func (k *keycloakSyncer) getUsers(ctx context.Context) ([]keycloakUser, error) {
 }
 
 func (k *keycloakSyncer) getUserRoles(ctx context.Context, userID string) ([]KeycloakRoleRef, error) {
-	resp, err := k.get(ctx, fmt.Sprintf("users/%s/role-mappings", userID))
+	resp, err := k.get(ctx, fmt.Sprintf("users/%s/role-mappings/realm/composite", userID))
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	var mappings struct {
-		ClientRoles []struct {
-			Name  string `json:"name"`
-			Roles []struct {
-				Name string `json:"name"`
-			} `json:"roles"`
-		} `json:"clientMappings"`
-		RealmRoles []struct {
-			Name string `json:"name"`
-		} `json:"realmMappings"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&mappings); err != nil {
-		return nil, fmt.Errorf("decode role mappings: %w", err)
-	}
-
 	var roles []KeycloakRoleRef
-	for _, r := range mappings.RealmRoles {
-		roles = append(roles, KeycloakRoleRef{Name: r.Name, Type: "realm"})
-	}
-	for _, client := range mappings.ClientRoles {
-		for _, r := range client.Roles {
-			roles = append(roles, KeycloakRoleRef{Name: r.Name, Type: "client", Client: client.Name})
-		}
+	if err := json.NewDecoder(resp.Body).Decode(&roles); err != nil {
+		return nil, fmt.Errorf("decode role mappings: %w", err)
 	}
 
 	return roles, nil
@@ -194,27 +177,26 @@ func (k *keycloakSyncer) Users(ctx context.Context) ([]appconfig.User, error) {
 	return users, nil
 }
 
-func (k *keycloakSyncer) UsersForRole(ctx context.Context, roleName string) ([]string, error) {
+func (k *keycloakSyncer) RolesForUser(ctx context.Context, username string) ([]string, error) {
 	kcUsers, err := k.getUsers(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get keycloak users: %w", err)
 	}
 
-	var usernames []string
+	var ret []string
 	for _, u := range kcUsers {
+		if u.Username != username {
+			continue
+		}
 		roles, err := k.getUserRoles(ctx, u.ID)
 		if err != nil {
 			return nil, fmt.Errorf("get roles for user %s: %w", u.Username, err)
 		}
 		for _, role := range roles {
-			if role.Name == roleName {
-				usernames = append(usernames, u.Username)
-				break
-			}
+			ret = append(ret, role.Name)
 		}
 	}
-
-	return usernames, nil
+	return ret, nil
 }
 
 func buildFriendlyName(firstName, lastName string) string {

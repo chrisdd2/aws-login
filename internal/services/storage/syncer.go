@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"log"
 	"maps"
 	"slices"
 
@@ -10,7 +11,7 @@ import (
 
 type SyncStorer interface {
 	Users(ctx context.Context) ([]appconfig.User, error)
-	UsersForRole(ctx context.Context, roleName string) ([]string, error)
+	RolesForUser(ctx context.Context, username string) ([]string, error)
 }
 
 func Sync(ctx context.Context, ss SyncStorer, s Readable, superUserRole string) (*InMemoryStore, error) {
@@ -25,53 +26,53 @@ func Sync(ctx context.Context, ss SyncStorer, s Readable, superUserRole string) 
 	if err != nil {
 		return nil, err
 	}
+
+	rolesWithGrants := map[string]appconfig.RoleUserAttachment{}
+
 	permissions := [][]string{
 		{appconfig.RolePermissionCredentials},
 		{appconfig.RolePermissionConsole},
 		appconfig.RolePermissionAll,
 	}
-
-	// set super users
-	superUsers := []string{}
-	if superUserRole != "" {
-		users, err := ss.UsersForRole(ctx, superUserRole)
-		if err != nil {
-			return nil, err
-		}
-		superUsers = users
-	}
-	for i, u := range ssUsers {
-		ssUsers[i].Superuser = appconfig.NullableBool(slices.Contains(superUsers, u.Name))
-	}
-
-	attachments := map[appconfig.RoleUserAttachmentId]appconfig.RoleUserAttachment{}
 	for _, r := range roles {
 		role, err := s.GetRole(ctx, r.RoleName)
 		if err != nil {
 			return nil, err
 		}
-		credentialsRole := role.Metadata["sync_role_credentials"]
-		consoleRole := role.Metadata["sync_role_console"]
-		allRole := role.Metadata["sync_role_all"]
-		for i, syncRole := range []string{credentialsRole, consoleRole, allRole} {
-			if syncRole == "" {
+		for i, roleTag := range []string{
+			role.Metadata["sync_role_credentials"],
+			role.Metadata["sync_role_console"],
+			role.Metadata["sync_role_all"],
+		} {
+			if roleTag == "" {
 				continue
 			}
-			roleUsers, err := ss.UsersForRole(ctx, syncRole)
-			if err != nil {
-				return nil, err
+			rolesWithGrants[roleTag] = appconfig.RoleUserAttachment{
+				RoleUserAttachmentId: appconfig.RoleUserAttachmentId{AccountName: r.AccountName, RoleName: r.RoleName},
+				Permissions:          permissions[i],
 			}
-			for _, ru := range roleUsers {
-				id := appconfig.RoleUserAttachmentId{
-					Username:    ru,
-					AccountName: r.AccountName,
-					RoleName:    r.RoleName,
-				}
-				attachments[id] = appconfig.RoleUserAttachment{
-					RoleUserAttachmentId: id,
-					Permissions:          deduplicate(append(attachments[id].Permissions, permissions[i]...)),
-				}
+		}
+	}
+
+	attachments := map[appconfig.RoleUserAttachmentId]appconfig.RoleUserAttachment{}
+	for i, u := range ssUsers {
+		userRoles, err := ss.RolesForUser(ctx, u.Name)
+		log.Println(u.Name, userRoles)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range userRoles {
+			if superUserRole != "" && superUserRole == r {
+				ssUsers[i].Superuser = appconfig.NullableBool(true)
+				continue
 			}
+			at, found := rolesWithGrants[r]
+			if !found {
+				continue
+			}
+			// add attachment
+			at.Username = u.Name
+			attachments[at.RoleUserAttachmentId] = at
 		}
 	}
 
