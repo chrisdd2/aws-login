@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"time"
 
@@ -221,6 +222,7 @@ func (p *PostgresStore) Display(ctx context.Context) (*storage.InMemoryStore, er
 }
 
 func (p *PostgresStore) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
+	slog.Info("event", "type", eventType, "metadata", metadata)
 	b, err := json.Marshal(metadata)
 	if err != nil {
 		// Fallback to empty object if marshaling fails

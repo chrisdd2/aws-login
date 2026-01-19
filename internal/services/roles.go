@@ -49,11 +49,10 @@ type RolesService interface {
 type rolesService struct {
 	storage storage.Storage
 	aws     aws.AwsApiCaller
-	ev      storage.Eventer
 }
 
-func NewRoleService(store storage.Storage, aws aws.AwsApiCaller, ev storage.Eventer) RolesService {
-	return &rolesService{store, aws, ev}
+func NewRoleService(store storage.Storage, aws aws.AwsApiCaller) RolesService {
+	return &rolesService{store, aws}
 }
 
 func (r *rolesService) UserPermissions(ctx context.Context, username string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error) {
@@ -98,7 +97,7 @@ func (r *rolesService) Console(ctx context.Context, accountName string, roleName
 		return "", fmt.Errorf("aws.GenerateSigninUrl: %w", err)
 	}
 	// publish an event
-	r.ev.Publish(ctx, "console_login", map[string]string{"username": username, "account_name": accountName, "role_name": roleName})
+	r.storage.Publish(ctx, "console_login", map[string]string{"username": username, "account_name": accountName, "role_name": roleName})
 	return url, nil
 }
 
@@ -142,7 +141,7 @@ func (r *rolesService) Credentials(ctx context.Context, accountName string, role
 		return AwsCredentials{}, fmt.Errorf("aws.GenerateSigninUrl: %w", err)
 	}
 	// publish an event
-	r.ev.Publish(ctx, "credentials_login", map[string]string{"username": username, "account_name": accountName, "role_name": roleName})
+	r.storage.Publish(ctx, "credentials_login", map[string]string{"username": username, "account_name": accountName, "role_name": roleName})
 	return AwsCredentials{AccessKeyId: accessKeyId, SecretAccessKey: secretAccessKey, SessionToken: sessionToken}, nil
 }
 

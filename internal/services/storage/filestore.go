@@ -26,7 +26,7 @@ type FileStore struct {
 	adminUser *appconfig.User
 	s3Cl      *s3.Client
 	cfg       *appconfig.AppConfig
-	ev        Eventer
+	ev        fileEventer
 }
 
 func (s *FileStore) Reset() {
@@ -77,7 +77,7 @@ func NewStaticStore(ctx context.Context, cfg *appconfig.AppConfig, awsCfg aws.Co
 	if err != nil {
 		return nil, err
 	}
-	s.ev = &fileEventer{f: f, w: bufio.NewWriter(f)}
+	s.ev = fileEventer{f: f, w: bufio.NewWriter(f)}
 	slog.Info("enabled", "eventer", "file")
 	return s, nil
 }
@@ -326,6 +326,7 @@ func (s *FileStore) Reload(ctx context.Context) error {
 }
 
 func (s *FileStore) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
+	slog.Info("event", "type", eventType, "metadata", metadata)
 	return s.ev.Publish(ctx, eventType, metadata)
 }
 

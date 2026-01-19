@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"errors"
-	"log/slog"
 
 	"github.com/chrisdd2/aws-login/appconfig"
 )
@@ -53,31 +52,11 @@ type Storage interface {
 	ListRolesForAccount(ctx context.Context, accountId string) ([]*appconfig.Role, error)
 	ListRolePermissions(ctx context.Context, userName string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error)
 	Readable
+	Eventer
 }
 
 type Eventer interface {
 	Publish(ctx context.Context, eventType string, metadata map[string]string) error
-}
-
-type ConsoleEventer struct{}
-
-func (c ConsoleEventer) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
-	slog.Info("event", "type", eventType, "metadata", metadata)
-	return nil
-}
-
-type NoopStorage struct{}
-
-func (n NoopStorage) Reload(ctx context.Context) error {
-	return nil
-}
-
-func (n NoopStorage) Display(ctx context.Context) (*InMemoryStore, error) {
-	return &InMemoryStore{}, nil
-}
-
-func (n NoopStorage) Import(ctx context.Context, st *InMemoryStore) error {
-	return nil
 }
 
 type InMemoryStore struct {

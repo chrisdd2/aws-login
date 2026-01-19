@@ -52,7 +52,6 @@ func Router(
 	accountSrvc account.AccountService,
 	storageSvc storage.Storage,
 	cfg appconfig.AppConfig,
-	ev storage.Eventer,
 	syncer storage.SyncStorer,
 	superUserRole string,
 ) chi.Router {
@@ -99,7 +98,7 @@ func Router(
 				return
 			}
 			accessToken, _ := tokenSvc.Create(r.Context(), &services.UserInfo{Username: username, FriendlyName: friendlyName(username), Superuser: true, LoginType: "userpass"}, false)
-			ev.Publish(r.Context(), "user_login", map[string]string{"username": username, "login_type": loginType})
+			storageSvc.Publish(r.Context(), "user_login", map[string]string{"username": username, "login_type": loginType})
 			sendAccessToken(w, r, accessToken, secureCookies)
 			return
 		}
@@ -127,7 +126,7 @@ func Router(
 				sendUnathorized(w, r, err)
 				return
 			}
-			ev.Publish(ctx, "user_login", map[string]string{"username": info.Username, "login_type": details.Name})
+			storageSvc.Publish(ctx, "user_login", map[string]string{"username": info.Username, "login_type": details.Name})
 			sendAccessToken(w, r, accessToken, secureCookies)
 		})
 
@@ -259,7 +258,7 @@ func Router(
 				return
 			}
 
-			ev.Publish(ctx, "config_import", map[string]string{"username": user.Username})
+			storageSvc.Publish(ctx, "config_import", map[string]string{"username": user.Username})
 			configHandler(w, r, storageSvc, &cfg, changes)
 		})
 		r.Get("/export", func(w http.ResponseWriter, r *http.Request) {
@@ -267,7 +266,8 @@ func Router(
 			user := getUser(r)
 			printable, ok := storageSvc.(storage.Printable)
 			if !ok {
-				printable = storage.NoopStorage{}
+				sendError(w, r, http.ErrNotSupported)
+				return
 			}
 			st, err := printable.Display(ctx)
 			if err != nil {
@@ -279,7 +279,7 @@ func Router(
 				sendError(w, r, err)
 				return
 			}
-			ev.Publish(ctx, "config_export", map[string]string{"username": user.Username})
+			storageSvc.Publish(ctx, "config_export", map[string]string{"username": user.Username})
 
 			w.Header().Add("Content-Type", "application/yaml")
 			w.Write(buf)
@@ -288,7 +288,7 @@ func Router(
 			ctx := r.Context()
 			reloadable, ok := storageSvc.(storage.Reloadable)
 			if !ok {
-				reloadable = storage.NoopStorage{}
+				sendError(w, r, ErrNotSupported)
 			}
 			if err := reloadable.Reload(ctx); err != nil {
 				sendError(w, r, err)
@@ -308,6 +308,8 @@ func Router(
 				sendError(w, r, err)
 				return
 			}
+			usr := getUser(r)
+			storageSvc.Publish(ctx, "sync_users", map[string]string{"username": usr.Username})
 			changesUsers, err := storage.ImportUsers(ctx, importable, im.Users, true)
 			if err != nil {
 				sendError(w, r, err)
@@ -591,7 +593,8 @@ func configHandler(w http.ResponseWriter, r *http.Request, storageSvc storage.St
 	user := getUser(r)
 	printable, ok := storageSvc.(storage.Printable)
 	if !ok {
-		printable = storage.NoopStorage{}
+		sendError(w, r, ErrNotSupported)
+		return
 	}
 	st, err := printable.Display(ctx)
 	if err != nil {

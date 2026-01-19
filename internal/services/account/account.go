@@ -42,7 +42,6 @@ type AccountService interface {
 type accountService struct {
 	storage storage.Storage
 	aws     aws.AwsApiCaller
-	ev      storage.Eventer
 }
 
 func templateExecuteToString[T any](tmpl *template.Template, data T) (string, error) {
@@ -74,7 +73,7 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 	if err != nil {
 		return err
 	}
-	a.ev.Publish(ctx, "account_deploy", map[string]string{"username": userId, "account_name": accountId})
+	a.storage.Publish(ctx, "account_deploy", map[string]string{"username": userId, "account_name": accountId})
 	return a.aws.DeployStack(ctx, acc.Name, acc.AwsAccountId, aws.StackName.Value(accountId), templateString, nil)
 }
 func (a *accountService) GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error) {
@@ -93,11 +92,10 @@ func maxSessionDuration(duration time.Duration) string {
 	return strconv.Itoa(int((duration) / time.Second))
 }
 
-func NewAccountService(store storage.Storage, aws aws.AwsApiCaller, ev storage.Eventer) AccountService {
+func NewAccountService(store storage.Storage, aws aws.AwsApiCaller) AccountService {
 	return &accountService{
 		storage: store,
 		aws:     aws,
-		ev:      ev,
 	}
 }
 
@@ -195,7 +193,7 @@ func (a *accountService) DestroyStack(ctx context.Context, accountName string, u
 	if err != nil {
 		return "", fmt.Errorf("accountService.DestroyStack: storage.GetAccount: %w", err)
 	}
-	a.ev.Publish(ctx, "account_destroy", map[string]string{"username": username, "account_name": accountName})
+	a.storage.Publish(ctx, "account_destroy", map[string]string{"username": username, "account_name": accountName})
 	stackId, err := a.aws.DestroyStack(ctx, accountName, acc.AwsAccountId, aws.StackName.Value(accountName))
 	if err != nil {
 		return "", fmt.Errorf("accountService.DestroyStack: aws.DestroyStack: %w", err)

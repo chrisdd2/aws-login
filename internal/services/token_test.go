@@ -238,6 +238,10 @@ func (m *MockStorage) Reload(ctx context.Context) error {
 	return nil
 }
 
+func (m *MockStorage) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
+	return nil
+}
+
 func (m *MockStorage) Display(ctx context.Context) (*storage.InMemoryStore, error) {
 	return &storage.InMemoryStore{}, nil
 }
