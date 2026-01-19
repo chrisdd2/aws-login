@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"log"
 	"maps"
 	"slices"
 
@@ -57,7 +56,6 @@ func Sync(ctx context.Context, ss SyncStorer, s Readable, superUserRole string) 
 	attachments := map[appconfig.RoleUserAttachmentId]appconfig.RoleUserAttachment{}
 	for i, u := range ssUsers {
 		userRoles, err := ss.RolesForUser(ctx, u.Name)
-		log.Println(u.Name, userRoles)
 		if err != nil {
 			return nil, err
 		}
@@ -72,7 +70,10 @@ func Sync(ctx context.Context, ss SyncStorer, s Readable, superUserRole string) 
 			}
 			// add attachment
 			at.Username = u.Name
-			attachments[at.RoleUserAttachmentId] = at
+			attachments[at.RoleUserAttachmentId] = appconfig.RoleUserAttachment{
+				RoleUserAttachmentId: at.RoleUserAttachmentId,
+				Permissions:          deduplicate(append(attachments[at.RoleUserAttachmentId].Permissions, at.Permissions...)),
+			}
 		}
 	}
 
