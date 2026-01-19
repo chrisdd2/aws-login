@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 )
 
 func create[T any](tableName string) string {
@@ -17,8 +18,8 @@ func create[T any](tableName string) string {
 	for i := range names {
 		typeStr := map[reflect.Kind]string{
 			reflect.Bool:    "boolean",
-			reflect.Int16:   "int8",
-			reflect.Int32:   "int8",
+			reflect.Int16:   "int2",
+			reflect.Int32:   "int4",
 			reflect.Int64:   "int8",
 			reflect.Float64: "float8",
 			reflect.Float32: "float8",
@@ -127,7 +128,7 @@ func scanArgs(v reflect.Value) []any {
 	ret := make([]any, 0, t.NumField())
 	for i := range t.NumField() {
 		sf := t.Field(i)
-		if sf.Name == "Delete" {
+		if strings.ToLower(sf.Name) == "delete" {
 			continue
 		}
 		if sf.Type.Kind() == reflect.Struct {
@@ -145,15 +146,15 @@ type fieldInfo struct {
 	typ      reflect.Type
 }
 
-var _typeCache = map[reflect.Type][]fieldInfo{}
+var _typeCache = sync.Map{}
 
 func getFields(t reflect.Type) []fieldInfo {
-	fields, ok := _typeCache[t]
+	val, ok := _typeCache.Load(t)
 	if ok {
-		return fields
+		return val.([]fieldInfo)
 	}
 	n := t.NumField()
-	fields = make([]fieldInfo, 0, n)
+	fields := make([]fieldInfo, 0, n)
 	for i := range n {
 		sf := t.Field(i)
 		if sf.Anonymous {
@@ -165,12 +166,12 @@ func getFields(t reflect.Type) []fieldInfo {
 		if name == "" {
 			name = sf.Name
 		}
-		if name == "delete" {
+		if strings.ToLower(name) == "delete" {
 			continue
 		}
 		fields = append(fields, fieldInfo{name: sf.Name, jsonName: name, typ: sf.Type})
 	}
-	_typeCache[t] = fields
+	_typeCache.Store(t, fields)
 	return fields
 }
 

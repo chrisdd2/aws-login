@@ -152,7 +152,7 @@ func (p *PostgresStore) GetUser(ctx context.Context, name string) (*appconfig.Us
 		return nil, err
 	}
 	if len(items) < 1 {
-		return nil, storage.ErrRoleNotFound
+		return nil, storage.ErrUserNotFound
 	}
 	return &items[0], nil
 }

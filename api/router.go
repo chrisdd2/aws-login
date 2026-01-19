@@ -25,7 +25,7 @@ type ApiError struct {
 
 func sendError(w http.ResponseWriter, r *http.Request, err error, statusCode int) {
 	render.Status(r, statusCode)
-	render.JSON(w, r, ApiError{Message: fmt.Sprintf("json.Decode: %s", err)})
+	render.JSON(w, r, ApiError{Message: err.Error()})
 }
 func V1Api(accountsSvc account.AccountService, idps []services.AuthService, roleSvc services.RolesService, tokenSvc services.TokenService) chi.Router {
 	r := chi.NewRouter()

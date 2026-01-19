@@ -124,7 +124,7 @@ func (p *PostgresStore) v1Schema(ctx context.Context) error {
 
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 			name TEXT PRIMARY KEY,
-			max_session_duration LONG NOT NULL,
+			max_session_duration BIGINT NOT NULL,
 			managed_policies TEXT,
 			policies TEXT,
 			enabled BOOLEAN NOT NULL DEFAULT TRUE
