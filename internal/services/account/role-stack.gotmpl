@@ -50,6 +50,15 @@ Resources:
             Action:
               - iam:*Boundary
             Resource: "*"
+
+          - Sid: DenyManagementRoleModification
+            Effect: Deny
+            Action:
+              - iam:CreateRole
+              - iam:DeleteRole
+              - iam:UpdateRole
+            Resource: !Ref ManagementRoleArn
+
           - Sid: AllowEverythingElse
             Effect: Allow
             Action:
