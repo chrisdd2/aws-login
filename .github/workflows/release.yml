@@ -58,6 +58,8 @@ jobs:
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
           BIN_NAME=${APP_NAME}_${GOOS}-${GOARCH}${{ matrix.ext }}
+          
+          go test ./...
 
           go build \
             -ldflags="-s -w \
