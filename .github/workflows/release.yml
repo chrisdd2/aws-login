@@ -31,10 +31,10 @@ jobs:
             goarch: amd64
             ext: ""
             archive: tar.gz
-          - goos: windows
-            goarch: amd64
-            ext: ".exe"
-            archive: zip
+          # - goos: windows
+          #   goarch: amd64
+          #   ext: ".exe"
+          #   archive: zip
 
     steps:
       - name: Checkout
