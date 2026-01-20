@@ -224,72 +224,14 @@ func (p *PostgresStore) Display(ctx context.Context) (*storage.InMemoryStore, er
 func (p *PostgresStore) Publish(ctx context.Context, eventType string, metadata map[string]string) error {
 	slog.Info("event", "type", eventType, "metadata", metadata)
 	b, err := json.Marshal(metadata)
-	if err != nil {
+	if err != nil || b == nil{
 		// Fallback to empty object if marshaling fails
-		b = []byte("{}")
-	}
-	if b == nil {
 		b = []byte{'{', '}'}
 	}
 	if _, err := p.db.ExecContext(ctx,
 		fmt.Sprintf("INSERT INTO %s(id,time,event_type,metadata) VALUES($1,$2,$3,$4)", eventsTable), uuid.NewString(), time.Now().UTC().String(), eventType, string(b)); err != nil {
 		return fmt.Errorf("db.ExecContext: %w", err)
 	}
-	return nil
-}
-
-func (p *PostgresStore) Import(ctx context.Context, fs *storage.InMemoryStore) error {
-
-	tx, err := p.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	for _, policy := range fs.Policies {
-		if err := p.PutPolicy(ctx, &policy); err != nil {
-			return fmt.Errorf("p.PutPolicy %s: %w", policy.Id, err)
-		}
-	}
-
-	for _, role := range fs.Roles {
-		if err := p.PutRole(ctx, &role); err != nil {
-			return fmt.Errorf("p.PutRole %s: %w", role.Name, err)
-		}
-	}
-
-	for _, account := range fs.Accounts {
-		if err := p.PutAccount(ctx, &account); err != nil {
-			return fmt.Errorf("p.PutAccount %s: %w", account.Name, err)
-		}
-	}
-
-	for _, user := range fs.Users {
-		if err := p.PutUser(ctx, &user); err != nil {
-			return fmt.Errorf("p.PutUser %s: %w", user.Name, err)
-		}
-	}
-
-	for _, at := range fs.RoleAccountAttachments {
-		if err := p.PutRoleAccountAttachment(ctx, &at); err != nil {
-			return fmt.Errorf("p.PutRoleAccountAttachment: %w", err)
-		}
-	}
-	for _, at := range fs.RoleUserAttachments {
-		if err := p.PutRoleUserAttachment(ctx, &at); err != nil {
-			return fmt.Errorf("p.PutRoleUserAttachment: %w", err)
-		}
-	}
-	for _, at := range fs.RolePolicyAttachments {
-		if err := p.PutRolePolicyAttachment(ctx, &at); err != nil {
-			return fmt.Errorf("p.PutRolePolicyAttachment: %w", err)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
 	return nil
 }
 
