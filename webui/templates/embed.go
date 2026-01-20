@@ -9,6 +9,7 @@ import (
 	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/internal/aws"
 	"github.com/chrisdd2/aws-login/internal/services/storage"
+	"github.com/chrisdd2/aws-login/internal/services/storage/imports"
 )
 
 //go:embed static webfonts
@@ -57,8 +58,8 @@ func filterRolePolicyAttachments(attachments []appconfig.RolePolicyAttachment, r
 }
 
 var pagesTmpls = template.Must(template.New("").Funcs(template.FuncMap{
-	"json":                     jsonFunc,
-	"inc":                      incFunc,
+	"json":                         jsonFunc,
+	"inc":                          incFunc,
 	"filterRoleUserAttachments":    filterRoleUserAttachments,
 	"filterRoleAccountAttachments": filterRoleAccountAttachments,
 	"filterRolePolicyAttachments":  filterRolePolicyAttachments,
@@ -127,7 +128,7 @@ func WatchTemplate(w io.Writer, data WatchData) error {
 type ConfigurationData struct {
 	Navbar
 	Store   *storage.InMemoryStore
-	Changes []storage.Change
+	Changes []imports.Change
 }
 
 func ConfigurationTemplate(w io.Writer, data ConfigurationData) error {

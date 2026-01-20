@@ -1,10 +1,25 @@
-package storage
+package imports
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/chrisdd2/aws-login/appconfig"
+	"github.com/chrisdd2/aws-login/internal/services/storage"
+)
+
+const (
+	ActionCreate = "create"
+	ActionUpdate = "update"
+	ActionDelete = "delete"
+
+	ObjectTypeUser                  = "user"
+	ObjectTypeAccount               = "account"
+	ObjectTypeRole                  = "role"
+	ObjectTypePolicy                = "policy"
+	ObjectTypeRoleUserAttachment    = "role_user_attachment"
+	ObjectTypeRolePolicyAttachment  = "role_policy_attachment"
+	ObjectTypeRoleAccountAttachment = "role_account_attachment"
 )
 
 type Change struct {
@@ -14,11 +29,11 @@ type Change struct {
 }
 
 type Importable interface {
-	Writeable
-	Readable
+	storage.Writeable
+	storage.Readable
 }
 
-func ImportAll(ctx context.Context, st Importable, store *InMemoryStore, del bool) ([]Change, error) {
+func ImportAll(ctx context.Context, st Importable, store *storage.InMemoryStore, del bool) ([]Change, error) {
 	var changes []Change
 
 	// Convert accounts to pointers
@@ -102,7 +117,7 @@ func ImportUsers(ctx context.Context, imp Importable, users []appconfig.User, de
 			if err := imp.PutUser(ctx, u); err != nil {
 				return nil, fmt.Errorf("delete user %s: %w", u.Name, err)
 			}
-			changes = append(changes, Change{Action: "delete", ObjectType: "user", Value: u.Name})
+			changes = append(changes, Change{Action: ActionDelete, ObjectType: ObjectTypeUser, Value: u.Name})
 			continue
 		}
 
@@ -112,13 +127,13 @@ func ImportUsers(ctx context.Context, imp Importable, users []appconfig.User, de
 			if err := imp.PutUser(ctx, u); err != nil {
 				return nil, fmt.Errorf("update user %s: %w", u.Name, err)
 			}
-			changes = append(changes, Change{Action: "update", ObjectType: "user", Value: u.Name})
+			changes = append(changes, Change{Action: ActionUpdate, ObjectType: ObjectTypeUser, Value: u.Name})
 		} else {
 			// Create new user
 			if err := imp.PutUser(ctx, u); err != nil {
 				return nil, fmt.Errorf("create user %s: %w", u.Name, err)
 			}
-			changes = append(changes, Change{Action: "create", ObjectType: "user", Value: u.Name})
+			changes = append(changes, Change{Action: ActionCreate, ObjectType: ObjectTypeUser, Value: u.Name})
 		}
 	}
 
@@ -161,7 +176,7 @@ func ImportAccounts(ctx context.Context, imp Importable, accounts []*appconfig.A
 			if err := imp.PutAccount(ctx, a); err != nil {
 				return nil, fmt.Errorf("delete account %s: %w", a.Name, err)
 			}
-			changes = append(changes, Change{Action: "delete", ObjectType: "account", Value: a.Name})
+			changes = append(changes, Change{Action: ActionDelete, ObjectType: ObjectTypeAccount, Value: a.Name})
 			continue
 		}
 
@@ -170,12 +185,12 @@ func ImportAccounts(ctx context.Context, imp Importable, accounts []*appconfig.A
 			if err := imp.PutAccount(ctx, a); err != nil {
 				return nil, fmt.Errorf("update account %s: %w", a.Name, err)
 			}
-			changes = append(changes, Change{Action: "update", ObjectType: "account", Value: a.Name})
+			changes = append(changes, Change{Action: ActionUpdate, ObjectType: ObjectTypeAccount, Value: a.Name})
 		} else {
 			if err := imp.PutAccount(ctx, a); err != nil {
 				return nil, fmt.Errorf("create account %s: %w", a.Name, err)
 			}
-			changes = append(changes, Change{Action: "create", ObjectType: "account", Value: a.Name})
+			changes = append(changes, Change{Action: ActionCreate, ObjectType: ObjectTypeAccount, Value: a.Name})
 		}
 	}
 
@@ -187,7 +202,7 @@ func ImportAccounts(ctx context.Context, imp Importable, accounts []*appconfig.A
 				if err := imp.PutAccount(ctx, account); err != nil {
 					return nil, fmt.Errorf("delete account %s: %w", a.Name, err)
 				}
-				changes = append(changes, Change{Action: "delete", ObjectType: "account", Value: a.Name})
+				changes = append(changes, Change{Action: ActionDelete, ObjectType: ObjectTypeAccount, Value: a.Name})
 			}
 		}
 	}
@@ -218,7 +233,7 @@ func ImportRoles(ctx context.Context, imp Importable, roles []appconfig.Role, de
 			if err := imp.PutRole(ctx, r); err != nil {
 				return nil, fmt.Errorf("delete role %s: %w", r.Name, err)
 			}
-			changes = append(changes, Change{Action: "delete", ObjectType: "role", Value: r.Name})
+			changes = append(changes, Change{Action: ActionDelete, ObjectType: ObjectTypeRole, Value: r.Name})
 			continue
 		}
 
@@ -227,12 +242,12 @@ func ImportRoles(ctx context.Context, imp Importable, roles []appconfig.Role, de
 			if err := imp.PutRole(ctx, r); err != nil {
 				return nil, fmt.Errorf("update role %s: %w", r.Name, err)
 			}
-			changes = append(changes, Change{Action: "update", ObjectType: "role", Value: r.Name})
+			changes = append(changes, Change{Action: ActionUpdate, ObjectType: ObjectTypeRole, Value: r.Name})
 		} else {
 			if err := imp.PutRole(ctx, r); err != nil {
 				return nil, fmt.Errorf("create role %s: %w", r.Name, err)
 			}
-			changes = append(changes, Change{Action: "create", ObjectType: "role", Value: r.Name})
+			changes = append(changes, Change{Action: ActionCreate, ObjectType: ObjectTypeRole, Value: r.Name})
 		}
 	}
 
@@ -244,7 +259,7 @@ func ImportRoles(ctx context.Context, imp Importable, roles []appconfig.Role, de
 				if err := imp.PutRole(ctx, role); err != nil {
 					return nil, fmt.Errorf("delete role %s: %w", name, err)
 				}
-				changes = append(changes, Change{Action: "delete", ObjectType: "role", Value: name})
+				changes = append(changes, Change{Action: ActionDelete, ObjectType: ObjectTypeRole, Value: name})
 			}
 		}
 	}
@@ -277,7 +292,7 @@ func ImportPolicies(ctx context.Context, imp Importable, policies []appconfig.Po
 
 		changes = append(changes, Change{
 			Action:     action(p.Delete, existingSet[p.Id]),
-			ObjectType: "policy",
+			ObjectType: ObjectTypePolicy,
 			Value:      p.Id})
 		importedSet[p.Id] = true
 	}
@@ -290,7 +305,7 @@ func ImportPolicies(ctx context.Context, imp Importable, policies []appconfig.Po
 				if err := imp.PutPolicy(ctx, policy); err != nil {
 					return nil, fmt.Errorf("delete policy %s: %w", p, err)
 				}
-				changes = append(changes, Change{Action: "delete", ObjectType: "policy", Value: p})
+				changes = append(changes, Change{Action: ActionDelete, ObjectType: ObjectTypePolicy, Value: p})
 			}
 		}
 	}
@@ -333,7 +348,7 @@ func ImportRoleUserAttachments(ctx context.Context, imp Importable, attachments 
 			if err := imp.PutRoleUserAttachment(ctx, at); err != nil {
 				return nil, fmt.Errorf("delete role user attachment %s: %w", roleUserAttachmentKey(*at), err)
 			}
-			changes = append(changes, Change{Action: "delete", ObjectType: "role_user_attachment", Value: roleUserAttachmentKey(*at)})
+			changes = append(changes, Change{Action: ActionDelete, ObjectType: ObjectTypeRoleUserAttachment, Value: roleUserAttachmentKey(*at)})
 			continue
 		}
 
@@ -343,12 +358,12 @@ func ImportRoleUserAttachments(ctx context.Context, imp Importable, attachments 
 			if err := imp.PutRoleUserAttachment(ctx, at); err != nil {
 				return nil, fmt.Errorf("update role user attachment %s: %w", key, err)
 			}
-			changes = append(changes, Change{Action: "update", ObjectType: "role_user_attachment", Value: key})
+			changes = append(changes, Change{Action: ActionUpdate, ObjectType: ObjectTypeRoleUserAttachment, Value: key})
 		} else {
 			if err := imp.PutRoleUserAttachment(ctx, at); err != nil {
 				return nil, fmt.Errorf("create role user attachment %s: %w", key, err)
 			}
-			changes = append(changes, Change{Action: "create", ObjectType: "role_user_attachment", Value: key})
+			changes = append(changes, Change{Action: ActionCreate, ObjectType: ObjectTypeRoleUserAttachment, Value: key})
 		}
 	}
 
@@ -363,7 +378,7 @@ func ImportRoleUserAttachments(ctx context.Context, imp Importable, attachments 
 				if err := imp.PutRoleUserAttachment(ctx, attachment); err != nil {
 					return nil, fmt.Errorf("delete role user attachment %s: %w", key, err)
 				}
-				changes = append(changes, Change{Action: "delete", ObjectType: "role_user_attachment", Value: key})
+				changes = append(changes, Change{Action: ActionDelete, ObjectType: ObjectTypeRoleUserAttachment, Value: key})
 			}
 		}
 	}
@@ -394,7 +409,7 @@ func ImportRolePolicyAttachments(ctx context.Context, imp Importable, attachment
 			if err := imp.PutRolePolicyAttachment(ctx, at); err != nil {
 				return nil, fmt.Errorf("delete role policy attachment %s: %w", rolePolicyAttachmentKey(*at), err)
 			}
-			changes = append(changes, Change{Action: "delete", ObjectType: "role_policy_attachment", Value: rolePolicyAttachmentKey(*at)})
+			changes = append(changes, Change{Action: ActionDelete, ObjectType: ObjectTypeRolePolicyAttachment, Value: rolePolicyAttachmentKey(*at)})
 			continue
 		}
 
@@ -404,12 +419,12 @@ func ImportRolePolicyAttachments(ctx context.Context, imp Importable, attachment
 			if err := imp.PutRolePolicyAttachment(ctx, at); err != nil {
 				return nil, fmt.Errorf("update role policy attachment %s: %w", key, err)
 			}
-			changes = append(changes, Change{Action: "update", ObjectType: "role_policy_attachment", Value: key})
+			changes = append(changes, Change{Action: ActionUpdate, ObjectType: ObjectTypeRolePolicyAttachment, Value: key})
 		} else {
 			if err := imp.PutRolePolicyAttachment(ctx, at); err != nil {
 				return nil, fmt.Errorf("create role policy attachment %s: %w", key, err)
 			}
-			changes = append(changes, Change{Action: "create", ObjectType: "role_policy_attachment", Value: key})
+			changes = append(changes, Change{Action: ActionCreate, ObjectType: ObjectTypeRolePolicyAttachment, Value: key})
 		}
 	}
 
@@ -422,7 +437,7 @@ func ImportRolePolicyAttachments(ctx context.Context, imp Importable, attachment
 				if err := imp.PutRolePolicyAttachment(ctx, attachment); err != nil {
 					return nil, fmt.Errorf("delete role policy attachment %s: %w", key, err)
 				}
-				changes = append(changes, Change{Action: "delete", ObjectType: "role_policy_attachment", Value: key})
+				changes = append(changes, Change{Action: ActionDelete, ObjectType: ObjectTypeRolePolicyAttachment, Value: key})
 			}
 		}
 	}
@@ -453,7 +468,7 @@ func ImportRoleAccountAttachments(ctx context.Context, imp Importable, attachmen
 			if err := imp.PutRoleAccountAttachment(ctx, at); err != nil {
 				return nil, fmt.Errorf("delete role account attachment %s: %w", roleAccountAttachmentKey(*at), err)
 			}
-			changes = append(changes, Change{Action: "delete", ObjectType: "role_account_attachment", Value: roleAccountAttachmentKey(*at)})
+			changes = append(changes, Change{Action: ActionDelete, ObjectType: ObjectTypeRoleAccountAttachment, Value: roleAccountAttachmentKey(*at)})
 			continue
 		}
 
@@ -463,12 +478,12 @@ func ImportRoleAccountAttachments(ctx context.Context, imp Importable, attachmen
 			if err := imp.PutRoleAccountAttachment(ctx, at); err != nil {
 				return nil, fmt.Errorf("update role account attachment %s: %w", key, err)
 			}
-			changes = append(changes, Change{Action: "update", ObjectType: "role_account_attachment", Value: key})
+			changes = append(changes, Change{Action: ActionUpdate, ObjectType: ObjectTypeRoleAccountAttachment, Value: key})
 		} else {
 			if err := imp.PutRoleAccountAttachment(ctx, at); err != nil {
 				return nil, fmt.Errorf("create role account attachment %s: %w", key, err)
 			}
-			changes = append(changes, Change{Action: "create", ObjectType: "role_account_attachment", Value: key})
+			changes = append(changes, Change{Action: ActionCreate, ObjectType: ObjectTypeRoleAccountAttachment, Value: key})
 		}
 	}
 
@@ -481,7 +496,7 @@ func ImportRoleAccountAttachments(ctx context.Context, imp Importable, attachmen
 				if err := imp.PutRoleAccountAttachment(ctx, attachment); err != nil {
 					return nil, fmt.Errorf("delete role account attachment %s: %w", key, err)
 				}
-				changes = append(changes, Change{Action: "delete", ObjectType: "role_account_attachment", Value: key})
+				changes = append(changes, Change{Action: ActionDelete, ObjectType: ObjectTypeRoleAccountAttachment, Value: key})
 			}
 		}
 	}
@@ -491,10 +506,10 @@ func ImportRoleAccountAttachments(ctx context.Context, imp Importable, attachmen
 
 func action(del bool, exists bool) string {
 	if del {
-		return "delete"
+		return ActionDelete
 	}
 	if exists {
-		return "update"
+		return ActionUpdate
 	}
-	return "create"
+	return ActionCreate
 }

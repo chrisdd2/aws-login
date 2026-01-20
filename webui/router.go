@@ -17,6 +17,7 @@ import (
 	"github.com/chrisdd2/aws-login/internal/services"
 	"github.com/chrisdd2/aws-login/internal/services/account"
 	"github.com/chrisdd2/aws-login/internal/services/storage"
+	"github.com/chrisdd2/aws-login/internal/services/storage/imports"
 	"github.com/chrisdd2/aws-login/webui/templates"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
@@ -247,12 +248,12 @@ func Router(
 			if err := yaml.UnmarshalStrict(buf, &fs, yaml.DisallowUnknownFields); err != nil {
 				sendError(w, r, fmt.Errorf("yaml.UnmarshalStrict: %w", err))
 			}
-			importable, ok := storageSvc.(storage.Importable)
+			importable, ok := storageSvc.(imports.Importable)
 			if !ok {
 				sendError(w, r, ErrNotSupported)
 				return
 			}
-			changes, err := storage.ImportAll(ctx, importable, &fs, false)
+			changes, err := imports.ImportAll(ctx, importable, &fs, false)
 			if err != nil {
 				sendError(w, r, fmt.Errorf("storage.ImportAll: %w", err))
 				return
@@ -298,7 +299,7 @@ func Router(
 		})
 		r.Get("/sync", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
-			importable, ok := storageSvc.(storage.Importable)
+			importable, ok := storageSvc.(imports.Importable)
 			if syncer == nil || !ok {
 				sendError(w, r, ErrNotSupported)
 				return
@@ -310,12 +311,12 @@ func Router(
 				sendError(w, r, fmt.Errorf("storage.Sync: %w", err))
 				return
 			}
-			changesUsers, err := storage.ImportUsers(ctx, importable, im.Users, true)
+			changesUsers, err := imports.ImportUsers(ctx, importable, im.Users, true)
 			if err != nil {
 				sendError(w, r, fmt.Errorf("storage.ImportUsers: %w", err))
 				return
 			}
-			changesUserAttachments, err := storage.ImportRoleUserAttachments(ctx, importable, im.RoleUserAttachments, true)
+			changesUserAttachments, err := imports.ImportRoleUserAttachments(ctx, importable, im.RoleUserAttachments, true)
 			if err != nil {
 				sendError(w, r, fmt.Errorf("storage.ImportRoleUserAttachments: %w", err))
 				return
@@ -588,7 +589,7 @@ func friendlyName(email string) string {
 	return before
 }
 
-func configHandler(w http.ResponseWriter, r *http.Request, storageSvc storage.Storage, cfg *appconfig.AppConfig, changes []storage.Change) {
+func configHandler(w http.ResponseWriter, r *http.Request, storageSvc storage.Storage, cfg *appconfig.AppConfig, changes []imports.Change) {
 	ctx := r.Context()
 	user := getUser(r)
 	printable, ok := storageSvc.(storage.Printable)
