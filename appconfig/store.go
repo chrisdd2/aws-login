@@ -84,6 +84,11 @@ func (tm *TextMap) Scan(value any) error {
 			if !ok {
 				continue
 			}
+			k = strings.TrimSpace(k)
+			v = strings.TrimSpace(v)
+			if k == "" || v == "" {
+				continue
+			}
 			ret[k] = v
 		}
 	}
@@ -106,7 +111,14 @@ func (ta *TextArray) Scan(value any) error {
 	if !ok {
 		return nil
 	}
-	*ta = strings.Split(vstr, ",")
+	ret := []string{}
+	for v := range strings.SplitSeq(vstr, ",") {
+		v := strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		ret = append(ret, v)
+	}
 	return nil
 }
 
