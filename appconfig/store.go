@@ -119,6 +119,7 @@ func (ta *TextArray) Scan(value any) error {
 		}
 		ret = append(ret, v)
 	}
+	*ta = ret
 	return nil
 }
 
