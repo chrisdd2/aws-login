@@ -174,11 +174,40 @@ func generateStackTemplate(ctx context.Context, store storage.Storage, account s
 	roles, err := store.ListRolesForAccount(ctx, account)
 	cfnroles := []CfnRole{}
 	for _, item := range roles {
+		if item.Disabled {
+			continue
+		}
+		// clean managed policies from garbage data
+		managedPolicies := make([]string, 0, len(item.ManagedPolicies))
+		for _, v := range item.ManagedPolicies {
+			v = strings.TrimSpace(v)
+			if v == "" {
+				continue
+			}
+			managedPolicies = append(managedPolicies, v)
+		}
+		// gather up all the policy documents for this role
+		ats, err := store.ListRolePolicyAttachments(ctx, item.Name)
+		if err != nil {
+			return "", fmt.Errorf("store.ListRolePolicyAttachments: %w", err)
+		}
+		policies := map[string]string{}
+		for _, at := range ats {
+			p, err := store.GetPolicy(ctx, at.PolicyId)
+			if err != nil {
+				return "", fmt.Errorf("store.GetPolicy: %w", err)
+			}
+			if p.Disabled {
+				continue
+			}
+			policies[at.PolicyId] = p.Document
+		}
 		cfnroles = append(cfnroles, CfnRole{
 			LogicalName:        roleLogicalName(item.Name),
 			RoleName:           item.Name,
-			ManagedPolicies:    item.ManagedPolicies,
+			ManagedPolicies:    managedPolicies,
 			MaxSessionDuration: item.MaxSessionDuration,
+			Policies:           policies,
 		})
 	}
 	templateString, err := templateExecuteToString(roleStackTemplate, struct{ Roles []CfnRole }{Roles: cfnroles})
