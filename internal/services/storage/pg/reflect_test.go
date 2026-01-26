@@ -24,7 +24,7 @@ func TestCreate_TableGeneration(t *testing.T) {
 		{
 			name:     "Account table",
 			table:    create[appconfig.Account]("accounts"),
-			expected: "CREATE TABLE IF NOT EXISTS accounts(name text,aws_account_id text,disabled boolean,metadata text,UNIQUE (name,aws_account_id))",
+			expected: "CREATE TABLE IF NOT EXISTS accounts(name text,aws_account_id text,disabled boolean,metadata text,UNIQUE (name))",
 		},
 		{
 			name:     "User table",
