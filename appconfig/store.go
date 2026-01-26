@@ -44,7 +44,7 @@ type User struct {
 
 type Account struct {
 	Name         string `json:"name,omitempty" sql:"unique"`
-	AwsAccountId string `json:"aws_account_id,omitempty" sql:"unique"`
+	AwsAccountId string `json:"aws_account_id,omitempty"`
 	CommonFields
 }
 
