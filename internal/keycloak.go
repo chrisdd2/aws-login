@@ -56,7 +56,7 @@ func NewKeycloakSyncer(baseURL, realm, clientID, clientSecret, username, passwor
 }
 
 func (k *keycloakSyncer) tokenURL() string {
-	return fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", k.baseURL, k.realm)
+	return fmt.Sprintf("%s/realms/master/protocol/openid-connect/token", k.baseURL)
 }
 
 func (k *keycloakSyncer) apiURL(path string) string {
