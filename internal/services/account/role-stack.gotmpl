@@ -93,7 +93,7 @@ Resources:
       MaxSessionDuration: {{ maxSessionDuration .MaxSessionDuration }} 
 {{ end }}
 
-
+{{ if .Roles }}
 Outputs:
   {{ range .Roles}}
   {{ $name := roleLogicalName .RoleName }}
@@ -101,3 +101,4 @@ Outputs:
     Description: Arn of {{.RoleName}}
     Value: !GetAtt {{$name}}.Arn
   {{end}}
+{{ end }}
