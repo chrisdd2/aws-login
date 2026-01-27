@@ -3,6 +3,7 @@ package imports
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/internal/services/storage"
@@ -31,18 +32,6 @@ func TestAction(t *testing.T) {
 	}
 }
 
-func TestRoleUserAttachmentKey(t *testing.T) {
-	at := appconfig.RoleUserAttachment{
-		RoleUserAttachmentId: appconfig.RoleUserAttachmentId{
-			Username:    "user1",
-			RoleName:    "admin",
-			AccountName: "prod",
-		},
-	}
-	key := roleUserAttachmentKey(at)
-	assert.Equal(t, "user1|admin|prod", key)
-}
-
 func TestImportUsers(t *testing.T) {
 	ctx := context.Background()
 
@@ -50,7 +39,7 @@ func TestImportUsers(t *testing.T) {
 		imp := newMockImportable()
 		users := []appconfig.User{{Name: "newuser"}}
 
-		changes, err := ImportUsers(ctx, imp, users, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Users: users}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -65,13 +54,10 @@ func TestImportUsers(t *testing.T) {
 		imp.users = []string{"existinguser"}
 		users := []appconfig.User{{Name: "existinguser"}}
 
-		changes, err := ImportUsers(ctx, imp, users, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Users: users}, false)
 
 		require.NoError(t, err)
-		assert.Len(t, changes, 1)
-		assert.Equal(t, ActionUpdate, changes[0].Action)
-		assert.Equal(t, ObjectTypeUser, changes[0].ObjectType)
-		assert.Equal(t, "existinguser", changes[0].Value)
+		assert.Len(t, changes, 0)
 	})
 
 	t.Run("deletes user with delete flag", func(t *testing.T) {
@@ -79,7 +65,7 @@ func TestImportUsers(t *testing.T) {
 		imp.users = []string{"todelete"}
 		users := []appconfig.User{{Name: "todelete", CommonFields: appconfig.CommonFields{Delete: true}}}
 
-		changes, err := ImportUsers(ctx, imp, users, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Users: users}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -93,12 +79,11 @@ func TestImportUsers(t *testing.T) {
 		imp.users = []string{"user1", "user2"}
 		users := []appconfig.User{{Name: "user1"}}
 
-		changes, err := ImportUsers(ctx, imp, users, true)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Users: users}, true)
 
 		require.NoError(t, err)
-		assert.Len(t, changes, 2)
-		assert.Equal(t, ActionUpdate, changes[0].Action) // user1 updated
-		assert.Equal(t, ActionDelete, changes[1].Action) // user2 deleted
+		assert.Len(t, changes, 1)
+		assert.Equal(t, ActionDelete, changes[0].Action)
 		assert.NotContains(t, imp.users, "user2")
 	})
 
@@ -107,7 +92,7 @@ func TestImportUsers(t *testing.T) {
 		imp.users = []string{"user1", "user2"}
 		users := []appconfig.User{{Name: "user1"}}
 
-		_, err := ImportUsers(ctx, imp, users, false)
+		_, err := ImportAll(ctx, imp, &storage.InMemoryStore{Users: users}, false)
 
 		require.NoError(t, err)
 		assert.Contains(t, imp.users, "user2")
@@ -121,7 +106,7 @@ func TestImportUsers(t *testing.T) {
 			{Name: "user3"},
 		}
 
-		changes, err := ImportUsers(ctx, imp, users, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Users: users}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 3)
@@ -138,9 +123,9 @@ func TestImportAccounts(t *testing.T) {
 
 	t.Run("creates new account", func(t *testing.T) {
 		imp := newMockImportable()
-		accounts := []*appconfig.Account{{Name: "newaccount"}}
+		accounts := []appconfig.Account{{Name: "newaccount"}}
 
-		changes, err := ImportAccounts(ctx, imp, accounts, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Accounts: accounts}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -152,9 +137,9 @@ func TestImportAccounts(t *testing.T) {
 	t.Run("updates existing account", func(t *testing.T) {
 		imp := newMockImportable()
 		imp.accounts = []appconfig.Account{{Name: "existingaccount"}}
-		accounts := []*appconfig.Account{{Name: "existingaccount"}}
+		accounts := []appconfig.Account{{Name: "existingaccount", AwsAccountId: "j"}}
 
-		changes, err := ImportAccounts(ctx, imp, accounts, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Accounts: accounts}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -165,9 +150,9 @@ func TestImportAccounts(t *testing.T) {
 	t.Run("deletes account with delete flag", func(t *testing.T) {
 		imp := newMockImportable()
 		imp.accounts = []appconfig.Account{{Name: "todelete"}}
-		accounts := []*appconfig.Account{{Name: "todelete", CommonFields: appconfig.CommonFields{Delete: true}}}
+		accounts := []appconfig.Account{{Name: "todelete", CommonFields: appconfig.CommonFields{Delete: true}}}
 
-		changes, err := ImportAccounts(ctx, imp, accounts, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Accounts: accounts}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -178,14 +163,13 @@ func TestImportAccounts(t *testing.T) {
 	t.Run("deletes accounts not in import when del is true", func(t *testing.T) {
 		imp := newMockImportable()
 		imp.accounts = []appconfig.Account{{Name: "acc1"}, {Name: "acc2"}}
-		accounts := []*appconfig.Account{{Name: "acc1"}}
+		accounts := []appconfig.Account{{Name: "acc1"}}
 
-		changes, err := ImportAccounts(ctx, imp, accounts, true)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Accounts: accounts}, true)
 
 		require.NoError(t, err)
-		assert.Len(t, changes, 2)
-		assert.Equal(t, ActionUpdate, changes[0].Action)
-		assert.Equal(t, ActionDelete, changes[1].Action)
+		assert.Len(t, changes, 1)
+		assert.Equal(t, ActionDelete, changes[0].Action)
 	})
 }
 
@@ -196,7 +180,7 @@ func TestImportRoles(t *testing.T) {
 		imp := newMockImportable()
 		roles := []appconfig.Role{{Name: "newrole"}}
 
-		changes, err := ImportRoles(ctx, imp, roles, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Roles: roles}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -208,9 +192,9 @@ func TestImportRoles(t *testing.T) {
 	t.Run("updates existing role", func(t *testing.T) {
 		imp := newMockImportable()
 		imp.roles = []string{"existingrole"}
-		roles := []appconfig.Role{{Name: "existingrole"}}
+		roles := []appconfig.Role{{Name: "existingrole", MaxSessionDuration: time.Hour}}
 
-		changes, err := ImportRoles(ctx, imp, roles, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Roles: roles}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -223,7 +207,7 @@ func TestImportRoles(t *testing.T) {
 		imp.roles = []string{"todelete"}
 		roles := []appconfig.Role{{Name: "todelete", CommonFields: appconfig.CommonFields{Delete: true}}}
 
-		changes, err := ImportRoles(ctx, imp, roles, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Roles: roles}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -236,12 +220,11 @@ func TestImportRoles(t *testing.T) {
 		imp.roles = []string{"role1", "role2"}
 		roles := []appconfig.Role{{Name: "role1"}}
 
-		changes, err := ImportRoles(ctx, imp, roles, true)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Roles: roles}, true)
 
 		require.NoError(t, err)
-		assert.Len(t, changes, 2)
-		assert.Equal(t, ActionUpdate, changes[0].Action)
-		assert.Equal(t, ActionDelete, changes[1].Action)
+		require.Len(t, changes, 1)
+		assert.Equal(t, ActionDelete, changes[0].Action)
 	})
 }
 
@@ -252,7 +235,7 @@ func TestImportPolicies(t *testing.T) {
 		imp := newMockImportable()
 		policies := []appconfig.Policy{{Id: "newpolicy"}}
 
-		changes, err := ImportPolicies(ctx, imp, policies, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Policies: policies}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -264,9 +247,9 @@ func TestImportPolicies(t *testing.T) {
 	t.Run("updates existing policy", func(t *testing.T) {
 		imp := newMockImportable()
 		imp.policies = []string{"existingpolicy"}
-		policies := []appconfig.Policy{{Id: "existingpolicy"}}
+		policies := []appconfig.Policy{{Id: "existingpolicy", Document: "text"}}
 
-		changes, err := ImportPolicies(ctx, imp, policies, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Policies: policies}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -279,7 +262,7 @@ func TestImportPolicies(t *testing.T) {
 		imp.policies = []string{"todelete"}
 		policies := []appconfig.Policy{{Id: "todelete", CommonFields: appconfig.CommonFields{Delete: true}}}
 
-		changes, err := ImportPolicies(ctx, imp, policies, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Policies: policies}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -292,12 +275,11 @@ func TestImportPolicies(t *testing.T) {
 		imp.policies = []string{"pol1", "pol2"}
 		policies := []appconfig.Policy{{Id: "pol1"}}
 
-		changes, err := ImportPolicies(ctx, imp, policies, true)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{Policies: policies}, true)
 
 		require.NoError(t, err)
-		assert.Len(t, changes, 2)
-		assert.Equal(t, ActionUpdate, changes[0].Action)
-		assert.Equal(t, ActionDelete, changes[1].Action)
+		assert.Len(t, changes, 1)
+		assert.Equal(t, ActionDelete, changes[0].Action)
 	})
 }
 
@@ -310,7 +292,7 @@ func TestImportRoleUserAttachments(t *testing.T) {
 			{RoleUserAttachmentId: appconfig.RoleUserAttachmentId{Username: "user1", RoleName: "admin", AccountName: "prod"}},
 		}
 
-		changes, err := ImportRoleUserAttachments(ctx, imp, attachments, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{RoleUserAttachments: attachments}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -325,10 +307,10 @@ func TestImportRoleUserAttachments(t *testing.T) {
 			{RoleUserAttachmentId: appconfig.RoleUserAttachmentId{Username: "user1", RoleName: "admin", AccountName: "prod"}},
 		}
 		attachments := []appconfig.RoleUserAttachment{
-			{RoleUserAttachmentId: appconfig.RoleUserAttachmentId{Username: "user1", RoleName: "admin", AccountName: "prod"}},
+			{RoleUserAttachmentId: appconfig.RoleUserAttachmentId{Username: "user1", RoleName: "admin", AccountName: "prod"}, Permissions: appconfig.TextArray{"console"}},
 		}
 
-		changes, err := ImportRoleUserAttachments(ctx, imp, attachments, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{RoleUserAttachments: attachments}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -345,7 +327,7 @@ func TestImportRoleUserAttachments(t *testing.T) {
 			{RoleUserAttachmentId: appconfig.RoleUserAttachmentId{Username: "user1", RoleName: "admin", AccountName: "prod"}, CommonFields: appconfig.CommonFields{Delete: true}},
 		}
 
-		changes, err := ImportRoleUserAttachments(ctx, imp, attachments, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{RoleUserAttachments: attachments}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -363,12 +345,11 @@ func TestImportRoleUserAttachments(t *testing.T) {
 			{RoleUserAttachmentId: appconfig.RoleUserAttachmentId{Username: "user1", RoleName: "admin", AccountName: "prod"}},
 		}
 
-		changes, err := ImportRoleUserAttachments(ctx, imp, attachments, true)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{RoleUserAttachments: attachments}, true)
 
 		require.NoError(t, err)
-		assert.Len(t, changes, 2)
-		assert.Equal(t, ActionUpdate, changes[0].Action)
-		assert.Equal(t, ActionDelete, changes[1].Action)
+		assert.Len(t, changes, 1)
+		assert.Equal(t, ActionDelete, changes[0].Action)
 	})
 }
 
@@ -381,7 +362,7 @@ func TestImportRolePolicyAttachments(t *testing.T) {
 			{RoleName: "admin", PolicyId: "policy1"},
 		}
 
-		changes, err := ImportRolePolicyAttachments(ctx, imp, attachments, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{RolePolicyAttachments: attachments}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -396,13 +377,13 @@ func TestImportRolePolicyAttachments(t *testing.T) {
 			{RoleName: "admin", PolicyId: "policy1"},
 		}
 		attachments := []appconfig.RolePolicyAttachment{
-			{RoleName: "admin", PolicyId: "policy1"},
+			{RoleName: "admin", PolicyId: "policy1", CommonFields: appconfig.CommonFields{Metadata: appconfig.TextMap{"test": "test"}}},
 		}
 
-		changes, err := ImportRolePolicyAttachments(ctx, imp, attachments, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{RolePolicyAttachments: attachments}, false)
 
 		require.NoError(t, err)
-		assert.Len(t, changes, 1)
+		require.Len(t, changes, 1)
 		assert.Equal(t, ActionUpdate, changes[0].Action)
 		assert.Equal(t, ObjectTypeRolePolicyAttachment, changes[0].ObjectType)
 	})
@@ -416,7 +397,7 @@ func TestImportRolePolicyAttachments(t *testing.T) {
 			{RoleName: "admin", PolicyId: "policy1", CommonFields: appconfig.CommonFields{Delete: true}},
 		}
 
-		changes, err := ImportRolePolicyAttachments(ctx, imp, attachments, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{RolePolicyAttachments: attachments}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -434,12 +415,11 @@ func TestImportRolePolicyAttachments(t *testing.T) {
 			{RoleName: "admin", PolicyId: "policy1"},
 		}
 
-		changes, err := ImportRolePolicyAttachments(ctx, imp, attachments, true)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{RolePolicyAttachments: attachments}, true)
 
 		require.NoError(t, err)
-		assert.Len(t, changes, 2)
-		assert.Equal(t, ActionUpdate, changes[0].Action)
-		assert.Equal(t, ActionDelete, changes[1].Action)
+		assert.Len(t, changes, 1)
+		assert.Equal(t, ActionDelete, changes[0].Action)
 	})
 }
 
@@ -452,7 +432,7 @@ func TestImportRoleAccountAttachments(t *testing.T) {
 			{RoleName: "admin", AccountName: "prod"},
 		}
 
-		changes, err := ImportRoleAccountAttachments(ctx, imp, attachments, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{RoleAccountAttachments: attachments}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -467,10 +447,10 @@ func TestImportRoleAccountAttachments(t *testing.T) {
 			{RoleName: "admin", AccountName: "prod"},
 		}
 		attachments := []appconfig.RoleAccountAttachment{
-			{RoleName: "admin", AccountName: "prod"},
+			{RoleName: "admin", AccountName: "prod", CommonFields: appconfig.CommonFields{Metadata: appconfig.TextMap{"test": "test"}}},
 		}
 
-		changes, err := ImportRoleAccountAttachments(ctx, imp, attachments, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{RoleAccountAttachments: attachments}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -487,7 +467,7 @@ func TestImportRoleAccountAttachments(t *testing.T) {
 			{RoleName: "admin", AccountName: "prod", CommonFields: appconfig.CommonFields{Delete: true}},
 		}
 
-		changes, err := ImportRoleAccountAttachments(ctx, imp, attachments, false)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{RoleAccountAttachments: attachments}, false)
 
 		require.NoError(t, err)
 		assert.Len(t, changes, 1)
@@ -505,12 +485,11 @@ func TestImportRoleAccountAttachments(t *testing.T) {
 			{RoleName: "admin", AccountName: "prod"},
 		}
 
-		changes, err := ImportRoleAccountAttachments(ctx, imp, attachments, true)
+		changes, err := ImportAll(ctx, imp, &storage.InMemoryStore{RoleAccountAttachments: attachments}, true)
 
 		require.NoError(t, err)
-		assert.Len(t, changes, 2)
-		assert.Equal(t, ActionUpdate, changes[0].Action)
-		assert.Equal(t, ActionDelete, changes[1].Action)
+		assert.Len(t, changes, 1)
+		assert.Equal(t, ActionDelete, changes[0].Action)
 	})
 }
 
@@ -562,11 +541,11 @@ func TestImportAll(t *testing.T) {
 
 		store := &storage.InMemoryStore{
 			Users: []appconfig.User{
-				{Name: "existing_user"}, // update
+				{Name: "existing_user",FriendlyName: "new name"}, // update
 				{Name: "new_user"},      // create
 			},
 			Accounts: []appconfig.Account{
-				{Name: "existing_account"}, // update
+				{Name: "existing_account",AwsAccountId: "new acc"}, // update
 			},
 		}
 
@@ -586,7 +565,7 @@ func TestImportErrors(t *testing.T) {
 		imp.putError = assert.AnError
 		users := []appconfig.User{{Name: "user1"}}
 
-		_, err := ImportUsers(ctx, imp, users, false)
+		_, err := ImportAll(ctx, imp, &storage.InMemoryStore{Users: users}, false)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "create user")
@@ -595,12 +574,12 @@ func TestImportErrors(t *testing.T) {
 	t.Run("returns error when PutAccount fails", func(t *testing.T) {
 		imp := newMockImportable()
 		imp.putError = assert.AnError
-		accounts := []*appconfig.Account{{Name: "acc1"}}
+		accounts := []appconfig.Account{{Name: "acc1"}}
 
-		_, err := ImportAccounts(ctx, imp, accounts, false)
+		_, err := ImportAll(ctx, imp, &storage.InMemoryStore{Accounts: accounts}, false)
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "create account")
+		assert.Contains(t, err.Error(), "create")
 	})
 
 	t.Run("returns error when PutRole fails", func(t *testing.T) {
@@ -608,7 +587,7 @@ func TestImportErrors(t *testing.T) {
 		imp.putError = assert.AnError
 		roles := []appconfig.Role{{Name: "role1"}}
 
-		_, err := ImportRoles(ctx, imp, roles, false)
+		_, err := ImportAll(ctx, imp, &storage.InMemoryStore{Roles: roles}, false)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "create role")

@@ -8,10 +8,11 @@ import (
 )
 
 var (
-	ErrUserNotFound    = errors.New("UserNotFound")
-	ErrPolicyNotFound  = errors.New("PolicyNotFound")
-	ErrAccountNotFound = errors.New("AccountNotFound")
-	ErrRoleNotFound    = errors.New("RoleNotFound")
+	ErrUserNotFound       = errors.New("UserNotFound")
+	ErrPolicyNotFound     = errors.New("PolicyNotFound")
+	ErrAccountNotFound    = errors.New("AccountNotFound")
+	ErrRoleNotFound       = errors.New("RoleNotFound")
+	ErrAttachmentNotFound = errors.New("AttachmentNotFound")
 )
 
 type Reloadable interface {

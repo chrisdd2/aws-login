@@ -311,17 +311,12 @@ func Router(
 				sendError(w, r, fmt.Errorf("storage.Sync: %w", err))
 				return
 			}
-			changesUsers, err := imports.ImportUsers(ctx, importable, im.Users, true)
+			changes, err := imports.ImportPermissions(ctx, importable, im.Users, im.RoleUserAttachments, true)
 			if err != nil {
-				sendError(w, r, fmt.Errorf("storage.ImportUsers: %w", err))
+				sendError(w, r, fmt.Errorf("storage.ImportPermissions: %w", err))
 				return
 			}
-			changesUserAttachments, err := imports.ImportRoleUserAttachments(ctx, importable, im.RoleUserAttachments, true)
-			if err != nil {
-				sendError(w, r, fmt.Errorf("storage.ImportRoleUserAttachments: %w", err))
-				return
-			}
-			configHandler(w, r, storageSvc, &cfg, append(changesUsers, changesUserAttachments...))
+			configHandler(w, r, storageSvc, &cfg, changes)
 		})
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			configHandler(w, r, storageSvc, &cfg, nil)

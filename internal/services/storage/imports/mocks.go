@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/chrisdd2/aws-login/appconfig"
+	"github.com/chrisdd2/aws-login/internal/services/storage"
 )
 
 // mockImportable is a mock implementation of Importable for testing
@@ -16,6 +17,7 @@ type mockImportable struct {
 	rolePolicyAttachments  []appconfig.RolePolicyAttachment
 	roleAccountAttachments []appconfig.RoleAccountAttachment
 	putError               error
+	getError               error
 }
 
 func (m *mockImportable) PutUser(ctx context.Context, u *appconfig.User) error {
@@ -187,19 +189,51 @@ func (m *mockImportable) ListRoleAccountAttachments(ctx context.Context, roleNam
 }
 
 func (m *mockImportable) GetRole(ctx context.Context, name string) (*appconfig.Role, error) {
-	return nil, nil
+	if m.getError != nil {
+		return nil, m.getError
+	}
+	for _, n := range m.roles {
+		if n == name {
+			return &appconfig.Role{Name: name}, nil
+		}
+	}
+	return nil, storage.ErrRoleNotFound
 }
 
 func (m *mockImportable) GetUser(ctx context.Context, name string) (*appconfig.User, error) {
-	return nil, nil
+	if m.getError != nil {
+		return nil, m.getError
+	}
+	for _, n := range m.users {
+		if n == name {
+			return &appconfig.User{Name: name}, nil
+		}
+	}
+	return nil, storage.ErrUserNotFound
 }
 
 func (m *mockImportable) GetAccount(ctx context.Context, id string) (*appconfig.Account, error) {
-	return nil, nil
+	if m.getError != nil {
+		return nil, m.getError
+	}
+	for _, acc := range m.accounts {
+		if acc.Name == id {
+			return &appconfig.Account{Name: acc.Name, AwsAccountId: acc.AwsAccountId}, nil
+		}
+	}
+	return nil, storage.ErrAccountNotFound
 }
 
 func (m *mockImportable) GetPolicy(ctx context.Context, id string) (*appconfig.Policy, error) {
-	return nil, nil
+	if m.getError != nil {
+		return nil, m.getError
+	}
+	for _, pid := range m.policies {
+		if pid == id {
+			return &appconfig.Policy{Id: id}, nil
+		}
+	}
+	return nil, storage.ErrPolicyNotFound
 }
 
 func newMockImportable() *mockImportable {
