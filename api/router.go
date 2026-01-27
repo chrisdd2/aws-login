@@ -55,7 +55,6 @@ func V1Api(accountsSvc account.AccountService, idps []services.AuthService, role
 				accessToken, err := tokenSvc.Create(r.Context(), &services.UserInfo{
 					Username:     info.Username,
 					FriendlyName: info.FriendlyName,
-					Superuser:    true,
 					LoginType:    authType,
 					IdpToken:     requestForm.AccessToken,
 				}, false)

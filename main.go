@@ -258,7 +258,7 @@ type gracefullServer struct {
 }
 
 func (g *gracefullServer) Listen(cancel context.CancelCauseFunc) {
-	slog.Info(g.Name, "address", g.Server.Addr, "url", fmt.Sprintf("http:/%s", g.Server.Addr))
+	slog.Info(g.Name, "address", g.Server.Addr, "url", fmt.Sprintf("http://%s", g.Server.Addr))
 	err := g.Server.ListenAndServe()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Info("http", "error", err.Error())

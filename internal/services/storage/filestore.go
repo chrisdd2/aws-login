@@ -29,11 +29,20 @@ type FileStore struct {
 	ev        fileEventer
 }
 
-func (s *FileStore) Reset() {
+func (s *FileStore) Reset() error {
 	s.Users = nil
 	s.Accounts = nil
 	s.Roles = nil
 	s.Policies = nil
+	s.ev.Close()
+	filename := filepath.Join(s.cfg.Storage.Directory, "events.json")
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		return err
+	}
+	s.ev = fileEventer{f: f, w: bufio.NewWriter(f)}
+	slog.Info("enabled", "eventer", "file")
+	return nil
 }
 
 func (s *FileStore) Merge(o *FileStore, inPlace bool) *FileStore {
@@ -72,13 +81,6 @@ func (s *FileStore) LoadJson(r io.Reader) error {
 
 func NewStaticStore(ctx context.Context, cfg *appconfig.AppConfig, awsCfg aws.Config) (*FileStore, error) {
 	s := &FileStore{cfg: cfg, s3Cl: s3.NewFromConfig(awsCfg)}
-	filename := filepath.Join(cfg.Storage.Directory, "events.json")
-	f, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-	if err != nil {
-		return nil, err
-	}
-	s.ev = fileEventer{f: f, w: bufio.NewWriter(f)}
-	slog.Info("enabled", "eventer", "file")
 	return s, nil
 }
 
@@ -336,6 +338,9 @@ type fileEventer struct {
 }
 
 func (f *fileEventer) Close() {
+	if f.f == nil {
+		return
+	}
 	f.w.Flush()
 	f.f.Close()
 }

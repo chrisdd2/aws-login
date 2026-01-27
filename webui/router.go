@@ -247,6 +247,7 @@ func Router(
 			}
 			if err := yaml.UnmarshalStrict(buf, &fs, yaml.DisallowUnknownFields); err != nil {
 				sendError(w, r, fmt.Errorf("yaml.UnmarshalStrict: %w", err))
+				return
 			}
 			importable, ok := storageSvc.(imports.Importable)
 			if !ok {

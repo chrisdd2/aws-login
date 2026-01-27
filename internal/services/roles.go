@@ -30,7 +30,7 @@ func (c AwsCredentials) Format(t string) string {
 	case "cmd":
 		return fmt.Sprintf("set AWS_ACCESS_KEY_ID=%s\nset AWS_SECRET_ACCESS_KEY=%s\nset AWS_SESSION_TOKEN=%s", c.AccessKeyId, c.SecretAccessKey, c.SessionToken)
 	case "powershell":
-		return fmt.Sprintf("$env:AWS_ACCESS_KEY_ID=\"%s\"\n$env:AWS_SECRET_ACCESS_KEY=\"=%s\"\n$env:AWS_ACCESS_KEY_ID=\"%s\"", c.AccessKeyId, c.SecretAccessKey, c.SessionToken)
+		return fmt.Sprintf("$env:AWS_ACCESS_KEY_ID=\"%s\"\n$env:AWS_SECRET_ACCESS_KEY=\"=%s\"\n$env:AWS_SESSION_TOKEN=\"%s\"", c.AccessKeyId, c.SecretAccessKey, c.SessionToken)
 	case "linux":
 		return fmt.Sprintf("export AWS_ACCESS_KEY_ID=%s\nexport AWS_SECRET_ACCESS_KEY=%s\nexport AWS_SESSION_TOKEN=%s", c.AccessKeyId, c.SecretAccessKey, c.SessionToken)
 	default:

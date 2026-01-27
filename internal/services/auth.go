@@ -85,7 +85,7 @@ var ErrCannotFindEmail error = errors.New("unable to determine github email")
 
 func (g *GithubService) Login(w http.ResponseWriter, r *http.Request) {
 	values := url.Values{}
-	scopes := []string{"user"}
+	scopes := []string{"user", "email"}
 	for _, scope := range scopes {
 		values.Add("scope", scope)
 	}
@@ -317,13 +317,13 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*AuthInfo, error) {
 	}
 
 	claims := OpenIdClaims{}
+	if err := idToken.Claims(&claims); err != nil {
+		return nil, fmt.Errorf("idToken.Claims %w", err)
+	}
 	for _, v := range g.validations {
 		if err := v(claims); err != nil {
 			return nil, fmt.Errorf("claimValidation: %w", err)
 		}
-	}
-	if err := idToken.Claims(&claims); err != nil {
-		return nil, fmt.Errorf("idToken.Claims %w", err)
 	}
 
 	name := claims.Name

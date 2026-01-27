@@ -3,6 +3,7 @@ package appconfig
 import (
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"os"
 	"reflect"
@@ -151,12 +152,10 @@ func patchEnvironment(envVars map[string]string) (restoreFunc func()) {
 }
 
 func getFromEnv(key string, path ...string) string {
-	var v string
+	v := key
 	if len(path) > 0 {
 		v = strings.Join(path, "__")
 		v = fmt.Sprintf("%s__%s", v, key)
-	} else if len(path) > 0 {
-		v = key
 	}
 	v = strings.ToUpper(v)
 	return os.Getenv(v)
