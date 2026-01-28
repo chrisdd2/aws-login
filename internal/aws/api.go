@@ -222,6 +222,10 @@ func (a *apiImpl) GenerateSigninUrl(ctx context.Context, roleArn string, session
 	if err != nil {
 		return "", err
 	}
+	return generateSignUrl(ctx, accessKeyId, secretAccessKey, sessionToken, redirectUrl)
+}
+
+func generateSignUrl(ctx context.Context, accessKeyId, secretAccessKey, sessionToken, redirectUrl string) (string, error) {
 	// request sign in token from federation page
 	token := struct {
 		SessionId    string `json:"sessionId"`
@@ -240,7 +244,11 @@ func (a *apiImpl) GenerateSigninUrl(ctx context.Context, roleArn string, session
 		"Session":         []string{string(tokenStr)},
 	}
 
-	awsResp, err := http.Get(fmt.Sprintf("%s?%s", signInUrl, values.Encode()))
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s?%s", signInUrl, values.Encode()), nil)
+	if err != nil {
+		return "", fmt.Errorf("http.NewRequestWithContext: %w", err)
+	}
+	awsResp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("http.Get: %w", err)
 	}

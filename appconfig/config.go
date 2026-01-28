@@ -3,7 +3,6 @@ package appconfig
 import (
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"os"
 	"reflect"
