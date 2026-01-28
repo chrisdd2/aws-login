@@ -43,6 +43,7 @@ func (c AwsCredentials) Format(t string) string {
 type RolesService interface {
 	UserPermissions(ctx context.Context, username string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error)
 	Console(ctx context.Context, accountName string, roleName, username string) (string, error)
+	ConsoleToUrl(ctx context.Context, accountName string, roleName, username, destinationUrl string) (string, error)
 	Credentials(ctx context.Context, accountName string, roleName, username string) (AwsCredentials, error)
 }
 
@@ -98,6 +99,49 @@ func (r *rolesService) Console(ctx context.Context, accountName string, roleName
 	}
 	// publish an event
 	r.storage.Publish(ctx, "console_login", map[string]string{"username": username, "account_name": accountName, "role_name": roleName})
+	return url, nil
+}
+
+func (r *rolesService) ConsoleToUrl(ctx context.Context, accountName string, roleName, username, destinationUrl string) (string, error) {
+	role, err := r.storage.GetRole(ctx, roleName)
+	if err != nil {
+		return "", fmt.Errorf("storage.GetRole: %w", err)
+	}
+	if role.Disabled {
+		return "", ErrRoleDisabled
+	}
+	acc, err := r.storage.GetAccount(ctx, accountName)
+	if err != nil {
+		return "", fmt.Errorf("storage.GetAccount: %w", err)
+	}
+	if acc.Disabled {
+		return "", ErrAccountDisabled
+	}
+	attachments, err := r.storage.ListRoleAccountAttachments(ctx, roleName, accountName)
+	if err != nil {
+		return "", fmt.Errorf("storage.ListRoleAccountAttachments: %w", err)
+	}
+	if !slices.ContainsFunc(attachments, func(at appconfig.RoleAccountAttachment) bool {
+		return roleName == at.RoleName
+	}) {
+		return "", ErrRoleNotAssociated
+	}
+	// auth check
+	perms, err := r.UserPermissions(ctx, username, roleName, accountName)
+	if err != nil {
+		return "", err
+	}
+	if len(perms) == 0 || !slices.Contains(perms[0].Permissions, appconfig.RolePermissionConsole) {
+		return "", ErrRoleUnauthorized
+	}
+
+	arn := roleArn(roleName, acc.AwsAccountId)
+	url, err := r.aws.GenerateSigninUrl(ctx, arn, username, destinationUrl)
+	if err != nil {
+		return "", fmt.Errorf("aws.GenerateSigninUrl: %w", err)
+	}
+	// publish an event
+	r.storage.Publish(ctx, "url_login", map[string]string{"username": username, "account_name": accountName, "role_name": roleName})
 	return url, nil
 }
 

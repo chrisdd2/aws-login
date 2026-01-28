@@ -375,6 +375,31 @@ func Router(
 			}
 			render.PlainText(w, r, creds.Format(format))
 		})
+		r.Get("/url", func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			user := getUser(r)
+
+			query := r.URL.Query()
+			account := query.Get("account")
+			role := query.Get("role")
+			urlParam := query.Get("url")
+			if account == "" || role == "" || urlParam == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+
+			url, err := rolesSvc.ConsoleToUrl(ctx, account, role, user.Username, urlParam)
+			if err != nil {
+				if errors.Is(err, services.ErrRoleUnauthorized) {
+					sendUnathorized(w, r, err)
+					return
+				}
+				sendError(w, r, fmt.Errorf("rolesSvc.ConsoleToUrl: %w", err))
+				return
+			}
+
+			render.PlainText(w, r, url)
+		})
 
 		g := r.With(superOnlyMiddleware())
 		r.Get("/bootstrap_template", func(w http.ResponseWriter, r *http.Request) {
