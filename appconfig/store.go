@@ -72,6 +72,11 @@ type RolePolicyAttachment struct {
 	CommonFields
 }
 
+type AccountFeatureAttachment struct {
+	AccountName string
+	FeatureName string
+}
+
 type TextMap map[string]string
 
 // Scan implements the [Scanner] interface.
