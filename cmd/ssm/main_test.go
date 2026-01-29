@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/chrisdd2/aws-login/blob"
@@ -18,6 +19,9 @@ func TestBlob(t *testing.T) {
 	f, err := os.CreateTemp("", t.Name()+"*")
 	require.NoError(t, err)
 	testBinary := filepath.Join("", f.Name())
+	if runtime.GOOS == "windows" {
+		testBinary += ".exe"
+	}
 	f.Close()
 	t.Logf("testBinary: %s\n", testBinary)
 
