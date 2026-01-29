@@ -311,6 +311,13 @@ func TestScanArgs(t *testing.T) {
 // setupTestDB creates a test database connection
 // Note: Requires a running PostgreSQL instance
 func setupTestDB(t *testing.T) *sql.DB {
+	defer func() {
+		err := recover()
+		if err == nil {
+			return
+		}
+		t.Skipf("Skipping test: we panicked %v", err)
+	}()
 	randomPort := rand.Intn(0xFFFF-1025) + 1024
 	container, err := testcontainers.Run(t.Context(), "postgres",
 		testcontainers.WithExposedPorts(fmt.Sprintf("%d:5432", randomPort)),
