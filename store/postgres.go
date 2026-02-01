@@ -52,18 +52,13 @@ func NewPostgresStore(ctx context.Context, cfg *appconfig.AppConfig) (*PostgresS
 	}
 
 	store := &PostgresStore{db: db, cfg: cfg}
-	// if err := store.prepareDb(ctx); err != nil {
-	// 	db.Close()
-	// 	return nil, fmt.Errorf("PostgresStore.prepareDb: %w", err)
-	// }
+	schema := pgSchema{db}
+	if err := schema.migrate(ctx); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("pgSchema.migrate: %w", err)
+	}
 	return store, nil
 }
-
-const (
-	resourceTable            = "aws_login_resources"
-	resourceAttachmentsTable = "aws_login_res_attachments"
-	userPermissionsTable     = "aws_login_user_permissions"
-)
 
 type Scannable interface {
 	Scan() []any

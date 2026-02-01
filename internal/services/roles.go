@@ -10,6 +10,7 @@ import (
 	"slices"
 
 	"github.com/chrisdd2/aws-login/internal/aws"
+	"github.com/chrisdd2/aws-login/internal/services/account"
 	"github.com/chrisdd2/aws-login/store"
 )
 
@@ -42,10 +43,17 @@ func (c AwsCredentials) Format(t string) string {
 }
 
 type UserRolePermission struct {
-	AccountId   string
 	AccountName string
 	RoleName    string
 	Permissions []string
+}
+
+func (u *UserRolePermission) AccountId(ctx context.Context, st store.Store) (string, error) {
+	acc, err := store.GetResource(ctx, st, store.ResourceTypeAccount, u.AccountName)
+	if err != nil {
+		return "", err
+	}
+	return store.GetDocument[account.AccountDocument](acc).AwsAccountId, nil
 }
 
 type RolesService interface {
@@ -105,7 +113,6 @@ func (r *rolesService) ListRoles(ctx context.Context, username string) (iter.Seq
 		return func(yield func(UserRolePermission) bool) {
 			for _, p := range perms {
 				if !yield(UserRolePermission{
-					AccountId:   p.Metadata["aws_account_id"],
 					AccountName: p.TargetResourceId,
 					RoleName:    p.ResourceId,
 					Permissions: store.RolePermissionAll,
@@ -122,7 +129,6 @@ func (r *rolesService) ListRoles(ctx context.Context, username string) (iter.Seq
 	return func(yield func(UserRolePermission) bool) {
 		for _, p := range perms {
 			if !yield(UserRolePermission{
-				AccountId:   p.Metadata["aws_account_id"],
 				AccountName: p.AccountId,
 				RoleName:    p.ResourceId,
 				Permissions: slices.Collect(maps.Keys(p.Permissions)),

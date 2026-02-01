@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"iter"
 )
@@ -22,7 +23,7 @@ const (
 	AccountAttachmentSsm  = "ssm"
 
 	UserPermissionRole      = "role"
-	UserPermissionSsm       = "role"
+	UserPermissionSsm       = "ssm"
 	UserPermissionSuperUser = "superuser"
 )
 const (
@@ -52,6 +53,7 @@ type ResourceAttachment struct {
 	Type             string `json:"type,omitempty"`
 	MetaFields
 }
+
 type UserPermission struct {
 	UserId      string  `json:"user_id,omitempty"`
 	ResourceId  string  `json:"resource_id,omitempty"`
@@ -71,6 +73,12 @@ type Store interface {
 
 	PutUserPermission(ctx context.Context, objs ...*UserPermission) error
 	GetUserPermission(ctx context.Context, permissionType, userId, resourceId, accountId string) ([]*UserPermission, error)
+}
+
+func GetDocument[T any](r *Resource) T {
+	v := *new(T)
+	json.Unmarshal([]byte(r.Document), &v)
+	return v
 }
 
 func GetResource(ctx context.Context, st Store, resourceType string, id string) (*Resource, error) {

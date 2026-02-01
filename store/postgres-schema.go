@@ -2,16 +2,33 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"strings"
 )
 
 const (
-	schemaVersionTable = "aws_login_schemas"
+	schemaVersionTable = "aws_login_schema_table"
+	rolesTable         = "aws_login_roles"
+	usersTable         = "aws_login_users"
+	userRolesTable     = "aws_login_user_roles"
+	accountsTable      = "aws_login_accounts"
+	policiesTable      = "aws_login_policies"
+	eventsTable        = "aws_login_events"
+	roleAccountTable   = "aws_login_role_accounts"
+	rolePolicyTable    = "aws_login_role_policies"
 )
 
-func (p *PostgresStore) prepareDb(ctx context.Context) error {
+const (
+	resourceTable            = "aws_login_resources"
+	resourceAttachmentsTable = "aws_login_res_attachments"
+	userPermissionsTable     = "aws_login_user_permissions"
+)
+
+type pgSchema struct{ db *sql.DB }
+
+func (p *pgSchema) migrate(ctx context.Context) error {
 	for {
 		var version string
 		err := p.db.QueryRowContext(ctx,
@@ -41,6 +58,9 @@ func (p *PostgresStore) prepareDb(ctx context.Context) error {
 			slog.Info("storage", "pg", "upgrading to v5")
 			err = p.v5Schema(ctx)
 		case "5":
+			slog.Info("storage", "pg", "upgrading to v6")
+			err = p.v6Schema(ctx, true)
+		case "6":
 			return nil
 		default:
 			return ErrInvalidSchemaVersion
@@ -51,13 +71,38 @@ func (p *PostgresStore) prepareDb(ctx context.Context) error {
 	}
 }
 
-func (p *PostgresStore) v5Schema(ctx context.Context) error {
+func (p *pgSchema) v6Schema(ctx context.Context, existing bool) error {
+	queries := []string{
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(id text,type text, document text, metadata text,disabled bool, UNIQUE(type,id))", resourceTable),
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(resource_id text,target_resource_id text, type text, metadata text,disabled bool,UNIQUE(type,resource_id,target_resource_id))", resourceAttachmentsTable),
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(user_id text,resource_id text,account_id text, type text, permissions text,metadata text,disabled bool, UNIQUE(type,user_id,resource_id,account_id))", userPermissionsTable),
+	}
+	if existing {
+		queries = append(queries,
+			fmt.Sprintf("INSERT INTO %s(id,disabled,metadata,type,document) SELECT name,disabled,'','account',json_build_object( 'aws_account_id', aws_account_id) FROM %s", resourceTable, accountsTable),
+			fmt.Sprintf("INSERT INTO %s(id,disabled,metadata,type) SELECT name,disabled,'friendly_name:' || friendly_name, 'user' FROM %s", resourceTable, usersTable),
+			fmt.Sprintf("INSERT INTO %s(id,disabled,metadata,type,document) SELECT id,disabled,'', 'policy',document FROM %s", resourceTable, policiesTable),
+			fmt.Sprintf(`INSERT INTO %s(id,disabled,metadata,type,document) SELECT name,disabled,metadata,'role',json_build_object( 'managed_policies', string_to_array(managed_policies, ','), 'max_session_duration', max_session_duration::text) FROM %s`, resourceTable, rolesTable),
+
+			// attach
+			fmt.Sprintf(`INSERT INTO %s(resource_id,target_resource_id,disabled,metadata,type) SELECT role_name,policy_id,disabled,metadata,'policy' FROM %s`, resourceAttachmentsTable, rolePolicyTable),
+			fmt.Sprintf(`INSERT INTO %s(resource_id,target_resource_id,disabled,metadata,type) SELECT role_name,account_name,disabled,metadata,'role' FROM %s`, resourceAttachmentsTable, roleAccountTable),
+
+			// perm
+			fmt.Sprintf(`INSERT INTO %s(user_id,resource_id,account_id,disabled,metadata,type,permissions) SELECT user_name,role_name,account_name,disabled,metadata,'role',permissions FROM %s`, userPermissionsTable, userRolesTable),
+			fmt.Sprintf(`INSERT INTO %s(user_id,resource_id,account_id,disabled,metadata,type,permissions) SELECT name,'','',false,'','superuser','' FROM %s WHERE superuser`, userPermissionsTable, usersTable),
+		)
+	}
+	return p.executeVersion(ctx, 6, queries...)
+}
+
+func (p *pgSchema) v5Schema(ctx context.Context) error {
 	return p.executeVersion(ctx, 5,
 		fmt.Sprintf("ALTER TABLE %s ADD UNIQUE (name,aws_account_id)", accountsTable),
 	)
 }
 
-func (p *PostgresStore) v4Schema(ctx context.Context) error {
+func (p *pgSchema) v4Schema(ctx context.Context) error {
 	return p.executeVersion(ctx, 4,
 		fmt.Sprintf("ALTER TABLE %s ADD UNIQUE (role_name,policy_id)", rolePolicyTable),
 		fmt.Sprintf("ALTER TABLE %s ADD UNIQUE (role_name,account_name)", roleAccountTable),
@@ -65,7 +110,7 @@ func (p *PostgresStore) v4Schema(ctx context.Context) error {
 	)
 }
 
-func (p *PostgresStore) executeVersion(ctx context.Context, version int, queries ...string) error {
+func (p *pgSchema) executeVersion(ctx context.Context, version int, queries ...string) error {
 	for _, q := range queries {
 		if _, err := p.db.ExecContext(ctx, q); err != nil {
 			return fmt.Errorf("db.ExecContext: %w", err)
@@ -77,7 +122,7 @@ func (p *PostgresStore) executeVersion(ctx context.Context, version int, queries
 	return nil
 }
 
-func (p *PostgresStore) v3Schema(ctx context.Context) error {
+func (p *pgSchema) v3Schema(ctx context.Context) error {
 	return p.executeVersion(ctx, 3,
 		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(role_name text,account_name text,disabled boolean,metadata text)", roleAccountTable),
 		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(role_name text,policy_id text,disabled boolean,metadata text)", rolePolicyTable),
@@ -117,7 +162,7 @@ func (p *PostgresStore) v3Schema(ctx context.Context) error {
 	)
 }
 
-func (p *PostgresStore) v2Schema(ctx context.Context) error {
+func (p *pgSchema) v2Schema(ctx context.Context) error {
 	return p.executeVersion(ctx, 2,
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 			id TEXT PRIMARY KEY,
@@ -126,7 +171,7 @@ func (p *PostgresStore) v2Schema(ctx context.Context) error {
 			metadata TEXT DEFAULT '{}'
 	)`, eventsTable))
 }
-func (p *PostgresStore) v1Schema(ctx context.Context) error {
+func (p *pgSchema) v1Schema(ctx context.Context) error {
 	return p.executeVersion(ctx, 1,
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 			aws_account_id TEXT PRIMARY KEY,

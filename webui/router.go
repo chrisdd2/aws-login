@@ -138,9 +138,14 @@ func Router(
 		}
 		templateRoles := []templates.Role{}
 		for role := range roles {
+			accId, err := role.AccountId(ctx, storageSvc)
+			if err != nil {
+				sendError(w, r, fmt.Errorf("role.AccountId: %w", err))
+				return
+			}
 			templateRoles = append(templateRoles, templates.Role{
 				AccountName:    role.AccountName,
-				AccountId:      role.AccountId,
+				AccountId:      accId,
 				RoleName:       role.RoleName,
 				HasCredentials: slices.Contains(role.Permissions, store.RolePermissionCredentials),
 				HasConsole:     slices.Contains(role.Permissions, store.RolePermissionConsole),

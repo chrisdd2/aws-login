@@ -33,6 +33,10 @@ type AccountInfo struct {
 	AwsAccountId string
 }
 
+type AccountDocument struct {
+	AwsAccountId string `json:"aws_account_id,omitempty"`
+}
+
 type AccountService interface {
 	Deploy(ctx context.Context, userId string, accountId string) error
 	DeploymentStatus(ctx context.Context, accountId string) (DeploymentStatus, error)
@@ -67,7 +71,8 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 	if err != nil {
 		return fmt.Errorf("storage.GetAccount: %w", err)
 	}
-	return a.aws.DeployStack(ctx, acc.Id, acc.Metadata["aws_account_id"], aws.StackName.Value(accountId), templateString, nil)
+	awsAccountId := store.GetDocument[AccountDocument](acc).AwsAccountId
+	return a.aws.DeployStack(ctx, acc.Id, awsAccountId, aws.StackName.Value(accountId), templateString, nil)
 }
 
 func roleLogicalName(roleName string) string {
@@ -96,9 +101,10 @@ func (a *accountService) ListAccounts(ctx context.Context) ([]AccountInfo, error
 	}
 	ret := []AccountInfo{}
 	for _, acc := range accounts {
+		accountId := store.GetDocument[AccountDocument](acc).AwsAccountId
 		ret = append(ret, AccountInfo{
 			Name:         acc.Id,
-			AwsAccountId: acc.Metadata["aws_account_id"],
+			AwsAccountId: accountId,
 		})
 	}
 	return ret, nil
@@ -126,11 +132,12 @@ func (a *accountService) DeploymentStatus(ctx context.Context, accountName strin
 	if err != nil {
 		return status, fmt.Errorf("storage.GetAccount: %w", err)
 	}
+	accountId := store.GetDocument[AccountDocument](acc).AwsAccountId
 	templateString, err := generateStackTemplate(ctx, a.storage, acc.Id)
 	if err != nil {
 		return status, fmt.Errorf("generateStackTemplate: %w", err)
 	}
-	currentTemplateString, err := a.aws.StackTemplate(ctx, accountName, acc.Metadata["aws_account_id"], aws.StackName.Value(accountName))
+	currentTemplateString, err := a.aws.StackTemplate(ctx, accountName, accountId, aws.StackName.Value(accountName))
 	if errors.Is(err, aws.ErrStackNotExist) {
 		status.StackExists = false
 		return status, nil
@@ -155,7 +162,8 @@ func (a *accountService) StackUpdates(ctx context.Context, accountName string, s
 	if stackId == "" {
 		stackId = aws.StackName.Value(accountName)
 	}
-	events, err := a.aws.TopStackEvents(ctx, accountName, acc.Metadata["aws_account_id"], stackId)
+	accountId := store.GetDocument[AccountDocument](acc).AwsAccountId
+	events, err := a.aws.TopStackEvents(ctx, accountName, accountId, stackId)
 	if err != nil {
 		return nil, fmt.Errorf("aws.TopStackEvents: %w", err)
 	}
@@ -223,7 +231,8 @@ func (a *accountService) DestroyStack(ctx context.Context, accountName string, u
 	if err != nil {
 		return "", fmt.Errorf("storage.GetAccount: %w", err)
 	}
-	stackId, err := a.aws.DestroyStack(ctx, accountName, acc.Metadata["aws_account_id"], aws.StackName.Value(accountName))
+	accountId := store.GetDocument[AccountDocument](acc).AwsAccountId
+	stackId, err := a.aws.DestroyStack(ctx, accountName, accountId, aws.StackName.Value(accountName))
 	if err != nil {
 		return "", fmt.Errorf("aws.DestroyStack: %w", err)
 	}
