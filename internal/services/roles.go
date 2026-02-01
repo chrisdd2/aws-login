@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
+	"maps"
 	"slices"
 
-	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/internal/aws"
-	"github.com/chrisdd2/aws-login/internal/services/storage"
+	"github.com/chrisdd2/aws-login/store"
 )
 
 var (
@@ -40,108 +41,134 @@ func (c AwsCredentials) Format(t string) string {
 	}
 }
 
+type UserRolePermission struct {
+	AccountId   string
+	AccountName string
+	RoleName    string
+	Permissions []string
+}
+
 type RolesService interface {
-	UserPermissions(ctx context.Context, username string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error)
+	HasPermission(ctx context.Context, username string, roleName string, accountName string, permissions string) (bool, error)
+	ListRoles(ctx context.Context, username string) (iter.Seq[UserRolePermission], error)
 	Console(ctx context.Context, accountName string, roleName, username string) (string, error)
 	Credentials(ctx context.Context, accountName string, roleName, username string) (AwsCredentials, error)
 }
 
 type rolesService struct {
-	storage storage.Storage
-	aws     aws.AwsApiCaller
+	st  store.Store
+	aws aws.AwsApiCaller
 }
 
-func NewRoleService(store storage.Storage, aws aws.AwsApiCaller) RolesService {
-	return &rolesService{store, aws}
+func NewRoleService(st store.Store, aws aws.AwsApiCaller) RolesService {
+	return &rolesService{st, aws}
 }
 
-func (r *rolesService) UserPermissions(ctx context.Context, username string, roleName string, accountName string) ([]appconfig.RoleUserAttachment, error) {
-	return r.storage.ListRolePermissions(ctx, username, roleName, accountName)
+func (r *rolesService) HasPermission(ctx context.Context, username, roleName, accountName, permission string) (bool, error) {
+	role, err := store.GetResource(ctx, r.st, store.ResourceTypeRole, roleName)
+	if err != nil {
+		return false, err
+	}
+	account, err := store.GetResource(ctx, r.st, store.ResourceTypeAccount, accountName)
+	if err != nil {
+		return false, err
+	}
+	usr, err := store.GetResource(ctx, r.st, store.ResourceTypeUser, username)
+	if err != nil {
+		return false, err
+	}
+	if role.Disabled || account.Disabled || usr.Disabled {
+		return false, err
+	}
+	atts, err := r.st.GetResourceAttachments(ctx, store.AccountAttachmentRole, roleName, accountName)
+	if err != nil {
+		return false, store.ErrDisabled
+	}
+	if len(atts) == 0 {
+		return false, store.ErrResourceNotFound
+	}
+	perm, err := store.GetUserPermission(ctx, r.st, store.UserPermissionRole, username, roleName, accountName)
+	if err != nil {
+		return false, err
+	}
+	return perm.Permissions[permission] != "", nil
+}
+func (r *rolesService) ListRoles(ctx context.Context, username string) (iter.Seq[UserRolePermission], error) {
+	// figure out all the attachments for a user
+	_, err := store.GetUserPermission(ctx, r.st, store.UserPermissionSuperUser, username, "", "")
+	super := err == nil
+	if super {
+		perms, err := r.st.GetResourceAttachments(ctx, store.AccountAttachmentRole, "", "")
+		if err != nil {
+			return nil, err
+		}
+		return func(yield func(UserRolePermission) bool) {
+			for _, p := range perms {
+				if !yield(UserRolePermission{
+					AccountId:   p.Metadata["aws_account_id"],
+					AccountName: p.TargetResourceId,
+					RoleName:    p.ResourceId,
+					Permissions: store.RolePermissionAll,
+				}) {
+					break
+				}
+			}
+		}, nil
+	}
+	perms, err := r.st.GetUserPermission(ctx, store.UserPermissionRole, username, "", "")
+	if err != nil {
+		return nil, err
+	}
+	return func(yield func(UserRolePermission) bool) {
+		for _, p := range perms {
+			if !yield(UserRolePermission{
+				AccountId:   p.Metadata["aws_account_id"],
+				AccountName: p.AccountId,
+				RoleName:    p.ResourceId,
+				Permissions: slices.Collect(maps.Keys(p.Permissions)),
+			}) {
+				break
+			}
+		}
+	}, nil
 }
 func (r *rolesService) Console(ctx context.Context, accountName string, roleName, username string) (string, error) {
-	role, err := r.storage.GetRole(ctx, roleName)
+	hasPerm, err := r.HasPermission(ctx, username, roleName, accountName, store.RolePermissionConsole)
 	if err != nil {
-		return "", fmt.Errorf("storage.GetRole: %w", err)
+		return "", fmt.Errorf("r.HasPermission: %w", err)
 	}
-	if role.Disabled {
-		return "", ErrRoleDisabled
+	if !hasPerm {
+		return "", ErrRoleUnauthorized
 	}
-	acc, err := r.storage.GetAccount(ctx, accountName)
-	if err != nil {
-		return "", fmt.Errorf("storage.GetAccount: %w", err)
-	}
-	if acc.Disabled {
-		return "", ErrAccountDisabled
-	}
-	attachments, err := r.storage.ListRoleAccountAttachments(ctx, roleName, accountName)
-	if err != nil {
-		return "", fmt.Errorf("storage.ListRoleAccountAttachments: %w", err)
-	}
-	if !slices.ContainsFunc(attachments, func(at appconfig.RoleAccountAttachment) bool {
-		return roleName == at.RoleName
-	}) {
-		return "", ErrRoleNotAssociated
-	}
-	// auth check
-	perms, err := r.UserPermissions(ctx, username, roleName, accountName)
+	acc, err := store.GetResource(ctx, r.st, store.ResourceTypeAccount, accountName)
 	if err != nil {
 		return "", err
 	}
-	if len(perms) == 0 || !slices.Contains(perms[0].Permissions, appconfig.RolePermissionConsole) {
-		return "", ErrRoleUnauthorized
-	}
-
-	arn := roleArn(roleName, acc.AwsAccountId)
+	arn := roleArn(roleName, acc.Metadata["aws_account_id"])
 	url, err := r.aws.GenerateSigninUrl(ctx, arn, username, "https://console.aws.amazon.com/")
 	if err != nil {
 		return "", fmt.Errorf("aws.GenerateSigninUrl: %w", err)
 	}
-	// publish an event
-	r.storage.Publish(ctx, "console_login", map[string]string{"username": username, "account_name": accountName, "role_name": roleName})
 	return url, nil
 }
 
 func (r *rolesService) Credentials(ctx context.Context, accountName string, roleName, username string) (AwsCredentials, error) {
-	role, err := r.storage.GetRole(ctx, roleName)
+	hasPerm, err := r.HasPermission(ctx, username, roleName, accountName, store.RolePermissionCredentials)
 	if err != nil {
-		return AwsCredentials{}, fmt.Errorf("storage.GetRole: %w", err)
+		return AwsCredentials{}, fmt.Errorf("r.HasPermission: %w", err)
 	}
-	if role.Disabled {
-		return AwsCredentials{}, ErrRoleDisabled
+	if !hasPerm {
+		return AwsCredentials{}, ErrRoleUnauthorized
 	}
-	acc, err := r.storage.GetAccount(ctx, accountName)
-	if err != nil {
-		return AwsCredentials{}, fmt.Errorf("storage.GetAccount: %w", err)
-	}
-	if acc.Disabled {
-		return AwsCredentials{}, ErrAccountDisabled
-	}
-	attachments, err := r.storage.ListRoleAccountAttachments(ctx, roleName, accountName)
-	if err != nil {
-		return AwsCredentials{}, fmt.Errorf("storage.ListRoleAccountAttachments: %w", err)
-	}
-	if !slices.ContainsFunc(attachments, func(at appconfig.RoleAccountAttachment) bool {
-		return roleName == at.RoleName
-	}) {
-		return AwsCredentials{}, ErrRoleNotAssociated
-	}
-
-	// auth check
-	perms, err := r.UserPermissions(ctx, username, roleName, accountName)
+	acc, err := store.GetResource(ctx, r.st, store.ResourceTypeAccount, accountName)
 	if err != nil {
 		return AwsCredentials{}, err
 	}
-	if len(perms) == 0 || !slices.Contains(perms[0].Permissions, appconfig.RolePermissionCredentials) {
-		return AwsCredentials{}, ErrRoleUnauthorized
-	}
-
-	arn := roleArn(roleName, acc.AwsAccountId)
+	arn := roleArn(roleName, acc.Metadata["aws_account_id"])
 	accessKeyId, secretAccessKey, sessionToken, err := r.aws.GetCredentials(ctx, arn, username)
 	if err != nil {
 		return AwsCredentials{}, fmt.Errorf("aws.GenerateSigninUrl: %w", err)
 	}
-	// publish an event
-	r.storage.Publish(ctx, "credentials_login", map[string]string{"username": username, "account_name": accountName, "role_name": roleName})
 	return AwsCredentials{AccessKeyId: accessKeyId, SecretAccessKey: secretAccessKey, SessionToken: sessionToken}, nil
 }
 

@@ -1,10 +1,14 @@
-package pg
+package store
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
 	"strings"
+)
+
+const (
+	schemaVersionTable = "aws_login_schemas"
 )
 
 func (p *PostgresStore) prepareDb(ctx context.Context) error {

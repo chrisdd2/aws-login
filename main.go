@@ -25,12 +25,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/api"
 	"github.com/chrisdd2/aws-login/appconfig"
-	"github.com/chrisdd2/aws-login/internal"
 	"github.com/chrisdd2/aws-login/internal/aws"
 	"github.com/chrisdd2/aws-login/internal/services"
 	"github.com/chrisdd2/aws-login/internal/services/account"
-	"github.com/chrisdd2/aws-login/internal/services/storage"
-	"github.com/chrisdd2/aws-login/internal/services/storage/pg"
+	"github.com/chrisdd2/aws-login/store"
 	"github.com/chrisdd2/aws-login/webui"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -106,19 +104,19 @@ func main() {
 	// allow different aws config for the aws user used for permissions in the other accounts
 	assumerConfig, arn := must3(awsContext(ctx, "ASSUMER_"))
 	slog.Info("aws", "principal", arn, "user", "assumer")
-	s3Config, arn := must3(awsContext(ctx, "S3_"))
-	slog.Info("aws", "principal", arn, "user", "s3")
+	// s3Config, arn := must3(awsContext(ctx, "S3_"))
+	// slog.Info("aws", "principal", arn, "user", "s3")
 
 	// storage
-	var storageSvc storage.Storage
+	var storageSvc store.Store
 	switch appCfg.Storage.Type {
 	case appconfig.StorageTypeFile:
-		s := must2(storage.NewStaticStore(ctx, &appCfg, s3Config))
-		must(s.Reload(ctx))
-		slog.Info("found", "accounts", len(s.Accounts), "users", len(s.Users), "roles", len(s.Roles))
-		storageSvc = s
+		// s := must2(store.NewStaticStore(ctx, &appCfg, s3Config))
+		// must(s.Reload(ctx))
+		// slog.Info("found", "accounts", len(s.Accounts), "users", len(s.Users), "roles", len(s.Roles))
+		// storageSvc = s
 	case appconfig.StorageTypePostgres:
-		storageSvc = must2(pg.NewPostgresStore(ctx, &appCfg))
+		storageSvc = must2(store.NewPostgresStore(ctx, &appCfg))
 	}
 
 	// sign key
@@ -170,17 +168,17 @@ func main() {
 		slog.Info("enabled", "auth", "google")
 	}
 
-	var syncer storage.SyncStorer
-	if appCfg.Storage.Sync.Keycloak.BaseUrl != "" {
-		syncer = internal.NewKeycloakSyncer(
-			appCfg.Storage.Sync.Keycloak.BaseUrl,
-			appCfg.Storage.Sync.Keycloak.Realm,
-			"admin-cli",
-			"",
-			appCfg.Storage.Sync.Keycloak.Username,
-			appCfg.Storage.Sync.Keycloak.Password,
-		)
-	}
+	// var syncer storage.SyncStorer
+	// if appCfg.Storage.Sync.Keycloak.BaseUrl != "" {
+	// 	syncer = internal.NewKeycloakSyncer(
+	// 		appCfg.Storage.Sync.Keycloak.BaseUrl,
+	// 		appCfg.Storage.Sync.Keycloak.Realm,
+	// 		"admin-cli",
+	// 		"",
+	// 		appCfg.Storage.Sync.Keycloak.Username,
+	// 		appCfg.Storage.Sync.Keycloak.Password,
+	// 	)
+	// }
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -194,7 +192,7 @@ func main() {
 	}))
 
 	r.Mount("/api", api.V1Api(accSvc, idps, roleSvc, tokenSvc))
-	r.Mount("/", webui.Router(cancel, tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg, syncer, appCfg.Storage.Sync.Keycloak.SuperUserRole))
+	r.Mount("/", webui.Router(cancel, tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg))
 
 	metricsRouter := chi.NewRouter()
 	metricsRouter.Handle("/metrics", metrics.Handler())

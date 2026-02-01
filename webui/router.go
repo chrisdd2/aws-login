@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -16,8 +15,7 @@ import (
 	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/internal/services"
 	"github.com/chrisdd2/aws-login/internal/services/account"
-	"github.com/chrisdd2/aws-login/internal/services/storage"
-	"github.com/chrisdd2/aws-login/internal/services/storage/imports"
+	"github.com/chrisdd2/aws-login/store"
 	"github.com/chrisdd2/aws-login/webui/templates"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
@@ -51,12 +49,11 @@ func Router(
 	authSvcs []services.AuthService,
 	rolesSvc services.RolesService,
 	accountSrvc account.AccountService,
-	storageSvc storage.Storage,
+	storageSvc store.Store,
 	cfg appconfig.AppConfig,
-	syncer storage.SyncStorer,
-	superUserRole string,
 ) chi.Router {
 
+	// superUserRole := cfg.Storage.Sync.Keycloak.SuperUserRole
 	hasAdminLogin := cfg.Auth.AdminPassword != "" && cfg.Auth.AdminUsername != ""
 	secureCookies := cfg.IsProduction()
 
@@ -99,7 +96,6 @@ func Router(
 				return
 			}
 			accessToken, _ := tokenSvc.Create(r.Context(), &services.UserInfo{Username: username, FriendlyName: friendlyName(username), Superuser: true, LoginType: "userpass"}, false)
-			storageSvc.Publish(r.Context(), "user_login", map[string]string{"username": username, "login_type": loginType})
 			sendAccessToken(w, r, accessToken, secureCookies)
 			return
 		}
@@ -119,7 +115,7 @@ func Router(
 				return
 			}
 			accessToken, err := tokenSvc.Create(ctx, &services.UserInfo{Username: info.Username, FriendlyName: info.FriendlyName, LoginType: details.Name, IdpToken: info.IdpToken}, true)
-			if err == storage.ErrUserNotFound {
+			if err == store.ErrResourceNotFound {
 				redirectWithParams(w, r, "/login", map[string]string{"error": "user_not_found", "username": info.Username}, http.StatusSeeOther)
 				return
 			}
@@ -127,7 +123,6 @@ func Router(
 				sendUnathorized(w, r, err)
 				return
 			}
-			storageSvc.Publish(ctx, "user_login", map[string]string{"username": info.Username, "login_type": details.Name})
 			sendAccessToken(w, r, accessToken, secureCookies)
 		})
 
@@ -136,26 +131,19 @@ func Router(
 	mainHandler := func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := getUser(r)
-		var roles []appconfig.RoleUserAttachment
-		var err error
-		roles, err = rolesSvc.UserPermissions(ctx, user.Username, "", "")
+		roles, err := rolesSvc.ListRoles(ctx, user.Username)
 		if err != nil {
-			sendError(w, r, fmt.Errorf("rolesSvc.UserPermissions: %w", err))
+			sendError(w, r, fmt.Errorf("rolesSvc.ListRoles: %w", err))
 			return
 		}
-		templateRoles := make([]templates.Role, 0, len(roles))
-		for _, role := range roles {
-			acc, err := accountSrvc.GetFromAccountName(ctx, role.AccountName)
-			if err != nil {
-				sendError(w, r, fmt.Errorf("accountSrvc.GetFromAccountName: %w", err))
-				return
-			}
+		templateRoles := []templates.Role{}
+		for role := range roles {
 			templateRoles = append(templateRoles, templates.Role{
 				AccountName:    role.AccountName,
-				AccountId:      acc.AwsAccountId,
+				AccountId:      role.AccountId,
 				RoleName:       role.RoleName,
-				HasCredentials: slices.Contains(role.Permissions, appconfig.RolePermissionCredentials),
-				HasConsole:     slices.Contains(role.Permissions, appconfig.RolePermissionConsole),
+				HasCredentials: slices.Contains(role.Permissions, store.RolePermissionCredentials),
+				HasConsole:     slices.Contains(role.Permissions, store.RolePermissionConsole),
 			})
 		}
 		data := templates.RolesData{
@@ -232,92 +220,38 @@ func Router(
 		})
 		r.Post("/import", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
-			user := getUser(r)
 			file, _, err := r.FormFile("file")
 			if err != nil {
 				sendError(w, r, fmt.Errorf("r.FormFile: %w", err))
 				return
 			}
 			defer file.Close()
-			fs := storage.InMemoryStore{}
-			buf, err := io.ReadAll(file)
+			fs := store.FileStore{}
+			if err := fs.LoadYaml(file); err != nil {
+				sendError(w, r, fmt.Errorf("fs.LoadYaml: %w", err))
+				return
+			}
+			changes, err := store.Import(ctx, storageSvc, &fs.MemoryStore)
 			if err != nil {
-				sendError(w, r, fmt.Errorf("io.ReadAll: %w", err))
+				sendError(w, r, fmt.Errorf("store.Import: %w", err))
 				return
 			}
-			if err := yaml.UnmarshalStrict(buf, &fs, yaml.DisallowUnknownFields); err != nil {
-				sendError(w, r, fmt.Errorf("yaml.UnmarshalStrict: %w", err))
-				return
-			}
-			importable, ok := storageSvc.(imports.Importable)
-			if !ok {
-				sendError(w, r, ErrNotSupported)
-				return
-			}
-			changes, err := imports.ImportAll(ctx, importable, &fs, false)
-			if err != nil {
-				sendError(w, r, fmt.Errorf("storage.ImportAll: %w", err))
-				return
-			}
-
-			storageSvc.Publish(ctx, "config_import", map[string]string{"username": user.Username})
 			configHandler(w, r, storageSvc, &cfg, changes)
 		})
 		r.Get("/export", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
-			user := getUser(r)
-			printable, ok := storageSvc.(storage.Printable)
-			if !ok {
-				sendError(w, r, http.ErrNotSupported)
-				return
-			}
-			st, err := printable.Display(ctx)
-			if err != nil {
-				sendError(w, r, fmt.Errorf("printable.Display: %w", err))
-				return
-			}
+			st, err := store.Export(ctx, storageSvc)
 			buf, err := yaml.Marshal(st)
 			if err != nil {
 				sendError(w, r, fmt.Errorf("yaml.Marshal: %w", err))
 				return
 			}
-			storageSvc.Publish(ctx, "config_export", map[string]string{"username": user.Username})
 
 			w.Header().Add("Content-Type", "application/yaml")
 			w.Write(buf)
 		})
-		r.Get("/reload", func(w http.ResponseWriter, r *http.Request) {
-			ctx := r.Context()
-			reloadable, ok := storageSvc.(storage.Reloadable)
-			if !ok {
-				sendError(w, r, ErrNotSupported)
-			}
-			if err := reloadable.Reload(ctx); err != nil {
-				sendError(w, r, fmt.Errorf("reloadable.Reload: %w", err))
-			}
-			slog.Info("reloaded config", "source", "admin_page")
-			http.Redirect(w, r, "/config", http.StatusTemporaryRedirect)
-		})
 		r.Get("/sync", func(w http.ResponseWriter, r *http.Request) {
-			ctx := r.Context()
-			importable, ok := storageSvc.(imports.Importable)
-			if syncer == nil || !ok {
-				sendError(w, r, ErrNotSupported)
-				return
-			}
-			usr := getUser(r)
-			storageSvc.Publish(ctx, "sync_users", map[string]string{"username": usr.Username})
-			im, err := storage.Sync(ctx, syncer, storageSvc, superUserRole)
-			if err != nil {
-				sendError(w, r, fmt.Errorf("storage.Sync: %w", err))
-				return
-			}
-			changes, err := imports.ImportPermissions(ctx, importable, im.Users, im.RoleUserAttachments, true)
-			if err != nil {
-				sendError(w, r, fmt.Errorf("storage.ImportPermissions: %w", err))
-				return
-			}
-			configHandler(w, r, storageSvc, &cfg, changes)
+			configHandler(w, r, storageSvc, &cfg, nil)
 		})
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 			configHandler(w, r, storageSvc, &cfg, nil)
@@ -585,22 +519,17 @@ func friendlyName(email string) string {
 	return before
 }
 
-func configHandler(w http.ResponseWriter, r *http.Request, storageSvc storage.Storage, cfg *appconfig.AppConfig, changes []imports.Change) {
+func configHandler(w http.ResponseWriter, r *http.Request, storageSvc store.Store, cfg *appconfig.AppConfig, changes []store.Change) {
 	ctx := r.Context()
 	user := getUser(r)
-	printable, ok := storageSvc.(storage.Printable)
-	if !ok {
-		sendError(w, r, ErrNotSupported)
-		return
-	}
-	st, err := printable.Display(ctx)
+	ms, err := store.Export(ctx, storageSvc)
 	if err != nil {
-		sendError(w, r, fmt.Errorf("printable.Display: %w", err))
+		sendError(w, r, fmt.Errorf("store.Export: %w", err))
 		return
 	}
 	data := templates.ConfigurationData{
 		Navbar:  templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
-		Store:   st,
+		Store:   ms,
 		Changes: changes,
 	}
 	if err := templates.ConfigurationTemplate(w, data); err != nil {

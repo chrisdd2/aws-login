@@ -8,8 +8,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/chrisdd2/aws-login/appconfig"
 )
 
 type KeycloakRoleRef struct {
@@ -21,7 +19,7 @@ type KeycloakRoleRef struct {
 	Name        string `json:"name,omitempty"`
 }
 
-type keycloakUser struct {
+type KeycloakUser struct {
 	ID        string            `json:"id"`
 	Username  string            `json:"username"`
 	Email     string            `json:"email"`
@@ -130,14 +128,14 @@ func (k *keycloakSyncer) get(ctx context.Context, path string) (*http.Response, 
 	return resp, nil
 }
 
-func (k *keycloakSyncer) getUsers(ctx context.Context) ([]keycloakUser, error) {
+func (k *keycloakSyncer) getUsers(ctx context.Context) ([]KeycloakUser, error) {
 	resp, err := k.get(ctx, "users")
 	if err != nil {
 		return nil, fmt.Errorf("keycloakSyncer.getUsers: %w", err)
 	}
 	defer resp.Body.Close()
 
-	var users []keycloakUser
+	var users []KeycloakUser
 	if err := json.NewDecoder(resp.Body).Decode(&users); err != nil {
 		return nil, fmt.Errorf("decode users: %w", err)
 	}
@@ -160,21 +158,12 @@ func (k *keycloakSyncer) getUserRoles(ctx context.Context, userID string) ([]Key
 	return roles, nil
 }
 
-func (k *keycloakSyncer) Users(ctx context.Context) ([]appconfig.User, error) {
+func (k *keycloakSyncer) Users(ctx context.Context) ([]KeycloakUser, error) {
 	kcUsers, err := k.getUsers(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get keycloak users: %w", err)
 	}
-
-	users := make([]appconfig.User, 0, len(kcUsers))
-	for _, u := range kcUsers {
-		users = append(users, appconfig.User{
-			Name:         u.Username,
-			FriendlyName: buildFriendlyName(u.FirstName, u.LastName),
-		})
-	}
-
-	return users, nil
+	return kcUsers, nil
 }
 
 func (k *keycloakSyncer) RolesForUser(ctx context.Context, username string) ([]string, error) {
@@ -197,17 +186,4 @@ func (k *keycloakSyncer) RolesForUser(ctx context.Context, username string) ([]s
 		}
 	}
 	return ret, nil
-}
-
-func buildFriendlyName(firstName, lastName string) string {
-	if firstName != "" && lastName != "" {
-		return firstName + " " + lastName
-	}
-	if firstName != "" {
-		return firstName
-	}
-	if lastName != "" {
-		return lastName
-	}
-	return ""
 }

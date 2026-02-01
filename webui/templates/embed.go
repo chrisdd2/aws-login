@@ -6,10 +6,8 @@ import (
 	"html/template"
 	"io"
 
-	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/internal/aws"
-	"github.com/chrisdd2/aws-login/internal/services/storage"
-	"github.com/chrisdd2/aws-login/internal/services/storage/imports"
+	"github.com/chrisdd2/aws-login/store"
 )
 
 //go:embed static webfonts
@@ -27,42 +25,9 @@ func incFunc(n int) int {
 	return n + 1
 }
 
-func filterRoleUserAttachments(attachments []appconfig.RoleUserAttachment, username string) []appconfig.RoleUserAttachment {
-	var result []appconfig.RoleUserAttachment
-	for _, a := range attachments {
-		if a.Username == username {
-			result = append(result, a)
-		}
-	}
-	return result
-}
-
-func filterRoleAccountAttachments(attachments []appconfig.RoleAccountAttachment, accountName string) []appconfig.RoleAccountAttachment {
-	var result []appconfig.RoleAccountAttachment
-	for _, a := range attachments {
-		if a.AccountName == accountName {
-			result = append(result, a)
-		}
-	}
-	return result
-}
-
-func filterRolePolicyAttachments(attachments []appconfig.RolePolicyAttachment, roleName string) []appconfig.RolePolicyAttachment {
-	var result []appconfig.RolePolicyAttachment
-	for _, a := range attachments {
-		if a.RoleName == roleName {
-			result = append(result, a)
-		}
-	}
-	return result
-}
-
 var pagesTmpls = template.Must(template.New("").Funcs(template.FuncMap{
-	"json":                         jsonFunc,
-	"inc":                          incFunc,
-	"filterRoleUserAttachments":    filterRoleUserAttachments,
-	"filterRoleAccountAttachments": filterRoleAccountAttachments,
-	"filterRolePolicyAttachments":  filterRolePolicyAttachments,
+	"json": jsonFunc,
+	"inc":  incFunc,
 }).ParseFS(pages, "*.html"))
 
 type Navbar struct {
@@ -127,8 +92,8 @@ func WatchTemplate(w io.Writer, data WatchData) error {
 
 type ConfigurationData struct {
 	Navbar
-	Store   *storage.InMemoryStore
-	Changes []imports.Change
+	Store   *store.MemoryStore
+	Changes []store.Change
 }
 
 func ConfigurationTemplate(w io.Writer, data ConfigurationData) error {

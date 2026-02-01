@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/chrisdd2/aws-login/internal/services/storage"
+	"github.com/chrisdd2/aws-login/store"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -35,7 +35,6 @@ func (u UserInfo) DebugPrint() {
 	fmt.Println("\tLoginType:", u.LoginType)
 	fmt.Println("\tIdpToken:", u.IdpToken)
 	fmt.Println("}")
-
 }
 
 type UserClaims struct {
@@ -44,11 +43,11 @@ type UserClaims struct {
 	Tags map[string]string
 }
 type tokenServiceImpl struct {
-	storage storage.Storage
+	storage store.Store
 	key     any
 }
 
-func NewToken(storage storage.Storage, key any) TokenService {
+func NewToken(storage store.Store, key any) TokenService {
 	return &tokenServiceImpl{storage, key}
 }
 
@@ -64,11 +63,12 @@ func (t *tokenServiceImpl) signToken(usr UserInfo, expiration time.Duration) (st
 }
 func (a *tokenServiceImpl) Create(ctx context.Context, usr *UserInfo, validate bool) (string, error) {
 	if validate {
-		sgUser, err := a.storage.GetUser(ctx, usr.Username)
+		_, err := store.GetResource(ctx, a.storage, store.ResourceTypeUser, usr.Username)
 		if err != nil {
 			return "", fmt.Errorf("storage.GetUser: %w", err)
 		}
-		usr.Superuser = bool(sgUser.Superuser)
+		_, err = store.GetUserPermission(ctx, a.storage, store.UserPermissionSuperUser, usr.Username, "", "")
+		usr.Superuser = err == nil
 	}
 	accessToken, err := a.signToken(*usr, DefaultTokenExpiration)
 	if err != nil {

@@ -13,9 +13,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/internal/aws"
-	"github.com/chrisdd2/aws-login/internal/services/storage"
+	"github.com/chrisdd2/aws-login/store"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 	"sigs.k8s.io/yaml"
@@ -29,18 +28,22 @@ type DeploymentStatus struct {
 	NeedsBootstrap bool
 }
 
+type AccountInfo struct {
+	Name         string
+	AwsAccountId string
+}
+
 type AccountService interface {
 	Deploy(ctx context.Context, userId string, accountId string) error
 	DeploymentStatus(ctx context.Context, accountId string) (DeploymentStatus, error)
 	StackUpdates(ctx context.Context, accountName string, stackId string) ([]aws.StackEvent, error)
 	DestroyStack(ctx context.Context, accountName string, username string) (string, error)
-	GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error)
-	ListAccounts(ctx context.Context) ([]appconfig.Account, error)
+	ListAccounts(ctx context.Context) ([]AccountInfo, error)
 	BootstrapTemplate(ctx context.Context, accountName string) (string, error)
 }
 
 type accountService struct {
-	storage storage.Storage
+	storage store.Store
 	aws     aws.AwsApiCaller
 }
 
@@ -54,30 +57,17 @@ func templateExecuteToString[T any](tmpl *template.Template, data T) (string, er
 }
 
 func (a *accountService) Deploy(ctx context.Context, userId string, accountId string) error {
-	// Permission check
-	user, err := a.storage.GetUser(ctx, userId)
-	if err != nil {
-		return fmt.Errorf("storage.GetUser: %w", err)
-	}
-	if !(user.Superuser) {
-		return ErrNoPermission
-	}
-
 	templateString, err := generateStackTemplate(ctx, a.storage, accountId)
 	if err != nil {
 		return fmt.Errorf("generateStackTemplate: %w", err)
 	}
 
 	// Deploy the stack
-	acc, err := a.storage.GetAccount(ctx, accountId)
+	acc, err := store.GetResource(ctx, a.storage, store.ResourceTypeAccount, accountId)
 	if err != nil {
 		return fmt.Errorf("storage.GetAccount: %w", err)
 	}
-	a.storage.Publish(ctx, "account_deploy", map[string]string{"username": userId, "account_name": accountId})
-	return a.aws.DeployStack(ctx, acc.Name, acc.AwsAccountId, aws.StackName.Value(accountId), templateString, nil)
-}
-func (a *accountService) GetFromAccountName(ctx context.Context, name string) (*appconfig.Account, error) {
-	return a.storage.GetAccount(ctx, name)
+	return a.aws.DeployStack(ctx, acc.Id, acc.Metadata["aws_account_id"], aws.StackName.Value(accountId), templateString, nil)
 }
 
 func roleLogicalName(roleName string) string {
@@ -92,15 +82,26 @@ func maxSessionDuration(duration time.Duration) string {
 	return strconv.Itoa(int((duration) / time.Second))
 }
 
-func NewAccountService(store storage.Storage, aws aws.AwsApiCaller) AccountService {
+func NewAccountService(store store.Store, aws aws.AwsApiCaller) AccountService {
 	return &accountService{
 		storage: store,
 		aws:     aws,
 	}
 }
 
-func (a *accountService) ListAccounts(ctx context.Context) ([]appconfig.Account, error) {
-	return a.storage.ListAccounts(ctx)
+func (a *accountService) ListAccounts(ctx context.Context) ([]AccountInfo, error) {
+	accounts, err := a.storage.GetResources(ctx, store.ResourceTypeAccount)
+	if err != nil {
+		return nil, err
+	}
+	ret := []AccountInfo{}
+	for _, acc := range accounts {
+		ret = append(ret, AccountInfo{
+			Name:         acc.Id,
+			AwsAccountId: acc.Metadata["aws_account_id"],
+		})
+	}
+	return ret, nil
 }
 
 func equalYaml(a string, b string) (bool, error) {
@@ -121,15 +122,15 @@ func (a *accountService) DeploymentStatus(ctx context.Context, accountName strin
 		NeedsUpdate:    false,
 		NeedsBootstrap: false,
 	}
-	acc, err := a.storage.GetAccount(ctx, accountName)
+	acc, err := store.GetResource(ctx, a.storage, store.ResourceTypeAccount, accountName)
 	if err != nil {
 		return status, fmt.Errorf("storage.GetAccount: %w", err)
 	}
-	templateString, err := generateStackTemplate(ctx, a.storage, acc.Name)
+	templateString, err := generateStackTemplate(ctx, a.storage, acc.Id)
 	if err != nil {
 		return status, fmt.Errorf("generateStackTemplate: %w", err)
 	}
-	currentTemplateString, err := a.aws.StackTemplate(ctx, accountName, acc.AwsAccountId, aws.StackName.Value(accountName))
+	currentTemplateString, err := a.aws.StackTemplate(ctx, accountName, acc.Metadata["aws_account_id"], aws.StackName.Value(accountName))
 	if errors.Is(err, aws.ErrStackNotExist) {
 		status.StackExists = false
 		return status, nil
@@ -147,21 +148,21 @@ func (a *accountService) DeploymentStatus(ctx context.Context, accountName strin
 	return status, err
 }
 func (a *accountService) StackUpdates(ctx context.Context, accountName string, stackId string) ([]aws.StackEvent, error) {
-	acc, err := a.storage.GetAccount(ctx, accountName)
+	acc, err := store.GetResource(ctx, a.storage, store.ResourceTypeAccount, accountName)
 	if err != nil {
 		return nil, fmt.Errorf("storage.GetAccount: %w", err)
 	}
 	if stackId == "" {
 		stackId = aws.StackName.Value(accountName)
 	}
-	events, err := a.aws.TopStackEvents(ctx, accountName, acc.AwsAccountId, stackId)
+	events, err := a.aws.TopStackEvents(ctx, accountName, acc.Metadata["aws_account_id"], stackId)
 	if err != nil {
 		return nil, fmt.Errorf("aws.TopStackEvents: %w", err)
 	}
 	return events, nil
 }
 
-func generateStackTemplate(ctx context.Context, store storage.Storage, account string) (string, error) {
+func generateStackTemplate(ctx context.Context, st store.Store, account string) (string, error) {
 	// gather up all the roles that need to be deployed as part of the stack
 	type CfnRole struct {
 		LogicalName        string
@@ -171,42 +172,42 @@ func generateStackTemplate(ctx context.Context, store storage.Storage, account s
 		MaxSessionDuration time.Duration
 	}
 
-	roles, err := store.ListRolesForAccount(ctx, account)
+	roles, err := st.GetResourceAttachments(ctx, store.AccountAttachmentRole, "", account)
 	cfnroles := []CfnRole{}
 	for _, item := range roles {
 		if item.Disabled {
 			continue
 		}
 		// clean managed policies from garbage data
-		managedPolicies := make([]string, 0, len(item.ManagedPolicies))
-		for _, v := range item.ManagedPolicies {
-			v = strings.TrimSpace(v)
-			if v == "" {
-				continue
-			}
-			managedPolicies = append(managedPolicies, v)
+		managedPolicies := store.TextArray{}
+		if err := managedPolicies.Scan(item.Metadata["managed_policies"]); err != nil {
+			return "", err
+		}
+		sessionDuration, err := time.ParseDuration(item.Metadata["max_session_duration"])
+		if err != nil {
+			return "", err
 		}
 		// gather up all the policy documents for this role
-		ats, err := store.ListRolePolicyAttachments(ctx, item.Name)
+		ats, err := st.GetResourceAttachments(ctx, store.RoleAttachmentPolicy, "", item.ResourceId)
 		if err != nil {
 			return "", fmt.Errorf("store.ListRolePolicyAttachments: %w", err)
 		}
 		policies := map[string]string{}
 		for _, at := range ats {
-			p, err := store.GetPolicy(ctx, at.PolicyId)
+			p, err := store.GetResource(ctx, st, store.ResourceTypePolicy, at.ResourceId)
 			if err != nil {
 				return "", fmt.Errorf("store.GetPolicy: %w", err)
 			}
 			if p.Disabled {
 				continue
 			}
-			policies[at.PolicyId] = p.Document
+			policies[at.ResourceId] = p.Document
 		}
 		cfnroles = append(cfnroles, CfnRole{
-			LogicalName:        roleLogicalName(item.Name),
-			RoleName:           item.Name,
-			ManagedPolicies:    managedPolicies,
-			MaxSessionDuration: item.MaxSessionDuration,
+			LogicalName:        roleLogicalName(item.ResourceId),
+			RoleName:           item.ResourceId,
+			ManagedPolicies:    []string(managedPolicies),
+			MaxSessionDuration: sessionDuration,
 			Policies:           policies,
 		})
 	}
@@ -218,12 +219,11 @@ func generateStackTemplate(ctx context.Context, store storage.Storage, account s
 }
 
 func (a *accountService) DestroyStack(ctx context.Context, accountName string, username string) (string, error) {
-	acc, err := a.storage.GetAccount(ctx, accountName)
+	acc, err := store.GetResource(ctx, a.storage, store.ResourceTypeAccount, accountName)
 	if err != nil {
 		return "", fmt.Errorf("storage.GetAccount: %w", err)
 	}
-	a.storage.Publish(ctx, "account_destroy", map[string]string{"username": username, "account_name": accountName})
-	stackId, err := a.aws.DestroyStack(ctx, accountName, acc.AwsAccountId, aws.StackName.Value(accountName))
+	stackId, err := a.aws.DestroyStack(ctx, accountName, acc.Metadata["aws_account_id"], aws.StackName.Value(accountName))
 	if err != nil {
 		return "", fmt.Errorf("aws.DestroyStack: %w", err)
 	}
@@ -249,7 +249,7 @@ var (
 )
 
 func (a *accountService) BootstrapTemplate(ctx context.Context, accountName string) (string, error) {
-	_, err := a.storage.GetAccount(ctx, accountName)
+	_, err := store.GetResource(ctx, a.storage, store.ResourceTypeAccount, accountName)
 	if err != nil {
 		return "", fmt.Errorf("storage.GetAccount: %w", err)
 	}
