@@ -35,9 +35,9 @@ func (f *FileStore) LoadYaml(r io.Reader) error {
 var _memory Store = &MemoryStore{}
 
 type MemoryStore struct {
-	Resources           []*Resource
-	ResourceAttachments []*ResourceAttachment
-	UserPermissions     []*UserPermission
+	Resources           []*Resource           `json:"resources,omitempty"`
+	ResourceAttachments []*ResourceAttachment `json:"resource_attachments,omitempty"`
+	UserPermissions     []*UserPermission     `json:"user_permissions,omitempty"`
 }
 
 func matchOrEmpty(a, b string) bool {

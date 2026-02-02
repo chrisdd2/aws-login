@@ -60,23 +60,24 @@ func NewPostgresStore(ctx context.Context, cfg *appconfig.AppConfig) (*PostgresS
 	return store, nil
 }
 
-type Scannable interface {
+type Scannable[T any] interface {
+	*T
 	Scan() []any
 }
 
-func query[T Scannable](ctx context.Context, db *sql.DB, query string, args ...any) ([]T, error) {
+func query[T any, PT Scannable[T]](ctx context.Context, db *sql.DB, query string, args ...any) ([]*T, error) {
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	ret := []T{}
+	ret := []*T{}
 	for rows.Next() {
 		v := *new(T)
-		if err := rows.Scan(v.Scan()...); err != nil {
+		if err := rows.Scan(PT(&v).Scan()...); err != nil {
 			return nil, err
 		}
-		ret = append(ret, v)
+		ret = append(ret, &v)
 	}
 	return ret, nil
 }
@@ -84,15 +85,16 @@ func query[T Scannable](ctx context.Context, db *sql.DB, query string, args ...a
 func (p *PostgresStore) GetResources(ctx context.Context, resourceType string, ids ...string) ([]*Resource, error) {
 	flt := andFlt{}
 	flt.addEq("type", resourceType)
-	flt.addIn("ids", ids)
+	flt.addIn("id", ids)
 	q := fmt.Sprintf("SELECT * FROM %s%s", resourceTable, flt.String())
-	return query[*Resource](ctx, p.db, q, flt.Args()...)
+	log.Println(q, resourceType, ids)
+	return query[Resource](ctx, p.db, q, flt.Args()...)
 }
 func (p *PostgresStore) SearchResources(ctx context.Context, resourceTypes ...string) (iter.Seq[*Resource], error) {
 	flt := andFlt{}
 	flt.addIn("type", resourceTypes)
 	q := fmt.Sprintf("SELECT * FROM %s%s", resourceTable, flt.String())
-	ret, err := query[*Resource](ctx, p.db, q, flt.Args()...)
+	ret, err := query[Resource](ctx, p.db, q, flt.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -108,9 +110,9 @@ func (p *PostgresStore) GetResourceAttachments(ctx context.Context, attachmentTy
 	flt := andFlt{}
 	flt.addEq("type", attachmentType)
 	flt.addEq("resource_id", resourceId)
-	flt.addEq("account_id", accountId)
+	flt.addEq("target_resource_id", accountId)
 	q := fmt.Sprintf("SELECT * FROM %s%s", resourceAttachmentsTable, flt.String())
-	return query[*ResourceAttachment](ctx, p.db, q, flt.Args()...)
+	return query[ResourceAttachment](ctx, p.db, q, flt.Args()...)
 }
 func (p *PostgresStore) GetUserPermission(ctx context.Context, permissionType, userId, resourceId, accountId string) ([]*UserPermission, error) {
 	flt := andFlt{}
@@ -119,7 +121,8 @@ func (p *PostgresStore) GetUserPermission(ctx context.Context, permissionType, u
 	flt.addEq("resource_id", resourceId)
 	flt.addEq("account_id", accountId)
 	q := fmt.Sprintf("SELECT * FROM %s%s", userPermissionsTable, flt.String())
-	return query[*UserPermission](ctx, p.db, q, flt.Args()...)
+	log.Println(q, flt.Args())
+	return query[UserPermission](ctx, p.db, q, flt.Args()...)
 }
 
 func (p *PostgresStore) PutResource(ctx context.Context, objs ...*Resource) error {
@@ -154,7 +157,7 @@ func (p *PostgresStore) PutResource(ctx context.Context, objs ...*Resource) erro
 
 func (p *PostgresStore) PutResourceAttachment(ctx context.Context, objs ...*ResourceAttachment) error {
 	columns := []string{
-		"resource_id", "account_id", "type", "metadata", "disabled",
+		"resource_id", "target_resource_id", "type", "metadata", "disabled",
 	}
 	id := columns[0:2]
 	values := []string{}
@@ -222,24 +225,14 @@ func (f *andFlt) addEq(col string, value any) {
 		return
 	}
 	f.args = append(f.args, value)
-	f.sb.WriteString(fmt.Sprintf(" AND %s=$%d", col, len(f.args)))
+	fmt.Fprintf(&f.sb, " AND %s=$%d", col, len(f.args))
 }
 func (f *andFlt) addIn(col string, arr []string) {
 	if len(arr) == 0 {
 		return
 	}
-	sb := strings.Builder{}
-	sb.WriteByte('\'')
-	sb.WriteString(arr[0])
-	sb.WriteByte('\'')
-	for _, id := range arr[1:] {
-		sb.WriteByte(',')
-		sb.WriteByte('\'')
-		sb.WriteString(id)
-		sb.WriteByte('\'')
-	}
-	f.args = append(f.args, sb.String())
-	f.sb.WriteString(fmt.Sprintf(" AND %s in ($%d)", col, len(f.args)))
+	f.args = append(f.args, arr)
+	f.sb.WriteString(fmt.Sprintf(" AND %s = ANY($%d)", col, len(f.args)))
 }
 func (f *andFlt) String() string {
 	if len(f.args) == 0 {

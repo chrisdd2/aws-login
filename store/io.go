@@ -20,7 +20,7 @@ func Export(ctx context.Context, st Store) (*MemoryStore, error) {
 		if err != nil {
 			return nil, err
 		}
-		res, err := st.GetResources(ctx, "", "", "")
+		res, err := st.GetResources(ctx, "")
 		if err != nil {
 			return nil, err
 		}

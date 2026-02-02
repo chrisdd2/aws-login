@@ -137,7 +137,7 @@ func main() {
 	// simple services
 	tokenSvc := services.NewToken(storageSvc, signKey)
 	awsApi := must2(aws.NewAwsApi(ctx, sts.NewFromConfig(assumerConfig)))
-	roleSvc := services.NewRoleService(storageSvc, awsApi)
+	roleSvc := services.NewRoleService(storageSvc, awsApi, appCfg.Auth.AdminUsername)
 	accSvc := account.NewAccountService(storageSvc, awsApi)
 
 	idps := []services.AuthService{}

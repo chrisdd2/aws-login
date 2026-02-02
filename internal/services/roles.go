@@ -10,7 +10,6 @@ import (
 	"slices"
 
 	"github.com/chrisdd2/aws-login/internal/aws"
-	"github.com/chrisdd2/aws-login/internal/services/account"
 	"github.com/chrisdd2/aws-login/store"
 )
 
@@ -53,26 +52,35 @@ func (u *UserRolePermission) AccountId(ctx context.Context, st store.Store) (str
 	if err != nil {
 		return "", err
 	}
-	return store.GetDocument[account.AccountDocument](acc).AwsAccountId, nil
+	return store.GetDocument[store.AccountDocument](acc).AwsAccountId, nil
 }
 
 type RolesService interface {
 	HasPermission(ctx context.Context, username string, roleName string, accountName string, permissions string) (bool, error)
-	ListRoles(ctx context.Context, username string) (iter.Seq[UserRolePermission], error)
+	ListRoles(ctx context.Context, username string, admin bool) (iter.Seq[UserRolePermission], error)
 	Console(ctx context.Context, accountName string, roleName, username string) (string, error)
 	Credentials(ctx context.Context, accountName string, roleName, username string) (AwsCredentials, error)
 }
 
 type rolesService struct {
-	st  store.Store
-	aws aws.AwsApiCaller
+	st            store.Store
+	aws           aws.AwsApiCaller
+	adminUsername string
 }
 
-func NewRoleService(st store.Store, aws aws.AwsApiCaller) RolesService {
-	return &rolesService{st, aws}
+func NewRoleService(st store.Store, aws aws.AwsApiCaller, adminUsername string) RolesService {
+	return &rolesService{st, aws, adminUsername}
 }
 
 func (r *rolesService) HasPermission(ctx context.Context, username, roleName, accountName, permission string) (bool, error) {
+	if username == r.adminUsername {
+		return true, nil
+	}
+	_, err := store.GetUserPermission(ctx, r.st, store.UserPermissionSuperUser, username, "", "")
+	if err == nil {
+		// user is super
+		return true, nil
+	}
 	role, err := store.GetResource(ctx, r.st, store.ResourceTypeRole, roleName)
 	if err != nil {
 		return false, err
@@ -86,11 +94,11 @@ func (r *rolesService) HasPermission(ctx context.Context, username, roleName, ac
 		return false, err
 	}
 	if role.Disabled || account.Disabled || usr.Disabled {
-		return false, err
+		return false, store.ErrDisabled
 	}
 	atts, err := r.st.GetResourceAttachments(ctx, store.AccountAttachmentRole, roleName, accountName)
 	if err != nil {
-		return false, store.ErrDisabled
+		return false, err
 	}
 	if len(atts) == 0 {
 		return false, store.ErrResourceNotFound
@@ -101,11 +109,11 @@ func (r *rolesService) HasPermission(ctx context.Context, username, roleName, ac
 	}
 	return perm.Permissions[permission] != "", nil
 }
-func (r *rolesService) ListRoles(ctx context.Context, username string) (iter.Seq[UserRolePermission], error) {
+func (r *rolesService) ListRoles(ctx context.Context, username string, admin bool) (iter.Seq[UserRolePermission], error) {
 	// figure out all the attachments for a user
 	_, err := store.GetUserPermission(ctx, r.st, store.UserPermissionSuperUser, username, "", "")
-	super := err == nil
-	if super {
+	super := err == nil || admin
+	if super || username == r.adminUsername {
 		perms, err := r.st.GetResourceAttachments(ctx, store.AccountAttachmentRole, "", "")
 		if err != nil {
 			return nil, err
@@ -150,7 +158,8 @@ func (r *rolesService) Console(ctx context.Context, accountName string, roleName
 	if err != nil {
 		return "", err
 	}
-	arn := roleArn(roleName, acc.Metadata["aws_account_id"])
+	doc := store.GetDocument[store.AccountDocument](acc)
+	arn := roleArn(roleName, doc.AwsAccountId)
 	url, err := r.aws.GenerateSigninUrl(ctx, arn, username, "https://console.aws.amazon.com/")
 	if err != nil {
 		return "", fmt.Errorf("aws.GenerateSigninUrl: %w", err)
@@ -170,7 +179,8 @@ func (r *rolesService) Credentials(ctx context.Context, accountName string, role
 	if err != nil {
 		return AwsCredentials{}, err
 	}
-	arn := roleArn(roleName, acc.Metadata["aws_account_id"])
+	doc := store.GetDocument[store.AccountDocument](acc)
+	arn := roleArn(roleName, doc.AwsAccountId)
 	accessKeyId, secretAccessKey, sessionToken, err := r.aws.GetCredentials(ctx, arn, username)
 	if err != nil {
 		return AwsCredentials{}, fmt.Errorf("aws.GenerateSigninUrl: %w", err)

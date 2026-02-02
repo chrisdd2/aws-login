@@ -77,12 +77,12 @@ func (b *NullableBool) Value() (driver.Value, error) {
 }
 
 func (r *Resource) Scan() []any {
-	return []any{&r.Id, &r.Type, &r.Document}
+	return []any{&r.Id, &r.Type, &r.Document, &r.Metadata, &r.Disabled}
 }
 
 func (a *ResourceAttachment) Scan() []any {
-	return []any{&a.ResourceId, &a.TargetResourceId, &a.Type}
+	return []any{&a.ResourceId, &a.TargetResourceId, &a.Type, &a.Metadata, &a.Disabled}
 }
 func (u *UserPermission) Scan() []any {
-	return []any{&u.UserId, &u.ResourceId, &u.AccountId, &u.Type, &u.Permissions}
+	return []any{&u.UserId, &u.ResourceId, &u.AccountId, &u.Type, &u.Permissions,&u.Metadata,&u.Disabled}
 }

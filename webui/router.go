@@ -131,7 +131,7 @@ func Router(
 	mainHandler := func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := getUser(r)
-		roles, err := rolesSvc.ListRoles(ctx, user.Username)
+		roles, err := rolesSvc.ListRoles(ctx, user.Username, cfg.Auth.AdminUsername == user.Username)
 		if err != nil {
 			sendError(w, r, fmt.Errorf("rolesSvc.ListRoles: %w", err))
 			return
@@ -326,6 +326,20 @@ func Router(
 			templateString, err := accountSrvc.BootstrapTemplate(ctx, account)
 			if err != nil {
 				sendError(w, r, fmt.Errorf("accountSrvc.BootstrapTemplate: %w", err))
+				return
+			}
+			render.PlainText(w, r, templateString)
+		})
+		r.Get("/rolestack_template", func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			account := r.URL.Query().Get("account")
+			if account == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			templateString, err := accountSrvc.RoleStackTemplate(ctx, account)
+			if err != nil {
+				sendError(w, r, fmt.Errorf("accountSrvc.RoleStackTemplate: %w", err))
 				return
 			}
 			render.PlainText(w, r, templateString)

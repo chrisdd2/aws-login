@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"iter"
+	"strconv"
+	"time"
 )
 
-var ErrResourceNotFound = errors.New("object not found")
+var ErrResourceNotFound = errors.New("resource not found")
 var ErrAttachmentNotFound = errors.New("attachment not found")
 var ErrPermissionNotFound = errors.New("permission not found")
-var ErrDisabled = errors.New("object disabled")
+var ErrDisabled = errors.New("resource disabled")
 
 const (
 	ResourceTypeRole    = "role"
@@ -35,9 +37,9 @@ const (
 var RolePermissionAll []string = []string{RolePermissionConsole, RolePermissionCredentials}
 
 type MetaFields struct {
-	Metadata map[string]string `json:"metadata,omitempty"`
-	Disabled NullableBool      `json:"disabled,omitempty"`
-	Delete   bool              `json:"delete,omitempty"`
+	Metadata TextMap      `json:"metadata,omitempty"`
+	Disabled NullableBool `json:"disabled,omitempty"`
+	Delete   bool         `json:"delete,omitempty"`
 }
 
 type Resource struct {
@@ -111,4 +113,20 @@ func GetUserPermission(ctx context.Context, st Store, permissionType, userId, re
 		return nil, ErrPermissionNotFound
 	}
 	return ret[0], nil
+}
+
+type AccountDocument struct {
+	AwsAccountId string `json:"aws_account_id,omitempty"`
+}
+type RoleDocument struct {
+	ManagedPolicies    []string `json:"managed_policies,omitempty"`
+	MaxSessionDuration string   `json:"max_session_duration,omitempty"`
+}
+
+func (r RoleDocument) ParsedMaxSessionDuration() time.Duration {
+	num, _ := strconv.ParseInt(r.MaxSessionDuration, 10, 64)
+	if num == 0 {
+		return time.Hour * 8
+	}
+	return time.Duration(num)
 }
