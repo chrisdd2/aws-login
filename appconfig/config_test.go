@@ -21,7 +21,7 @@ func TestAppConfig_LoadDefaults(t *testing.T) {
 		assert.Equal(t, "localhost:8090", cfg.ListenAddr)
 		assert.Equal(t, false, cfg.DevelopmentMode)
 		assert.Equal(t, "file", cfg.Storage.Type)
-		assert.Equal(t, ".config", cfg.Storage.Directory)
+		assert.Equal(t, "app.store", cfg.Storage.File)
 	})
 
 	t.Run("nested struct defaults", func(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,6 +35,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/metrics"
+	"sigs.k8s.io/yaml"
 )
 
 func must(err error) {
@@ -104,17 +107,35 @@ func main() {
 	// allow different aws config for the aws user used for permissions in the other accounts
 	assumerConfig, arn := must3(awsContext(ctx, "ASSUMER_"))
 	slog.Info("aws", "principal", arn, "user", "assumer")
-	// s3Config, arn := must3(awsContext(ctx, "S3_"))
-	// slog.Info("aws", "principal", arn, "user", "s3")
 
 	// storage
 	var storageSvc store.Store
 	switch appCfg.Storage.Type {
 	case appconfig.StorageTypeFile:
-		// s := must2(store.NewStaticStore(ctx, &appCfg, s3Config))
-		// must(s.Reload(ctx))
-		// slog.Info("found", "accounts", len(s.Accounts), "users", len(s.Users), "roles", len(s.Roles))
-		// storageSvc = s
+		filename := appCfg.Storage.File
+		f := must2(os.Open(filename))
+		st := &store.FileStore{}
+		isJson := true
+		if strings.HasSuffix(filename, ".yml") || strings.HasSuffix(filename, ".yaml") {
+			isJson = false
+			must(st.LoadYaml(f))
+		} else if strings.HasSuffix(filename, ".json") {
+			must(st.LoadJson(f))
+		} else {
+			must(errors.New("invalid storage file suffix"))
+		}
+		f.Close()
+		slog.Info("found", "resources", len(st.Resources), "attachments", len(st.ResourceAttachments), "permissions", len(st.UserPermissions))
+		storageSvc = st
+		defer func() {
+			f := must2(os.Create(filename))
+			if isJson {
+				must(json.NewEncoder(f).Encode(st.MemoryStore))
+			} else {
+				buf := must2(yaml.Marshal(st.MemoryStore))
+				f.Write(buf)
+			}
+		}()
 	case appconfig.StorageTypePostgres:
 		storageSvc = must2(store.NewPostgresStore(ctx, &appCfg))
 	}

@@ -48,9 +48,9 @@ type AppConfig struct {
 	RootUrl                   string `json:"root_url,omitempty"`
 	ConfigFile                string `json:"config_file" default:"app.conf.yml"`
 	Storage                   struct {
-		Type      string `json:"type" default:"file"`
-		Directory string `json:"dir,omitempty" default:".config" `
-		Postgres  struct {
+		Type     string `json:"type" default:"file"`
+		File     string `json:"file,omitempty" default:"app.store" `
+		Postgres struct {
 			Host     string `json:"host,omitempty"`
 			Port     int    `json:"port,omitempty" default:"5432"`
 			Database string `json:"database,omitempty"`
