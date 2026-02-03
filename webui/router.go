@@ -413,6 +413,23 @@ func Router(
 		})
 
 	})
+
+	// warm the cache
+	go func() {
+		ctx := context.Background()
+		accounts, err := storageSvc.GetResources(ctx, store.ResourceTypeAccount)
+		if err != nil {
+			slog.Debug("status_cache", "warm_cache_error", err)
+			return
+		}
+		for _, acc := range accounts {
+			_, err := statusCache.Refresh(ctx, acc.Id)
+			if err != nil {
+				slog.Debug("status_cache", "refresh_error", err)
+			}
+		}
+	}()
+
 	return r
 }
 
@@ -530,6 +547,7 @@ func (s *StatusCache) Refresh(ctx context.Context, accountName string) (account.
 		return account.DeploymentStatus{}, err
 	}
 	s.in.Store(accountName, status)
+	slog.Debug("status_cache", "refreshed", accountName)
 	return status, err
 }
 

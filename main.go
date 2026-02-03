@@ -85,7 +85,7 @@ func main() {
 		f.Close()
 	}
 
-	logLvl := ternary(appCfg.DevelopmentMode, slog.LevelInfo, slog.LevelDebug)
+	logLvl := ternary(appCfg.DevelopmentMode, slog.LevelDebug, slog.LevelInfo)
 	logger := ternary(appCfg.DevelopmentMode,
 		slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLvl})),
 		slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLvl})),
