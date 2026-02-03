@@ -92,8 +92,11 @@ func WatchTemplate(w io.Writer, data WatchData) error {
 
 type ConfigurationData struct {
 	Navbar
-	Store   *store.MemoryStore
-	Changes []store.Change
+	Roles    []store.RoleView
+	Accounts []store.AccountView
+	Users    []store.UserView
+	Policies []store.PolicyView
+	Changes  []store.Change
 }
 
 func ConfigurationTemplate(w io.Writer, data ConfigurationData) error {

@@ -541,15 +541,33 @@ func friendlyName(email string) string {
 func configHandler(w http.ResponseWriter, r *http.Request, storageSvc store.Store, cfg *appconfig.AppConfig, changes []store.Change) {
 	ctx := r.Context()
 	user := getUser(r)
-	ms, err := store.Export(ctx, storageSvc)
+	roles, err := store.RolesView(ctx, storageSvc)
+	if err != nil {
+		sendError(w, r, fmt.Errorf("store.Export: %w", err))
+		return
+	}
+	users, err := store.UsersView(ctx, storageSvc)
+	if err != nil {
+		sendError(w, r, fmt.Errorf("store.Export: %w", err))
+		return
+	}
+	policies, err := store.PoliciesView(ctx, storageSvc)
+	if err != nil {
+		sendError(w, r, fmt.Errorf("store.Export: %w", err))
+		return
+	}
+	accounts, err := store.AccountsView(ctx, storageSvc)
 	if err != nil {
 		sendError(w, r, fmt.Errorf("store.Export: %w", err))
 		return
 	}
 	data := templates.ConfigurationData{
-		Navbar:  templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
-		Store:   ms,
-		Changes: changes,
+		Navbar:   templates.Navbar{AppName: cfg.Name, Username: user.FriendlyName, HasAdmin: user.Superuser},
+		Roles:    roles,
+		Accounts: accounts,
+		Users:    users,
+		Policies: policies,
+		Changes:  changes,
 	}
 	if err := templates.ConfigurationTemplate(w, data); err != nil {
 		sendError(w, r, fmt.Errorf("templates.ConfigurationTemplate: %w", err))

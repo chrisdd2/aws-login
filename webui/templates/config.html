@@ -170,7 +170,212 @@
             </div>
 
             <!-- Tab Content -->
-            <div class="yaml-content bg-white dark:bg-[#1a1a2e] rounded-b-lg rounded-t-none overflow-hidden" id="yaml-users"></div>
+            <div class="yaml-content bg-white dark:bg-[#1a1a2e] rounded-b-lg rounded-t-none overflow-hidden" id="yaml-users">
+                <div class="p-4">
+                <table class="w-full text-sm text-left">
+                    <thead class="text-xs uppercase bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                        <tr>
+                            <th class="px-4 py-2 w-8"></th>
+                            <th class="px-4 py-2">Name</th>
+                            <th class="px-4 py-2">Friendly Name</th>
+                            <th class="px-4 py-2">Superuser</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range $i, $user := .Users}}
+                        <tr class="border-b dark:border-gray-700 dark:text-gray-300">
+                            <td class="px-4 py-2">
+                                <button onclick="toggleExpand('user-{{$i}}')" class="cursor-pointer p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">
+                                    <i id="icon-user-{{$i}}" class="fas fa-chevron-right transition-transform"></i>
+                                </button>
+                            </td>
+                            <td class="px-4 py-2 font-mono">{{.Name}}</td>
+                            <td class="px-4 py-2">{{.DisplayName}}</td>
+                            <td class="px-4 py-2">
+                                {{if .Superuser}}<i class="fas fa-check text-green-500"></i>{{else}}<i class="fas fa-times text-red-500"></i>{{end}}
+                            </td>
+                        </tr>
+                        <tr id="user-{{$i}}" class="hidden">
+                            <td colspan="4" class="px-4 py-2 bg-gray-50 dark:bg-gray-800/50">
+                                {{if .Roles}}
+                                <div class="pl-12">
+                                    <table class="w-full text-xs">
+                                        <thead class="text-xs uppercase bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                                            <tr>
+                                                <th class="px-3 py-1">Role</th>
+                                                <th class="px-3 py-1">Account</th>
+                                                <th class="px-3 py-1">Permissions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {{range .Roles}}
+                                            <tr class="border-b dark:border-gray-700">
+                                                <td class="px-3 py-1 font-mono text-gray-700 dark:text-gray-300">{{.RoleName}}</td>
+                                                <td class="px-3 py-1 font-mono text-gray-700 dark:text-gray-300">{{.AccountName}}</td>
+                                                <td class="px-3 py-1">
+                                                    {{range .Permissions}}
+                                                    <span class="inline-block px-1.5 py-0.5 mr-1 bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 rounded text-xs">{{.}}</span>
+                                                    {{end}}
+                                                </td>
+                                            </tr>
+                                            {{end}}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {{else}}
+                                <div class="pl-12 text-gray-500 dark:text-gray-400 text-xs italic">No roles assigned</div>
+                                {{end}}
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+            <div class="yaml-content bg-white dark:bg-[#1a1a2e] rounded-b-lg rounded-t-none overflow-hidden hidden" id="yaml-accounts">
+                <div class="p-4">
+                <table class="w-full text-sm text-left">
+                    <thead class="text-xs uppercase bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                        <tr>
+                            <th class="px-4 py-2 w-8"></th>
+                            <th class="px-4 py-2">Name</th>
+                            <th class="px-4 py-2">AWS Account ID</th>
+                            <th class="px-4 py-2">Disabled</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range $i, $account := .Accounts}}
+                        <tr class="border-b dark:border-gray-700 dark:text-gray-300">
+                            <td class="px-4 py-2">
+                                <button onclick="toggleExpand('account-{{$i}}')" class="cursor-pointer p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">
+                                    <i id="icon-account-{{$i}}" class="fas fa-chevron-right transition-transform"></i>
+                                </button>
+                            </td>
+                            <td class="px-4 py-2 font-mono">{{.Name}}</td>
+                            <td class="px-4 py-2 font-mono">{{.AwsAccountId}}</td>
+                            <td class="px-4 py-2">
+                                {{if .Disabled}}<i class="fas fa-check text-green-500"></i>{{else}}<i class="fas fa-times text-red-500"></i>{{end}}
+                            </td>
+                        </tr>
+                        <tr id="account-{{$i}}" class="hidden">
+                            <td colspan="4" class="px-4 py-2 bg-gray-50 dark:bg-gray-800/50">
+                                {{if .Roles }}
+                                <div class="pl-12">
+                                    <span class="font-semibold text-xs uppercase text-gray-500 dark:text-gray-400">Roles:</span>
+                                    <ul class="list-disc list-inside ml-2 mt-1 font-mono text-xs text-gray-700 dark:text-gray-300">
+                                        {{range .Roles}}
+                                        <li class="text-gray-700 dark:text-gray-300">{{.}}</li>
+                                        {{end}}
+                                    </ul>
+                                </div>
+                                {{else}}
+                                <div class="pl-12 text-gray-500 dark:text-gray-400 text-xs italic">No roles attached</div>
+                                {{end}}
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+            <div class="yaml-content bg-white dark:bg-[#1a1a2e] rounded-b-lg rounded-t-none overflow-hidden hidden" id="yaml-roles">
+                <div class="p-4">
+                <table class="w-full text-sm text-left">
+                    <thead class="text-xs uppercase bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                        <tr>
+                            <th class="px-4 py-2 w-8"></th>
+                            <th class="px-4 py-2">Name</th>
+                            <th class="px-4 py-2">Max Session</th>
+                            <th class="px-4 py-2">Disabled</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range $i, $role := .Roles}}
+                        <tr class="border-b dark:border-gray-700 dark:text-gray-300">
+                            <td class="px-4 py-2">
+                                <button onclick="toggleExpand('role-{{$i}}')" class="cursor-pointer p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">
+                                    <i id="icon-role-{{$i}}" class="fas fa-chevron-right transition-transform"></i>
+                                </button>
+                            </td>
+                            <td class="px-4 py-2 font-mono">{{.Name}}</td>
+                            <td class="px-4 py-2">{{.MaxSessionDuration}}</td>
+                            <td class="px-4 py-2">
+                                {{if .Disabled}}<i class="fas fa-check text-green-500"></i>{{else}}<i class="fas fa-times text-red-500"></i>{{end}}
+                            </td>
+                        </tr>
+                        <tr id="role-{{$i}}" class="hidden">
+                            <td colspan="4" class="px-4 py-2 bg-gray-50 dark:bg-gray-800/50">
+                                <div class="pl-12 space-y-2">
+                                    {{if .Policies}}
+                                    <div>
+                                        <span class="font-semibold text-xs uppercase text-gray-500 dark:text-gray-400">Policy Attachments:</span>
+                                        <ul class="list-disc list-inside ml-2 mt-1 font-mono text-xs text-gray-700 dark:text-gray-300">
+                                            {{range .Policies}}
+                                            <li class="text-gray-700 dark:text-gray-300">{{.}}</li>
+                                            {{end}}
+                                        </ul>
+                                    </div>
+                                    {{end}}
+                                    {{if .ManagedPolicies}}
+                                    <div>
+                                        <span class="font-semibold text-xs uppercase text-gray-500 dark:text-gray-400">Managed Policies:</span>
+                                        <ul class="list-disc list-inside ml-2 mt-1 font-mono text-xs text-gray-700 dark:text-gray-300">
+                                            {{range .ManagedPolicies}}
+                                            <li class="text-gray-700 dark:text-gray-300">{{.}}</li>
+                                            {{end}}
+                                        </ul>
+                                    </div>
+                                    {{end}}
+                                    {{ if .Metadata }}
+                                    <div>
+                                        <span class="font-semibold text-xs uppercase text-gray-500 dark:text-gray-400">Metadata:</span>
+                                        <ul class="list-disc list-inside ml-2 mt-1 font-mono text-xs text-gray-700 dark:text-gray-300">
+                                            {{range $key, $value := .Metadata}}
+                                            <li class="text-gray-700 dark:text-gray-300">{{$key}}: {{$value}}</li>
+                                            {{end}}
+                                        </ul>
+                                    </div>
+                                    {{end}}
+                                </div>
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+            <div class="yaml-content bg-white dark:bg-[#1a1a2e] rounded-b-lg rounded-t-none overflow-hidden hidden" id="yaml-policies">
+                <div class="p-4">
+                <table class="w-full text-sm text-left">
+                    <thead class="text-xs uppercase bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                        <tr>
+                            <th class="px-4 py-2 w-8"></th>
+                            <th class="px-4 py-2">ID</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range $i, $policy := .Policies}}
+                        <tr class="border-b dark:border-gray-700 dark:text-gray-300">
+                            <td class="px-4 py-2">
+                                <button onclick="toggleExpand('policy-{{$i}}')" class="cursor-pointer p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">
+                                    <i id="icon-policy-{{$i}}" class="fas fa-chevron-right transition-transform"></i>
+                                </button>
+                            </td>
+                            <td class="px-4 py-2 font-mono">{{.Id}}</td>
+                        </tr>
+                        <tr id="policy-{{$i}}" class="hidden">
+                            <td colspan="2" class="px-4 py-2 bg-gray-50 dark:bg-gray-800/50">
+                                <div class="pl-12">
+                                    <span class="font-semibold text-xs uppercase text-gray-500 dark:text-gray-400">Document:</span>
+                                    <pre class="mt-1 p-2 bg-gray-100 dark:bg-gray-900 rounded font-mono text-xs overflow-x-auto text-gray-800 dark:text-gray-200"><code class="language-json">{{.Document}}</code></pre>
+                                </div>
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+                </div>
+            </div>
         </div>
     </div>
 

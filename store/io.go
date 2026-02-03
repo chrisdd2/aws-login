@@ -3,8 +3,11 @@ package store
 import (
 	"context"
 	"errors"
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
+	"time"
 )
 
 func Export(ctx context.Context, st Store) (*MemoryStore, error) {
@@ -95,4 +98,161 @@ func ternary(cond bool, a, b string) string {
 		return a
 	}
 	return b
+}
+
+type RolePermission struct {
+	AccountName string
+	RoleName    string
+	Permissions []string
+}
+
+type UserView struct {
+	Name        string
+	DisplayName string
+	Roles       []RolePermission
+	Superuser   bool
+	MetaFields
+}
+
+type AccountView struct {
+	Name         string
+	AwsAccountId string
+	Roles        []string
+	MetaFields
+}
+
+type RoleView struct {
+	Name               string
+	ManagedPolicies    []string
+	Policies           []string
+	MaxSessionDuration time.Duration
+	Accounts           []string
+	MetaFields
+}
+
+type PolicyView struct {
+	Id       string
+	Document string
+	Roles    []string
+	MetaFields
+}
+
+func UsersView(ctx context.Context, st Store) ([]UserView, error) {
+	ret := []UserView{}
+	users, err := st.GetResources(ctx, ResourceTypeUser)
+	if err != nil {
+		return nil, err
+	}
+	for _, usr := range users {
+		// check if superuser
+		_, err := st.GetUserPermission(ctx, UserPermissionSuperUser, usr.Id, "", "")
+		superuser := err == nil
+		// get all role permissions
+		perms, err := st.GetUserPermission(ctx, UserPermissionRole, usr.Id, "", "")
+		if err != nil {
+			return nil, err
+		}
+		roles := []RolePermission{}
+		for _, p := range perms {
+			roles = append(roles, RolePermission{AccountName: p.AccountId, RoleName: p.ResourceId, Permissions: slices.Collect(maps.Keys(p.Permissions))})
+		}
+		// gather up
+		displayName := ternary(usr.Metadata["display_name"] == "", usr.Id, usr.Metadata["display_name"])
+		ret = append(ret, UserView{
+			Name:        usr.Id,
+			DisplayName: displayName,
+			Roles:       roles,
+			Superuser:   superuser,
+			MetaFields:  usr.MetaFields,
+		})
+	}
+	return ret, nil
+}
+
+func AccountsView(ctx context.Context, st Store) ([]AccountView, error) {
+	ret := []AccountView{}
+	accounts, err := st.GetResources(ctx, ResourceTypeAccount)
+	if err != nil {
+		return nil, err
+	}
+	for _, acc := range accounts {
+		doc := GetDocument[AccountDocument](acc)
+		atts, err := st.GetResourceAttachments(ctx, AccountAttachmentRole, "", acc.Id)
+		if err != nil {
+			return nil, err
+		}
+		roles := []string{}
+		for _, a := range atts {
+			roles = append(roles, a.ResourceId)
+		}
+		ret = append(ret, AccountView{
+			AwsAccountId: doc.AwsAccountId,
+			Name:         acc.Id,
+			Roles:        roles,
+			MetaFields:   acc.MetaFields,
+		})
+	}
+	return ret, nil
+
+}
+
+func RolesView(ctx context.Context, st Store) ([]RoleView, error) {
+	ret := []RoleView{}
+	roles, err := st.GetResources(ctx, ResourceTypeRole)
+	if err != nil {
+		return nil, err
+	}
+	for _, role := range roles {
+		doc := GetDocument[RoleDocument](role)
+		atts, err := st.GetResourceAttachments(ctx, AccountAttachmentRole, role.Id, "")
+		if err != nil {
+			return nil, err
+		}
+		accounts := []string{}
+		for _, a := range atts {
+			accounts = append(accounts, a.TargetResourceId)
+		}
+		atts, err = st.GetResourceAttachments(ctx, RoleAttachmentPolicy, role.Id, "")
+		if err != nil {
+			return nil, err
+		}
+		policies := []string{}
+		for _, a := range atts {
+			policies = append(policies, a.TargetResourceId)
+		}
+		ret = append(ret, RoleView{
+			Name:               role.Id,
+			ManagedPolicies:    doc.ManagedPolicies,
+			Accounts:           accounts,
+			MaxSessionDuration: doc.ParsedMaxSessionDuration(),
+			Policies:           policies,
+			MetaFields:         role.MetaFields,
+		})
+	}
+	return ret, nil
+}
+
+func PoliciesView(ctx context.Context, st Store) ([]PolicyView, error) {
+	ret := []PolicyView{}
+	policies, err := st.GetResources(ctx, ResourceTypePolicy)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range policies {
+		atts, err := st.GetResourceAttachments(ctx, AccountAttachmentRole, "", p.Id)
+		if err != nil {
+			return nil, err
+		}
+		roles := []string{}
+		for _, a := range atts {
+			roles = append(roles, a.ResourceId)
+		}
+		ret = append(ret, PolicyView{
+			Id:         p.Id,
+			Document:   p.Document,
+			Roles:      roles,
+			MetaFields: p.MetaFields,
+		})
+	}
+	return ret, nil
 }
