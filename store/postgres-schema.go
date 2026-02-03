@@ -44,7 +44,7 @@ func (p *pgSchema) migrate(ctx context.Context) error {
 		switch version {
 		case "0":
 			slog.Info("storage", "pg", "upgrading to v1")
-			err = p.v1Schema(ctx)
+			err = p.v6Schema(ctx, false)
 		case "1":
 			slog.Info("storage", "pg", "upgrading to v2")
 			err = p.v2Schema(ctx)

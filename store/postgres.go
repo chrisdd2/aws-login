@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
-	"log"
+	"log/slog"
 	"net/url"
 	"strings"
 
@@ -66,6 +66,7 @@ type Scannable[T any] interface {
 }
 
 func query[T any, PT Scannable[T]](ctx context.Context, db *sql.DB, query string, args ...any) ([]*T, error) {
+	slog.Debug("postgres", "query", query, "args", args)
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -87,7 +88,6 @@ func (p *PostgresStore) GetResources(ctx context.Context, resourceType string, i
 	flt.addEq("type", resourceType)
 	flt.addIn("id", ids)
 	q := fmt.Sprintf("SELECT * FROM %s%s", resourceTable, flt.String())
-	log.Println(q, resourceType, ids)
 	return query[Resource](ctx, p.db, q, flt.Args()...)
 }
 func (p *PostgresStore) SearchResources(ctx context.Context, resourceTypes ...string) (iter.Seq[*Resource], error) {
@@ -121,7 +121,6 @@ func (p *PostgresStore) GetUserPermission(ctx context.Context, permissionType, u
 	flt.addEq("resource_id", resourceId)
 	flt.addEq("account_id", accountId)
 	q := fmt.Sprintf("SELECT * FROM %s%s", userPermissionsTable, flt.String())
-	log.Println(q, flt.Args())
 	return query[UserPermission](ctx, p.db, q, flt.Args()...)
 }
 
@@ -139,7 +138,6 @@ func (p *PostgresStore) PutResource(ctx context.Context, objs ...*Resource) erro
 	q := fmt.Sprintf("INSERT INTO %s(%s) VALUES (%s) ON CONFLICT (%s) DO UPDATE SET %s",
 		resourceTable, strings.Join(columns, ","), strings.Join(values, ","), id, strings.Join(updates[1:], ","),
 	)
-	log.Println(q)
 	stmt, err := p.db.PrepareContext(ctx, q)
 	if err != nil {
 		return nil
@@ -169,7 +167,6 @@ func (p *PostgresStore) PutResourceAttachment(ctx context.Context, objs ...*Reso
 	q := fmt.Sprintf("INSERT INTO %s(%s) VALUES (%s) ON CONFLICT (%s) DO UPDATE SET %s",
 		resourceTable, strings.Join(columns, ","), strings.Join(values, ","), strings.Join(id, ","), strings.Join(updates[2:], ","),
 	)
-	log.Println(q)
 	stmt, err := p.db.PrepareContext(ctx, q)
 	if err != nil {
 		return nil
@@ -183,6 +180,11 @@ func (p *PostgresStore) PutResourceAttachment(ctx context.Context, objs ...*Reso
 		}
 	}
 	return nil
+}
+
+func prepareContext(ctx context.Context, db *sql.DB, q string) (*sql.Stmt, error) {
+	slog.Debug("postgre", "query", q)
+	return db.PrepareContext(ctx, q)
 }
 
 func (p *PostgresStore) PutUserPermission(ctx context.Context, objs ...*UserPermission) error {
@@ -199,8 +201,7 @@ func (p *PostgresStore) PutUserPermission(ctx context.Context, objs ...*UserPerm
 	q := fmt.Sprintf("INSERT INTO %s(%s) VALUES (%s) ON CONFLICT (%s) DO UPDATE SET %s",
 		resourceTable, strings.Join(columns, ","), strings.Join(values, ","), strings.Join(id, ","), strings.Join(updates[3:], ","),
 	)
-	log.Println(q)
-	stmt, err := p.db.PrepareContext(ctx, q)
+	stmt, err := prepareContext(ctx, p.db, q)
 	if err != nil {
 		return nil
 	}
