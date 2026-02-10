@@ -213,7 +213,7 @@ func main() {
 	}))
 
 	r.Mount("/api", api.V1Api(accSvc, idps, roleSvc, tokenSvc))
-	r.Mount("/", webui.Router(cancel, tokenSvc, idps, roleSvc, accSvc, storageSvc, appCfg))
+	r.Mount("/", webui.Router(cancel, tokenSvc, idps, roleSvc, accSvc, storageSvc, &appCfg))
 
 	metricsRouter := chi.NewRouter()
 	metricsRouter.Handle("/metrics", metrics.Handler())

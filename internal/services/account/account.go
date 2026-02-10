@@ -68,12 +68,11 @@ func (a *accountService) Deploy(ctx context.Context, userId string, accountId st
 	}
 
 	// Deploy the stack
-	acc, err := store.GetResource(ctx, a.storage, store.ResourceTypeAccount, accountId)
+	acc, doc, err := store.GetResourceResolved[store.AccountDocument](ctx, a.storage, store.ResourceTypeAccount, accountId)
 	if err != nil {
 		return fmt.Errorf("storage.GetAccount: %w", err)
 	}
-	awsAccountId := store.GetDocument[store.AccountDocument](acc).AwsAccountId
-	return a.aws.DeployStack(ctx, acc.Id, awsAccountId, aws.StackName.Value(accountId), templateString, nil)
+	return a.aws.DeployStack(ctx, acc.Id, doc.AwsAccountId, aws.StackName.Value(accountId), templateString, nil)
 }
 
 func roleLogicalName(roleName string) string {
@@ -129,11 +128,11 @@ func (a *accountService) DeploymentStatus(ctx context.Context, accountName strin
 		NeedsUpdate:    false,
 		NeedsBootstrap: false,
 	}
-	acc, err := store.GetResource(ctx, a.storage, store.ResourceTypeAccount, accountName)
+	acc, doc, err := store.GetResourceResolved[store.AccountDocument](ctx, a.storage, store.ResourceTypeAccount, accountName)
 	if err != nil {
 		return status, fmt.Errorf("storage.GetAccount %s: %w", accountName, err)
 	}
-	accountId := store.GetDocument[store.AccountDocument](acc).AwsAccountId
+	accountId := doc.AwsAccountId
 	templateString, err := generateStackTemplate(ctx, a.storage, acc.Id)
 	if err != nil {
 		return status, fmt.Errorf("generateStackTemplate: %w", err)
@@ -156,14 +155,14 @@ func (a *accountService) DeploymentStatus(ctx context.Context, accountName strin
 	return status, err
 }
 func (a *accountService) StackUpdates(ctx context.Context, accountName string, stackId string) ([]aws.StackEvent, error) {
-	acc, err := store.GetResource(ctx, a.storage, store.ResourceTypeAccount, accountName)
+	_, doc, err := store.GetResourceResolved[store.AccountDocument](ctx, a.storage, store.ResourceTypeAccount, accountName)
 	if err != nil {
 		return nil, fmt.Errorf("storage.GetAccount: %w", err)
 	}
 	if stackId == "" {
 		stackId = aws.StackName.Value(accountName)
 	}
-	accountId := store.GetDocument[store.AccountDocument](acc).AwsAccountId
+	accountId := doc.AwsAccountId
 	events, err := a.aws.TopStackEvents(ctx, accountName, accountId, stackId)
 	if err != nil {
 		return nil, fmt.Errorf("aws.TopStackEvents: %w", err)
@@ -187,11 +186,10 @@ func generateStackTemplate(ctx context.Context, st store.Store, account string) 
 		if item.Disabled {
 			continue
 		}
-		role, err := store.GetResource(ctx, st, store.ResourceTypeRole, item.ResourceId)
+		_, doc, err := store.GetResourceResolved[store.RoleDocument](ctx, st, store.ResourceTypeRole, item.ResourceId)
 		if err != nil {
 			return "", err
 		}
-		doc := store.GetDocument[store.RoleDocument](role)
 		ats, err := st.GetResourceAttachments(ctx, store.RoleAttachmentPolicy, "", item.ResourceId)
 		if err != nil {
 			return "", fmt.Errorf("store.ListRolePolicyAttachments: %w", err)
@@ -224,12 +222,11 @@ func generateStackTemplate(ctx context.Context, st store.Store, account string) 
 }
 
 func (a *accountService) DestroyStack(ctx context.Context, accountName string, username string) (string, error) {
-	acc, err := store.GetResource(ctx, a.storage, store.ResourceTypeAccount, accountName)
+	_, doc, err := store.GetResourceResolved[store.AccountDocument](ctx, a.storage, store.ResourceTypeAccount, accountName)
 	if err != nil {
 		return "", fmt.Errorf("storage.GetAccount: %w", err)
 	}
-	accountId := store.GetDocument[store.AccountDocument](acc).AwsAccountId
-	stackId, err := a.aws.DestroyStack(ctx, accountName, accountId, aws.StackName.Value(accountName))
+	stackId, err := a.aws.DestroyStack(ctx, accountName, doc.AwsAccountId, aws.StackName.Value(accountName))
 	if err != nil {
 		return "", fmt.Errorf("aws.DestroyStack: %w", err)
 	}

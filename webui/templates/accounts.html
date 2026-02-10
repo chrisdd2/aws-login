@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="/static/tailwind.css">
     <link rel="stylesheet" href="/static/font-awesome.css">
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <script src="/static/htmx.min.js"></script>
 </head>
 <body class="min-h-screen flex flex-col bg-gradient-to-br from-indigo-500 to-purple-600 dark:from-[#1a1a2e] dark:to-[#16213e] transition-colors duration-300">
     <!-- Top Navigation Bar -->
@@ -48,9 +49,15 @@
     <!-- Main Content -->
     <div class="flex-1 p-8 flex flex-col items-center">
         <div class="w-full max-w-5xl bg-white dark:bg-gray-800 rounded-lg shadow-2xl dark:shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-8 transition-all duration-300">
-            <div class="mb-6">
-                <h1 class="text-2xl font-bold mb-2 text-gray-900 dark:text-white">Deploy Changes</h1>
-                <p class="text-sm text-gray-600 dark:text-gray-300">Trigger deployments for the accounts you manage</p>
+            <div class="mb-6 flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold mb-2 text-gray-900 dark:text-white">Deploy Changes</h1>
+                    <p class="text-sm text-gray-600 dark:text-gray-300">Trigger deployments for the accounts you manage</p>
+                </div>
+                <!-- htmx: auto-refresh all statuses every 30 seconds -->
+                <div hx-get="/admin/statuses" hx-trigger="every 30s" hx-swap="innerHTML" hx-target="#status-timestamp">
+                    <span id="status-timestamp" class="text-xs text-gray-400">Updated just now</span>
+                </div>
             </div>
 
             <div class="overflow-x-auto">
@@ -69,7 +76,10 @@
                                 <span>{{.AccountName}}</span>
                                 <span class="text-xs text-cyan-600 dark:text-cyan-400">({{.AccountId}})</span>
                             </td>
-                            <td class="py-3 px-4 text-gray-900 dark:text-white text-nowrap">{{.UpdateStatus}}</td>
+                            <!-- htmx: status cell is replaceable via ID -->
+                            <td id="status-{{.AccountName}}" class="py-3 px-4 text-gray-900 dark:text-white text-nowrap">
+                                {{.UpdateStatus}}
+                            </td>
                             <td class="py-3 px-4 text-right whitespace-nowrap">
                                 {{ if .HasDeploy }}
                                 <a href="/account/deploy?account={{.AccountName}}" target="_blank" class="inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-sm py-1.5 px-3 rounded transition-colors">
@@ -86,10 +96,14 @@
                                     <span>Bootstrap template</span>
                                 </a>
                                 {{ end }}
-                                <a href="/account/status?account={{.AccountName}}" class="inline-flex items-center gap-1.5 bg-indigo-500 hover:bg-indigo-600 text-white text-sm py-1.5 px-3 rounded transition-colors">
+                                <!-- htmx: refresh status without page reload -->
+                                <button hx-get="/account/status?account={{.AccountName}}"
+                                        hx-target="#status-{{.AccountName}}"
+                                        hx-swap="outerHTML"
+                                        class="inline-flex items-center gap-1.5 bg-indigo-500 hover:bg-indigo-600 text-white text-sm py-1.5 px-3 rounded transition-colors cursor-pointer">
                                     <i class="fas fa-arrows-rotate text-xs"></i>
                                     <span>Refresh status</span>
-                                </a>
+                                </button>
                                 {{ if .HasStack }}
                                 <a href="/account/watch?account={{.AccountName}}" target="_blank" class="inline-flex items-center gap-1.5 bg-indigo-500 hover:bg-indigo-600 text-white text-sm py-1.5 px-3 rounded transition-colors">
                                     <i class="fas fa-magnifying-glass text-xs"></i>

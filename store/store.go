@@ -77,6 +77,18 @@ type Store interface {
 	GetUserPermission(ctx context.Context, permissionType, userId, resourceId, accountId string) ([]*UserPermission, error)
 }
 
+func GetResourceResolved[T any](ctx context.Context, st Store, resourceType string, id string) (*Resource, *T, error) {
+	resource, err := GetResource(ctx, st, resourceType, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	v := *new(T)
+	if err := json.Unmarshal([]byte(resource.Document), &v); err != nil {
+		return nil, nil, err
+	}
+	return resource, &v, nil
+}
+
 func GetDocument[T any](r *Resource) T {
 	v := *new(T)
 	json.Unmarshal([]byte(r.Document), &v)

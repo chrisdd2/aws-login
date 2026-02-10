@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -17,6 +18,7 @@ import (
 	"github.com/chrisdd2/aws-login/internal/services/account"
 	"github.com/chrisdd2/aws-login/store"
 	"github.com/chrisdd2/aws-login/webui/templates"
+	v2 "github.com/chrisdd2/aws-login/webui/v2"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
 	"sigs.k8s.io/yaml"
@@ -50,7 +52,7 @@ func Router(
 	rolesSvc services.RolesService,
 	accountSrvc account.AccountService,
 	storageSvc store.Store,
-	cfg appconfig.AppConfig,
+	cfg *appconfig.AppConfig,
 ) chi.Router {
 
 	// superUserRole := cfg.Storage.Sync.Keycloak.SuperUserRole
@@ -125,9 +127,9 @@ func Router(
 			}
 			sendAccessToken(w, r, accessToken, secureCookies)
 		})
-
 	}
 	loggedIn := r.With(guardMiddleware(tokenSvc))
+
 	mainHandler := func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		user := getUser(r)
@@ -216,6 +218,13 @@ func Router(
 			sendError(w, r, fmt.Errorf("templates.AccountsTemplate: %w", err))
 		}
 	})
+	// htmx: endpoint for auto-refresh timestamp
+	loggedIn.With(superOnlyMiddleware()).Get("/admin/statuses", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		templates.StatusTimestampTemplate(w, templates.StatusTimestampData{
+			Timestamp: time.Now().Format("15:04:05"),
+		})
+	})
 	loggedIn.With(superOnlyMiddleware()).Route("/config", func(r chi.Router) {
 		r.Get("/shutdown", func(w http.ResponseWriter, r *http.Request) {
 			render.JSON(w, r, struct {
@@ -241,7 +250,7 @@ func Router(
 				sendError(w, r, fmt.Errorf("store.Import: %w", err))
 				return
 			}
-			configHandler(w, r, storageSvc, &cfg, changes)
+			configHandler(w, r, storageSvc, cfg, changes)
 		})
 		r.Get("/export", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -256,10 +265,10 @@ func Router(
 			w.Write(buf)
 		})
 		r.Get("/sync", func(w http.ResponseWriter, r *http.Request) {
-			configHandler(w, r, storageSvc, &cfg, nil)
+			configHandler(w, r, storageSvc, cfg, nil)
 		})
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			configHandler(w, r, storageSvc, &cfg, nil)
+			configHandler(w, r, storageSvc, cfg, nil)
 		})
 	})
 	loggedIn.Route("/account", func(r chi.Router) {
@@ -351,7 +360,19 @@ func Router(
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			statusCache.Refresh(ctx, account)
+			status, _ := statusCache.Refresh(ctx, account)
+
+			// htmx request: return just the status cell fragment
+			if r.Header.Get("HX-Request") == "true" {
+				w.Header().Set("Content-Type", "text/html")
+				templates.StatusCellTemplate(w, templates.StatusCellData{
+					AccountName:  account,
+					UpdateStatus: deploymentStatusMessage(status),
+				})
+				return
+			}
+
+			// Regular request: redirect to admin page
 			http.Redirect(w, r, "/admin", http.StatusTemporaryRedirect)
 		})
 		g.Get("/deploy", func(w http.ResponseWriter, r *http.Request) {
@@ -414,6 +435,12 @@ func Router(
 
 	})
 
+	v2Router, err := v2.NewRouter("/v2", cfg, tokenSvc, authSvcs, rolesSvc, accountSrvc, storageSvc)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	r.Mount("/v2", v2Router.Handler())
+
 	// warm the cache
 	go func() {
 		ctx := context.Background()
@@ -440,7 +467,7 @@ var UserCtxKey = userCtxKey{}
 func getUser(r *http.Request) *services.UserInfo {
 	usr, ok := r.Context().Value(UserCtxKey).(*services.UserInfo)
 	if !ok {
-		return &services.UserInfo{}
+		return nil
 	}
 	return usr
 }
@@ -590,4 +617,8 @@ func configHandler(w http.ResponseWriter, r *http.Request, storageSvc store.Stor
 	if err := templates.ConfigurationTemplate(w, data); err != nil {
 		sendError(w, r, fmt.Errorf("templates.ConfigurationTemplate: %w", err))
 	}
+}
+
+func isHtmxRequest(r *http.Request) bool {
+	return r.Header.Get("HX-Request") == "true"
 }

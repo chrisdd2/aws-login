@@ -102,3 +102,22 @@ type ConfigurationData struct {
 func ConfigurationTemplate(w io.Writer, data ConfigurationData) error {
 	return pagesTmpls.ExecuteTemplate(w, "config.html", data)
 }
+
+// htmx fragment templates - return only the HTML fragment for the status cell
+type StatusCellData struct {
+	AccountName  string
+	UpdateStatus string
+}
+
+func StatusCellTemplate(w io.Writer, data StatusCellData) error {
+	return pagesTmpls.ExecuteTemplate(w, "statusCell", data)
+}
+
+// Fragment for auto-refresh timestamp
+type StatusTimestampData struct {
+	Timestamp string
+}
+
+func StatusTimestampTemplate(w io.Writer, data StatusTimestampData) error {
+	return pagesTmpls.ExecuteTemplate(w, "statusTimestamp", data)
+}

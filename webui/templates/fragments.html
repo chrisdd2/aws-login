@@ -1,0 +1,11 @@
+{{define "statusCell"}}
+<td id="status-{{.AccountName}}" class="py-3 px-4 text-gray-900 dark:text-white text-nowrap">
+    {{.UpdateStatus}}
+</td>
+{{end}}
+
+{{define "statusTimestamp"}}
+<span id="status-timestamp" class="text-xs text-gray-400">
+    Updated at {{.Timestamp}}
+</span>
+{{end}}
