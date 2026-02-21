@@ -65,8 +65,8 @@ type AppConfig struct {
 				Password      string `json:"password,omitempty"`
 				SuperUserRole string `json:"superuser_role,omitempty"`
 			} `json:"keycloak"`
-		} `json:"sync,omitempty"`
-	} `json:"storage,omitempty"`
+		} `json:"sync"`
+	} `json:"storage"`
 
 	Auth struct {
 		AdminUsername    string          `json:"admin_username,omitempty"`

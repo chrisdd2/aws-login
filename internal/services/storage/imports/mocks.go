@@ -2,6 +2,7 @@ package imports
 
 import (
 	"context"
+	"slices"
 
 	"github.com/chrisdd2/aws-login/appconfig"
 	"github.com/chrisdd2/aws-login/internal/services/storage"
@@ -192,10 +193,8 @@ func (m *mockImportable) GetRole(ctx context.Context, name string) (*appconfig.R
 	if m.getError != nil {
 		return nil, m.getError
 	}
-	for _, n := range m.roles {
-		if n == name {
-			return &appconfig.Role{Name: name}, nil
-		}
+	if slices.Contains(m.roles, name) {
+		return &appconfig.Role{Name: name}, nil
 	}
 	return nil, storage.ErrRoleNotFound
 }
@@ -204,10 +203,8 @@ func (m *mockImportable) GetUser(ctx context.Context, name string) (*appconfig.U
 	if m.getError != nil {
 		return nil, m.getError
 	}
-	for _, n := range m.users {
-		if n == name {
-			return &appconfig.User{Name: name}, nil
-		}
+	if slices.Contains(m.users, name) {
+		return &appconfig.User{Name: name}, nil
 	}
 	return nil, storage.ErrUserNotFound
 }
@@ -228,10 +225,8 @@ func (m *mockImportable) GetPolicy(ctx context.Context, id string) (*appconfig.P
 	if m.getError != nil {
 		return nil, m.getError
 	}
-	for _, pid := range m.policies {
-		if pid == id {
-			return &appconfig.Policy{Id: id}, nil
-		}
+	if slices.Contains(m.policies, id) {
+		return &appconfig.Policy{Id: id}, nil
 	}
 	return nil, storage.ErrPolicyNotFound
 }
