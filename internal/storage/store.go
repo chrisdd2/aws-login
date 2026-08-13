@@ -1,6 +1,7 @@
-package appconfig
+package storage
 
 import (
+	"context"
 	"database/sql/driver"
 	"fmt"
 	"strings"
@@ -13,6 +14,12 @@ const (
 	RolePermissionConsole     = "console"
 )
 
+type Model[T any, Y any, Z any] interface {
+	Put(ctx context.Context, item *T, del bool) error
+	Get(ctx context.Context, id Y) error
+	List(ctx context.Context, filter Z) ([]T, error)
+}
+
 var RolePermissionAll []string = []string{RolePermissionConsole, RolePermissionCredentials}
 
 type Policy struct {
@@ -22,6 +29,7 @@ type Policy struct {
 
 type Role struct {
 	AccountName        string        `json:"account_name,omitempty" sql:"id"`
+	AwsAccountId       string        `json:"aws_account_id,omitempty"`
 	RoleName           string        `json:"role_name,omitempty" sql:"id"`
 	Description        string        `json:"description,omitempty"`
 	ManagedPolicies    TextArray     `json:"managed_policies,omitempty"`
