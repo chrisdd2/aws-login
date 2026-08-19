@@ -15,19 +15,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
-	cfnTypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
-
-	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
 )
 
 // some unique identifiers we might need
 const (
-	StackName    = AccountIdentifier("aws-login-stack-%s")
-	OpsRole      = AccountIdentifier("ops-role-role-%s")
-	boundaryName = AccountIdentifier("iam-role-boundary-%s")
-	signInUrl    = "https://signin.aws.amazon.com/federation"
+	signInUrl = "https://signin.aws.amazon.com/federation"
 )
 
 var (
@@ -38,41 +32,12 @@ var (
 	DefaultSessionDuration = int32((time.Hour * 8).Seconds())
 )
 
-type StackEvent struct {
-	EventTime            time.Time
-	ResourceId           string
-	ResourceType         string
-	ResourceStatus       string
-	ResourceStatusReason string
-}
-
-func (s StackEvent) Color() string {
-	switch cfnTypes.ResourceStatus(s.ResourceStatus) {
-	case cfnTypes.ResourceStatusCreateInProgress, cfnTypes.ResourceStatusDeleteInProgress, cfnTypes.ResourceStatusImportInProgress, cfnTypes.ResourceStatusUpdateInProgress, cfnTypes.ResourceStatusImportRollbackInProgress, cfnTypes.ResourceStatusExportRollbackInProgress, cfnTypes.ResourceStatusUpdateRollbackInProgress, cfnTypes.ResourceStatusRollbackInProgress, cfnTypes.ResourceStatusExportInProgress:
-		return "yellow"
-	case cfnTypes.ResourceStatusCreateComplete, cfnTypes.ResourceStatusDeleteComplete, cfnTypes.ResourceStatusDeleteSkipped, cfnTypes.ResourceStatusUpdateComplete, cfnTypes.ResourceStatusImportComplete, cfnTypes.ResourceStatusExportComplete:
-		return "green"
-	case cfnTypes.ResourceStatusCreateFailed, cfnTypes.ResourceStatusDeleteFailed, cfnTypes.ResourceStatusUpdateFailed, cfnTypes.ResourceStatusImportFailed, cfnTypes.ResourceStatusExportFailed, cfnTypes.ResourceStatusExportRollbackFailed, cfnTypes.ResourceStatusImportRollbackFailed, cfnTypes.ResourceStatusImportRollbackComplete, cfnTypes.ResourceStatusExportRollbackComplete, cfnTypes.ResourceStatusUpdateRollbackComplete, cfnTypes.ResourceStatusUpdateRollbackFailed, cfnTypes.ResourceStatusRollbackComplete, cfnTypes.ResourceStatusRollbackFailed:
-		return "red"
-	}
-	switch cfnTypes.StackStatus(s.ResourceStatus) {
-	case cfnTypes.StackStatusUpdateRollbackCompleteCleanupInProgress, cfnTypes.StackStatusUpdateCompleteCleanupInProgress:
-		return "indigo"
-	}
-	return "grey"
-}
-
 type AwsApiCaller interface {
-	WhoAmI(ctx context.Context) (account string, arn string, err error)
 	GetCredentials(ctx context.Context, roleArn string, sessionName string) (
 		AccessKeyId string,
 		SecretAccessKey string,
 		SessionToken string,
 		err error)
-	DeployStack(ctx context.Context, accountName string, accountId string, stackName string, templateText string, params map[string]string) error
-	DestroyStack(ctx context.Context, accountName string, accountId string, stackName string) (stackId string, error error)
-	TopStackEvents(ctx context.Context, accountName string, accountId string, stackName string) ([]StackEvent, error)
-	StackTemplate(ctx context.Context, accountName string, accountId string, stackName string) (string, error)
 	GenerateSigninUrl(ctx context.Context, roleArn string, sessionName string, redirectUrl string) (string, error)
 }
 type apiImpl struct {
@@ -85,45 +50,9 @@ type apiImpl struct {
 
 func NewAwsApi(ctx context.Context, stsCl *sts.Client) (AwsApiCaller, error) {
 	ret := apiImpl{stsCl: stsCl}
-	_, _, err := ret.WhoAmI(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sts.GetCallerIdentity: %w", err)
-	}
 	return &ret, nil
 }
 
-func (a *apiImpl) StackTemplate(ctx context.Context, accountName string, accountId string, stackName string) (string, error) {
-	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(accountId, OpsRole.Value(accountName)))
-	if err != nil {
-		return "", fmt.Errorf("assumeRole: %w", err)
-	}
-	cfnCl := cloudformation.NewFromConfig(cfg)
-	resp, err := cfnCl.GetTemplate(ctx, &cloudformation.GetTemplateInput{
-		StackName:     &stackName,
-		TemplateStage: cfnTypes.TemplateStageOriginal,
-	})
-	if isStackMissingErr(err) {
-		return "", ErrStackNotExist
-	}
-	if err != nil {
-
-		return "", fmt.Errorf("cloudformation.GetTemplate: %w", err)
-	}
-	return aws.ToString(resp.TemplateBody), nil
-}
-
-func (a *apiImpl) WhoAmI(ctx context.Context) (account string, arn string, err error) {
-	if a.account == "" {
-		resp, err := a.stsCl.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
-		if err != nil {
-			return "", "", fmt.Errorf("sts.GetCallerIdentity: %w", err)
-		}
-		a.account = aws.ToString(resp.Account)
-		a.arn = aws.ToString(resp.Arn)
-		a.roleName = principalFromArn(a.arn)
-	}
-	return a.account, a.arn, nil
-}
 func (a *apiImpl) GetCredentials(
 	ctx context.Context,
 	roleArn string,
@@ -140,81 +69,6 @@ func (a *apiImpl) GetCredentials(
 	return aws.ToString(resp.Credentials.AccessKeyId),
 		aws.ToString(resp.Credentials.SecretAccessKey),
 		aws.ToString(resp.Credentials.SessionToken), nil
-}
-
-func (a *apiImpl) DestroyStack(ctx context.Context, accountName string, accountId string, stackName string) (stackId string, err error) {
-	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(accountId, OpsRole.Value(accountName)))
-	if err != nil {
-		return "", fmt.Errorf("assumeRole: %w", err)
-	}
-	cfnCl := cloudformation.NewFromConfig(cfg)
-	resp, err := cfnCl.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: &stackName})
-	if isStackMissingErr(err) {
-		return "", ErrStackNotExist
-	}
-	if err != nil {
-		return "", fmt.Errorf("cloudformation.DescribeStacks: %w", err)
-	}
-	_, err = cfnCl.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: &stackName})
-	if err != nil {
-		return "", fmt.Errorf("cloudformation.DeleteStack: %w", err)
-	}
-	if len(resp.Stacks) > 0 && resp.Stacks[0].StackId != nil {
-		return *resp.Stacks[0].StackId, nil
-	}
-	return "", ErrInvalidCfnResponse
-}
-func (a *apiImpl) DeployStack(ctx context.Context, accountName string, accountId string, stackName string, templateText string, params map[string]string) error {
-	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(accountId, OpsRole.Value(accountName)))
-	if err != nil {
-		return fmt.Errorf("assumeRole: %w", err)
-	}
-	cfnCl := cloudformation.NewFromConfig(cfg)
-	if params == nil {
-		params = map[string]string{}
-	}
-	params["ManagementRoleArn"] = a.arn
-	params["PermissionBoundaryName"] = boundaryName.Value(accountName)
-	return updateStack(ctx, cfnCl, stackName, templateText, params)
-}
-
-func updateStack(ctx context.Context, cfnCl *cloudformation.Client, stackName string, templateString string, params map[string]string) error {
-	cfnParams := []cfnTypes.Parameter{}
-	for k, v := range params {
-		cfnParams = append(cfnParams, cfnTypes.Parameter{
-			ParameterKey:   &k,
-			ParameterValue: &v,
-		})
-	}
-
-	_, err := cfnCl.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: &stackName})
-	update := true
-	if err != nil {
-		if isStackMissingErr(err) {
-			update = false
-		} else {
-			return fmt.Errorf("cloudformation.DescribeStacks: %w", err)
-		}
-	}
-	if update {
-		_, err = cfnCl.UpdateStack(ctx, &cloudformation.UpdateStackInput{
-			StackName:    &stackName,
-			TemplateBody: &templateString,
-			Parameters:   cfnParams,
-			Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam},
-		})
-		if err != nil && !isNoUpdateErr(err) {
-			return fmt.Errorf("cloudformation.UpdateStack: %w", err)
-		}
-		return nil
-	}
-	_, err = cfnCl.CreateStack(ctx, &cloudformation.CreateStackInput{
-		StackName:    &stackName,
-		TemplateBody: &templateString,
-		Parameters:   cfnParams,
-		Capabilities: []cfnTypes.Capability{cfnTypes.CapabilityCapabilityNamedIam},
-	})
-	return fmt.Errorf("cloudformation.CreateStack: %w", err)
 }
 
 func (a *apiImpl) GenerateSigninUrl(ctx context.Context, roleArn string, sessionName string, redirectUrl string) (string, error) {
@@ -327,48 +181,4 @@ func assumeRole(ctx context.Context, stsCl *sts.Client, roleArn string) (aws.Con
 		return cfg, fmt.Errorf("sts.GetCallerIdentity: %w", err)
 	}
 	return cfg, nil
-}
-
-func getStack(ctx context.Context, cfnCl *cloudformation.Client, stackName string) (cfnTypes.Stack, error) {
-	resp, err := cfnCl.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{StackName: &stackName})
-	if isStackMissingErr(err) {
-		return cfnTypes.Stack{}, ErrStackNotExist
-	}
-	if err != nil {
-		return cfnTypes.Stack{}, fmt.Errorf("cfn.DescribeStacks: %w", err)
-	}
-	if len(resp.Stacks) == 0 {
-		return cfnTypes.Stack{}, ErrStackNotExist
-	}
-	return resp.Stacks[0], nil
-}
-
-func (a *apiImpl) TopStackEvents(ctx context.Context, accountName string, accountId string, stackName string) ([]StackEvent, error) {
-	cfg, err := assumeRole(ctx, a.stsCl, arnForRole(accountId, OpsRole.Value(accountName)))
-	if err != nil {
-		return nil, fmt.Errorf("assumeRole: %w", err)
-	}
-
-	cfnCl := cloudformation.NewFromConfig(cfg)
-	resp, err := cfnCl.DescribeStackEvents(ctx, &cloudformation.DescribeStackEventsInput{StackName: &stackName})
-	if err != nil {
-		return nil, fmt.Errorf("cloudformation.DescribeStackEvents: %w", err)
-	}
-	ret := make([]StackEvent, 0, len(resp.StackEvents))
-	for _, ev := range resp.StackEvents {
-		ret = append(ret, StackEvent{
-			EventTime:            aws.ToTime(ev.Timestamp).UTC(),
-			ResourceId:           aws.ToString(ev.LogicalResourceId),
-			ResourceType:         aws.ToString(ev.ResourceType),
-			ResourceStatus:       aws.ToString((*string)(&ev.ResourceStatus)),
-			ResourceStatusReason: aws.ToString(ev.ResourceStatusReason),
-		})
-	}
-	return ret, nil
-}
-
-type AccountIdentifier string
-
-func (a AccountIdentifier) Value(accountName string) string {
-	return fmt.Sprintf(string(a), accountName)
 }

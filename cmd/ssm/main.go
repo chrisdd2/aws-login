@@ -15,7 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
-	"github.com/chrisdd2/aws-login/blob"
+	"github.com/chrisdd2/aws-login/internal/blob"
 	"github.com/chrisdd2/session-manager-plugin/session"
 )
 
@@ -47,23 +47,7 @@ func loadParameters() (Parameters, error) {
 	return params, json.Unmarshal(buf, &params)
 }
 
-func main() {
-	params, err := loadParameters()
-	if err != nil {
-		log.Fatalln(err)
-	}
-	fmt.Printf("%#v\n", params)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	cfg, err := config.LoadDefaultConfig(context.Background(),
-		config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(params.AccessKeyId, params.SecretAccessKey, params.SessionToken),
-		),
-	)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
+func createSsmRequest(params *Parameters) (*ssm.StartSessionInput, error) {
 	req := ssm.StartSessionInput{
 		Target: &params.Target,
 		Reason: &params.Reason,
@@ -86,8 +70,26 @@ func main() {
 	case "shell":
 		req.DocumentName = aws.String(DocumentShell)
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown operation: %s\n", params.Operation)
-		os.Exit(1)
+		return nil, errors.New("unknown operation: " + params.Operation)
+	}
+	return &req, nil
+}
+
+func main() {
+	params, err := loadParameters()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	fmt.Printf("%#v\n", params)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg, err := config.LoadDefaultConfig(context.Background(),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(params.AccessKeyId, params.SecretAccessKey, params.SessionToken),
+		),
+	)
+	if err != nil {
+		log.Fatalln(err)
 	}
 
 	ssmCl := ssm.NewFromConfig(cfg)
@@ -98,7 +100,12 @@ func main() {
 		fmt.Println("#### Embedded Message ####")
 	}
 
-	resp, err := ssmCl.StartSession(ctx, &req)
+	req, err := createSsmRequest(&params)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	resp, err := ssmCl.StartSession(ctx, req)
 	if err != nil {
 		log.Fatalln(err)
 	}
