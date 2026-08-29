@@ -3,15 +3,9 @@ package internal
 import (
 	"strings"
 	"time"
-)
 
-const (
-	RolePermissionInvalid     = "invalid"
-	RolePermissionCredentials = "credential"
-	RolePermissionConsole     = "console"
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
 )
-
-var RolePermissionAll []string = []string{RolePermissionConsole, RolePermissionCredentials}
 
 type AccountRole string
 type Account struct {
@@ -21,12 +15,14 @@ type Account struct {
 	Tags         map[string]string `json:"tags,omitempty"`
 }
 
-type SsmInstance struct {
-	Name                string              `json:"name,omitempty"`
-	Ids                 []string            `json:"ids,omitempty"`
-	TagFilter           map[string][]string `json:"tag_filter,omitempty"`
-	PortForwardingHosts []string            `json:"port_forwarding_hosts,omitempty"`
-	ShellAccess         bool                `json:"shell_access,omitempty"`
+type SsmAction struct {
+	Name                 string              `json:"name,omitempty"`
+	Region               string              `json:"region,omitempty"`
+	Ids                  []string            `json:"ids,omitempty"`
+	TagFilter            map[string][]string `json:"tag_filter,omitempty"`
+	Action               string              `json:"action,omitempty"`
+	PortForwardingHost   string              `json:"port_forwarding_hosts,omitempty"`
+	LocalPortForwardPort int                 `json:"local_portforward,omitempty"`
 }
 
 type Role struct {
@@ -50,24 +46,24 @@ type CommonPolicy struct {
 }
 
 type Manifest struct {
-	Accounts     []Account      `json:"accounts,omitempty"`
-	Principals   []Principal    `json:"principals,omitempty"`
-	Roles        []Role         `json:"iam_roles,omitempty"`
-	Policies     []CommonPolicy `json:"iam_policies,omitempty"`
-	SsmInstances []SsmInstance  `json:"ssm_instances,omitempty"`
+	Accounts   []Account      `json:"accounts,omitempty"`
+	Principals []Principal    `json:"principals,omitempty"`
+	Roles      []Role         `json:"iam_roles,omitempty"`
+	Policies   []CommonPolicy `json:"iam_policies,omitempty"`
+	SsmActions []SsmAction    `json:"ssm_actions,omitempty"`
 }
 
-func (v AccountRole) Parse() (roleType, name string, valid bool) {
-	after, found := strings.CutPrefix(string(v), "arn:iam::role/")
-	if found {
-		return "iam", after, true
+func (v AccountRole) Parse() (roleType, accountId, name string, valid bool) {
+	arn, err := arn.Parse(string(v))
+	if err != nil {
+		return "", "", "", false
 	}
-	after, found = strings.CutPrefix(string(v), "arn:ssm::instance/")
-	if found {
-		return "ssm", after, true
+	if arn.Service != "iam" {
+		return "", "", "", false
 	}
-	return "", "", false
-}
-
-func ParsePrincipalRoleString(v string) (AccountRole, error) {
+	roleType, name, found := strings.Cut(arn.Resource, "/")
+	if !found {
+		return "", "", "", false
+	}
+	return roleType, name, "", true
 }

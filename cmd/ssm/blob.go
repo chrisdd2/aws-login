@@ -1,4 +1,4 @@
-package blob
+package main
 
 import (
 	"bytes"
@@ -20,7 +20,7 @@ var blob = [blobSize]byte{
 	0x01,
 }
 
-func Load() []byte {
+func LoadBlob() []byte {
 	if blob[0] == 0 {
 		return nil
 	}
@@ -38,7 +38,7 @@ func Load() []byte {
 	return blob[hdr : hdr+payloadLen]
 }
 
-func Patch(data []byte, payload string) ([]byte, error) {
+func PatchBlob(data []byte, payload string) ([]byte, error) {
 	magicBytes := []byte(magicString)
 	if len(magicBytes) == 0 || len(magicBytes) > maxMagic {
 		return nil, errors.New("invalid magic length")

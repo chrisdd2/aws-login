@@ -15,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
-	"github.com/chrisdd2/aws-login/internal/blob"
 	"github.com/chrisdd2/session-manager-plugin/session"
 )
 
@@ -39,7 +38,7 @@ type Parameters struct {
 }
 
 func loadParameters() (Parameters, error) {
-	buf := blob.Load()
+	buf := LoadBlob()
 	if buf == nil {
 		return Parameters{}, errors.New("invalid blob")
 	}

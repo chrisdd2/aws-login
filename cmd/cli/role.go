@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 	"time"
@@ -17,7 +18,6 @@ import (
 	iamTypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/internal"
-	"github.com/chrisdd2/aws-login/internal/services"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -43,24 +43,6 @@ var defaultTags = map[string]string{
 	"aws-login": "true",
 }
 
-func durationToAwsTime(d time.Duration) *int32 {
-	v := int32(d.Seconds())
-	return &v
-}
-
-func mapToAwsTags(tagMap map[string]string) []iamTypes.Tag {
-	tags := []iamTypes.Tag{}
-	// add defaults
-	for k, v := range defaultTags {
-		tags = append(tags, iamTypes.Tag{Key: &k, Value: &v})
-	}
-
-	for k, v := range tagMap {
-		tags = append(tags, iamTypes.Tag{Key: &k, Value: &v})
-	}
-	return tags
-}
-
 func SyncRole(ctx context.Context, iamSvc *iam.Client, opts *RoleOptions) error {
 	// check if role exists
 	resp, err := iamSvc.GetRole(ctx, &iam.GetRoleInput{RoleName: &opts.RoleName})
@@ -82,16 +64,15 @@ func SyncRole(ctx context.Context, iamSvc *iam.Client, opts *RoleOptions) error 
 			return err
 		}
 	}
-	if opts.PermissionBoundary != aws.ToString(resp.Role.PermissionsBoundary.PermissionsBoundaryArn) {
-		if opts.PermissionBoundary == "" {
-			if _, err := iamSvc.DeleteRolePermissionsBoundary(ctx, &iam.DeleteRolePermissionsBoundaryInput{RoleName: resp.Role.RoleName}); err != nil {
-				return err
-			}
-		} else {
 
-			if _, err := iamSvc.PutRolePermissionsBoundary(ctx, &iam.PutRolePermissionsBoundaryInput{PermissionsBoundary: &opts.PermissionBoundary, RoleName: resp.Role.RoleName}); err != nil {
-				return err
-			}
+	if resp.Role.PermissionsBoundary != nil {
+		if _, err := iamSvc.DeleteRolePermissionsBoundary(ctx, &iam.DeleteRolePermissionsBoundaryInput{RoleName: resp.Role.RoleName}); err != nil {
+			return err
+		}
+	}
+	if opts.PermissionBoundary != "" {
+		if _, err := iamSvc.PutRolePermissionsBoundary(ctx, &iam.PutRolePermissionsBoundaryInput{PermissionsBoundary: &opts.PermissionBoundary, RoleName: resp.Role.RoleName}); err != nil {
+			return err
 		}
 	}
 
@@ -106,8 +87,6 @@ func SyncRole(ctx context.Context, iamSvc *iam.Client, opts *RoleOptions) error 
 	if err != nil {
 		return err
 	}
-
-	iam.NewPolicyExistsWaiter(iamSvc)
 
 	// managed policies
 	managedPolicyPaginator := iam.NewListAttachedRolePoliciesPaginator(iamSvc, &iam.ListAttachedRolePoliciesInput{RoleName: resp.Role.RoleName})
@@ -216,54 +195,17 @@ func CreateBootstrapRole(ctx context.Context, iamSvc *iam.Client, principalArn s
 		MaxSessionDuration: time.Hour,
 		Tags:               map[string]string{"aws-login:role": "bootstrap"},
 		InlinePolicies: map[string]string{
-			"iam": `
-				{
+			"iam": `{
 					"Version": "2012-10-17",
 					"Statement": [{
 						"Effect": "Allow",
 						"Action": "iam:*",
-						"Resources": "*"
+						"Resource": "*"
 					}]
 				}`,
 		},
-		AssumeRoleDocument: fmt.Sprintf(`
-			{
-				"Version": "2012-10-17",
-				"Statement": [{
-					"Effect": "Allow",
-					"Principal": {
-					"AWS": "%s"
-					},
-					"Action": "sts:AssumeRole"
-				}]
-				}
-			`, principalArn),
+		AssumeRoleDocument: trustPolicy(principalArn),
 	})
-}
-
-func shortRoleName(roleName string) string {
-	roleName = fmt.Sprintf("%s-%s", uniqSuffix)
-	if len(roleName) > 64 {
-		hash := md5.Sum([]byte(roleName))
-		roleName = roleName[:64-len(hash)] + string(hash[:])
-	}
-	return roleName
-}
-
-func boundaryPolicyArn(accountId string) string {
-	return arn.ARN{
-		Service:   "iam",
-		Resource:  fmt.Sprintf("policy/%s", permissionBoundaryName),
-		AccountID: accountId,
-	}.String()
-}
-
-func bootstrapRoleArn(accountId string) string {
-	return arn.ARN{
-		Service:   "iam",
-		Resource:  fmt.Sprintf("role/%s", bootstrapRoleName),
-		AccountID: accountId,
-	}.String()
 }
 
 type resolvedAccount struct {
@@ -272,43 +214,39 @@ type resolvedAccount struct {
 	Roles     []RoleOptions
 }
 
-func SyncAllAccounts(ctx context.Context, stsSvc *sts.Client, cfg *services.Config) error {
+func SyncAllAccounts(ctx context.Context, stsSvc *sts.Client, cfg *internal.RuntimeConfig) error {
 	whoami, err := stsSvc.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	if err != nil {
 		return err
 	}
 
-	bootstrapAssumeRoleDoc := fmt.Sprintf(`{
-							"Version": "2012-10-17",
-							"Statement": [{
-								"Effect": "Allow",
-								"Principal": {
-								"AWS": "%s"
-								},
-								"Action": "sts:AssumeRole"
-							}]
-							}
-					`, *whoami.Arn)
+	bootstrapTrustPolicy := trustPolicy(*whoami.Arn)
 
 	roleMap := map[string]internal.Role{}
-	policyMap := map[string]internal.CommonPolicy{}
-
 	for _, r := range cfg.Roles {
 		roleMap[r.Name] = r
 	}
+
+	policyMap := map[string]internal.CommonPolicy{}
 	for _, p := range cfg.Policies {
 		policyMap[p.Name] = p
+	}
+
+	ssmMap := map[string]internal.SsmAction{}
+	for _, a := range cfg.SsmActions {
+		ssmMap[a.Name] = a
 	}
 
 	accounts := []resolvedAccount{}
 	for _, acc := range cfg.Accounts {
 		roles := []RoleOptions{}
 		for _, r := range acc.Roles {
-			roleType, roleName, valid := r.Parse()
+			roleType, _, roleName, valid := r.Parse()
 			if !valid {
 				continue
 			}
-			if roleType == "iam" {
+			switch roleType {
+			case "iam":
 				role, ok := roleMap[roleName]
 				if !ok {
 					continue
@@ -329,12 +267,31 @@ func SyncAllAccounts(ctx context.Context, stsSvc *sts.Client, cfg *services.Conf
 					MaxSessionDuration: role.MaxSessionDuration,
 					InlinePolicies:     policies,
 					ManagedPolicies:    managedPolicies,
-					AssumeRoleDocument: bootstrapAssumeRoleDoc,
+					AssumeRoleDocument: bootstrapTrustPolicy,
 				})
-			} else if roleType == "ssm" {
-				// unimplemented
+			case "ssm":
+				ssmAction, ok := ssmMap[roleName]
+				if !ok {
+					continue
+				}
+				policy, err := ssmPolicy(ssmAction, acc.AwsAccountId)
+				if err != nil {
+					log.Printf("skipping [%s]: [%s]\n", roleName, err)
+					continue
+				}
+				roles = append(roles, RoleOptions{
+					RoleName:           roleName,
+					Description:        "aws-login ssm role",
+					MaxSessionDuration: time.Hour * 8,
+					InlinePolicies: map[string]string{
+						"Ssm": policy,
+					},
+					AssumeRoleDocument: bootstrapTrustPolicy,
+				})
+
 			}
 		}
+
 		accounts = append(accounts, resolvedAccount{
 			Name:      acc.Name,
 			AccountId: acc.AwsAccountId,
@@ -351,80 +308,15 @@ func SyncAllAccounts(ctx context.Context, stsSvc *sts.Client, cfg *services.Conf
 	return eg.Wait()
 }
 
-func upsertPermissionBoundary(ctx context.Context, iamSvc *iam.Client, bootsrapRoleArn, permissionBoundaryArn string) error {
-	policyDocument := fmt.Sprintf(`
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "DenyAllIAMUserActions",
-      "Effect": "Deny",
-      "Action": [
-        "iam:CreateUser",
-        "iam:DeleteUser"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "DenyCreateRoleWithoutBoundary",
-      "Effect": "Deny",
-      "Action": [
-        "iam:CreateRole"
-      ],
-      "Resource": "*",
-      "Condition": {
-        "StringNotEqualsIfExists": {
-          "iam:PermissionsBoundary": "%s"
-        }
-      }
-    },
-    {
-      "Sid": "DenyUpdateRoleToRemoveBoundary",
-      "Effect": "Deny",
-      "Action": [
-        "iam:UpdateRole"
-      ],
-      "Resource": "*",
-      "Condition": {
-        "StringNotEqualsIfExists": {
-          "iam:PermissionsBoundary": "%s"
-        }
-      }
-    },
-    {
-      "Sid": "DenyBoundaryActions",
-      "Effect": "Deny",
-      "Action": [
-        "iam:*Boundary"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "DenyManagementRoleModification",
-      "Effect": "Deny",
-      "Action": [
-        "iam:CreateRole",
-        "iam:DeleteRole",
-        "iam:UpdateRole"
-      ],
-      "Resource": "%s"
-    },
-    {
-      "Sid": "AllowEverythingElse",
-      "Effect": "Allow",
-      "Action": [
-        "*"
-      ],
-      "Resource": "*"
-    }
-  ]
-}`, permissionBoundaryArn, permissionBoundaryArn, bootsrapRoleArn)
+func upsertPermissionBoundary(ctx context.Context, iamSvc *iam.Client, bootstrapRoleArn, permissionBoundaryArn string) error {
+	expectedPolicyDocument := boundaryPolicy(permissionBoundaryArn, bootstrapRoleArn)
+
 	policyResp, err := iamSvc.GetPolicy(ctx, &iam.GetPolicyInput{PolicyArn: &permissionBoundaryArn})
 	if err != nil {
 		var notExistError *iamTypes.NoSuchEntityException
 		if errors.As(err, &notExistError) {
 			// role doesn't exist
-			_, err := iamSvc.CreatePolicy(ctx, &iam.CreatePolicyInput{PolicyDocument: &policyDocument, PolicyName: &permissionBoundaryName, Description: aws.String("aws-login iam boundary"), Tags: mapToAwsTags(nil)})
+			_, err := iamSvc.CreatePolicy(ctx, &iam.CreatePolicyInput{PolicyDocument: &expectedPolicyDocument, PolicyName: &permissionBoundaryName, Description: aws.String("aws-login iam boundary"), Tags: mapToAwsTags(nil)})
 			return err
 		}
 		var alreadyExists *iamTypes.EntityAlreadyExistsException
@@ -433,13 +325,14 @@ func upsertPermissionBoundary(ctx context.Context, iamSvc *iam.Client, bootsrapR
 		}
 	}
 	// make sure the document is the same
+
 	resp, err := iamSvc.GetPolicyVersion(ctx, &iam.GetPolicyVersionInput{PolicyArn: policyResp.Policy.Arn, VersionId: policyResp.Policy.DefaultVersionId})
 	if err != nil {
 		return err
 	}
-	if aws.ToString(resp.PolicyVersion.Document) != policyDocument {
+	if aws.ToString(resp.PolicyVersion.Document) != expectedPolicyDocument {
 		// put ours
-		if _, err := iamSvc.CreatePolicyVersion(ctx, &iam.CreatePolicyVersionInput{PolicyArn: policyResp.Policy.Arn, PolicyDocument: &policyDocument, SetAsDefault: true}); err != nil {
+		if _, err := iamSvc.CreatePolicyVersion(ctx, &iam.CreatePolicyVersionInput{PolicyArn: policyResp.Policy.Arn, PolicyDocument: &expectedPolicyDocument, SetAsDefault: true}); err != nil {
 			return err
 		}
 	}
@@ -473,5 +366,52 @@ func SyncAccount(ctx context.Context, stsSvc *sts.Client, acc *resolvedAccount) 
 			return err
 		}
 	}
+
 	return nil
+}
+func shortRoleName(roleName string) string {
+	roleName = fmt.Sprintf("%s-%s", uniqSuffix, roleName)
+	if len(roleName) > 64 {
+		hash := md5.Sum([]byte(roleName))
+		roleName = roleName[:64-len(hash)] + string(hash[:])
+	}
+	return roleName
+}
+
+func boundaryPolicyArn(accountId string) string {
+	return arn.ARN{
+		Service:   "iam",
+		Resource:  fmt.Sprintf("policy/%s", permissionBoundaryName),
+		AccountID: accountId,
+	}.String()
+}
+
+func roleArn(accountId string, roleName string) string {
+	return arn.ARN{
+		Service:   "iam",
+		Resource:  fmt.Sprintf("role/%s", roleName),
+		AccountID: accountId,
+	}.String()
+}
+
+func bootstrapRoleArn(accountId string) string {
+	return roleArn(accountId, bootstrapRoleName)
+}
+
+func durationToAwsTime(d time.Duration) *int32 {
+	v := int32(d.Seconds())
+	return &v
+}
+
+func mapToAwsTags(tagMap map[string]string) []iamTypes.Tag {
+	tags := []iamTypes.Tag{}
+	// add defaults
+	for k, v := range defaultTags {
+		tags = append(tags, iamTypes.Tag{Key: &k, Value: &v})
+	}
+
+	for k, v := range tagMap {
+		tags = append(tags, iamTypes.Tag{Key: &k, Value: &v})
+	}
+	return tags
 }

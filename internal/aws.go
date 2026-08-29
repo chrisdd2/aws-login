@@ -1,0 +1,170 @@
+package internal
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2Types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/aws/smithy-go"
+)
+
+const signInUrl = "https://signin.aws.amazon.com/federation"
+
+var ErrNotAuthorized = errors.New("management role doesn't exist or missing permissions")
+
+type AwsCredentials struct {
+	AccessKeyId     string `json:"aws_access_key_id,omitempty"`
+	SecretAccessKey string `json:"aws_secret_access_key,omitempty"`
+	SessionToken    string `json:"aws_session_token,omitempty"`
+}
+
+const (
+	CredentialFormatCmd        = "cmd"
+	CredentialFormatPowershell = "powershell"
+	CredentialFormatBash       = "bash"
+)
+
+type CredentialFormatType string
+
+func (c AwsCredentials) Format(t string) string {
+	switch t {
+	case CredentialFormatCmd:
+		return fmt.Sprintf("set AWS_ACCESS_KEY_ID=%s\nset AWS_SECRET_ACCESS_KEY=%s\nset AWS_SESSION_TOKEN=%s", c.AccessKeyId, c.SecretAccessKey, c.SessionToken)
+	case CredentialFormatPowershell:
+		return fmt.Sprintf("$env:AWS_ACCESS_KEY_ID=\"%s\"\n$env:AWS_SECRET_ACCESS_KEY=\"=%s\"\n$env:AWS_SESSION_TOKEN=\"%s\"", c.AccessKeyId, c.SecretAccessKey, c.SessionToken)
+	case CredentialFormatBash:
+		return fmt.Sprintf("export AWS_ACCESS_KEY_ID=%s\nexport AWS_SECRET_ACCESS_KEY=%s\nexport AWS_SESSION_TOKEN=%s", c.AccessKeyId, c.SecretAccessKey, c.SessionToken)
+	default:
+		// just json
+		buf, _ := json.Marshal(c)
+		return string(buf)
+	}
+}
+
+type AssumeRoleClient interface {
+	AssumeRole(ctx context.Context, params *sts.AssumeRoleInput, optFns ...func(*sts.Options)) (*sts.AssumeRoleOutput, error)
+}
+
+func GenerateCredentials(ctx context.Context, cl AssumeRoleClient, roleArn string, sessionName string, duration time.Duration) (AwsCredentials, error) {
+	resp, err := cl.AssumeRole(ctx, &sts.AssumeRoleInput{RoleArn: &roleArn, RoleSessionName: &sessionName, DurationSeconds: aws.Int32(int32(duration.Seconds()))})
+	if err != nil {
+		return AwsCredentials{}, fmt.Errorf("AssumeRoleClient.AssumeRole: %w", err)
+	}
+	return AwsCredentials{
+		AccessKeyId:     aws.ToString(resp.Credentials.AccessKeyId),
+		SecretAccessKey: aws.ToString(resp.Credentials.SecretAccessKey),
+		SessionToken:    aws.ToString(resp.Credentials.SessionToken),
+	}, nil
+}
+
+func GenerateSignedUrl(ctx context.Context, creds AwsCredentials, redirectUrl string, duration time.Duration) (string, error) {
+	// request sign in token from federation page
+	token := struct {
+		SessionId    string `json:"sessionId"`
+		SessionKey   string `json:"sessionKey"`
+		SessionToken string `json:"sessionToken"`
+	}{
+		SessionId:    creds.AccessKeyId,
+		SessionKey:   creds.SecretAccessKey,
+		SessionToken: creds.SessionToken,
+	}
+
+	tokenStr, _ := json.Marshal(token) // Error handled below; empty string is acceptable
+	values := url.Values{
+		"Action":          []string{"getSigninToken"},
+		"SessionDuration": []string{strconv.Itoa(int(duration))},
+		"Session":         []string{string(tokenStr)},
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s?%s", signInUrl, values.Encode()), nil)
+	if err != nil {
+		return "", fmt.Errorf("http.NewRequestWithContext: %w", err)
+	}
+	awsResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("http.Get: %w", err)
+	}
+	defer awsResp.Body.Close()
+	if awsResp.StatusCode != http.StatusOK {
+		data, err := io.ReadAll(awsResp.Body)
+		return "", errors.Join(err, errors.New(string(data)))
+	}
+
+	signinToken := struct {
+		SigninToken string `json:"SigninToken"`
+	}{}
+	err = json.NewDecoder(awsResp.Body).Decode(&signinToken)
+	if err != nil {
+		return "", fmt.Errorf("json.Decode: %w", err)
+	}
+	// construct signin url
+	values = url.Values{
+		"Action":      []string{"login"},
+		"Issuer":      []string{"aws-login"},
+		"Destination": []string{redirectUrl},
+		"SigninToken": []string{signinToken.SigninToken},
+	}
+	return fmt.Sprintf("%s?%s", signInUrl, values.Encode()), nil
+}
+
+func AssumeRoleConfig(ctx context.Context, stsCl AssumeRoleClient, roleArn string, sessionName string, duration time.Duration) (aws.Config, error) {
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithCredentialsProvider(stscreds.NewAssumeRoleProvider(stsCl, roleArn, func(aro *stscreds.AssumeRoleOptions) {
+		aro.RoleSessionName = sessionName
+		aro.Duration = duration
+	})))
+	if err != nil {
+		return aws.Config{}, fmt.Errorf("config.LoadDefaultConfig: %w", err)
+	}
+	// sanity check for assume role permissions
+	if _, err := sts.NewFromConfig(cfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{}); err != nil {
+		// check if its an authorization error
+		var o *smithy.GenericAPIError
+		if errors.As(err, &o) {
+			if o.Code == "AccessDenied" && strings.Contains(o.Message, "sts:AssumeRole") {
+				return cfg, ErrNotAuthorized
+			}
+		}
+		return cfg, fmt.Errorf("sts.GetCallerIdentity: %w", err)
+	}
+	return cfg, nil
+}
+
+func ListEc2Instances(ctx context.Context, cl ec2.DescribeInstancesAPIClient, tagFilter map[string][]string) (ids []string, err error) {
+	filters := []ec2Types.Filter{}
+	for tagKey, tagValues := range tagFilter {
+		// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/filtering-the-list-by-tag.html
+		tagKey := fmt.Sprintf("tag:%s", tagKey)
+		filters = append(filters, ec2Types.Filter{
+			Name:   &tagKey,
+			Values: tagValues,
+		})
+	}
+	pager := ec2.NewDescribeInstancesPaginator(cl, &ec2.DescribeInstancesInput{Filters: filters})
+	for pager.HasMorePages() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("describeInstances.NextPage: %w", err)
+		}
+		for _, res := range page.Reservations {
+			for _, inst := range res.Instances {
+				if inst.State.Name == ec2Types.InstanceStateNameRunning {
+					ids = append(ids, aws.ToString(inst.InstanceId))
+				}
+			}
+		}
+	}
+	return ids, nil
+}
