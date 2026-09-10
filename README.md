@@ -1,230 +1,105 @@
-# AWS Login Application
+# AWS Login
 
-A web-based AWS role assumption portal that provides secure AWS credential and console access through OAuth authentication.
+A small web portal that lets users assume AWS IAM roles through OIDC single
+sign-on, without ever holding long-lived AWS keys.
 
-## Features
+Flow: user logs in via an OIDC provider (e.g. Keycloak) → their ID token
+groups/claims are matched against a static role config → they get either an
+AWS console federation link or exported shell credentials for the roles
+they're entitled to.
 
-- **Multi-Provider Authentication**: GitHub, Google, and Keycloak OAuth/OIDC support
-- **AWS Role Assumption**: Assume IAM roles across multiple AWS accounts
-- **Temporary Credentials**: Generate AWS console links or temporary credentials
-- **User/Role Management**: Manage users, AWS accounts, IAM roles, and policies
-- **Keycloak Sync**: Optional user synchronization from Keycloak
-- **Dual Storage Backends**: File-based or PostgreSQL storage
-- **Prometheus Metrics**: Built-in metrics endpoint
+## Commands
+
+```bash
+# One-time per AWS account: create the bootstrap role aws-login uses to
+# create/update IAM roles in that account.
+aws-login bootstrap --principal <arn-of-the-identity-running-"web">
+
+# Run the web server.
+aws-login web [--address :8080]
+```
+
+`web` also syncs the IAM roles/policies described in the config into every
+account referenced there before it starts listening.
 
 ## Configuration
 
-The application uses a layered configuration system with the following priority (highest to lowest):
+### Role config
 
-1. **Defaults** - Built-in default values
-2. **Environment Variables** - `APP_*` prefixed variables
-3. **YAML Config File** - Specified via `-config-file` flag (default: `app.conf.yml`)
-
-### Command-Line Flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-config-file` | `app.conf.yml` | Path to configuration file |
-
-### Environment Variables
-
-Environment variables use the prefix `APP_` followed by the config path with `__` separators. For example:
-- `storage.postgres.host` → `APP_STORAGE__POSTGRES__HOST`
-- `auth.github.client_id` → `APP_AUTH__GITHUB__CLIENT_ID`
-
-#### Application Settings
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `APP_NAME` | - | Application name |
-| `APP_ENVIRONMENT` | `"development"` | Environment mode (`development` or `production`) |
-| `APP_LISTEN_ADDR` | `"localhost:8090"` | HTTP server address |
-| `APP_METRICS_ADDR` | `"localhost:8099"` | Prometheus metrics server address |
-| `APP_DEVELOPMENT_MODE` | `false` | Enable debug logging |
-| `APP_ROOT_URL` | - | Base URL for OAuth redirects |
-| `APP_CONFIG_FILE` | `"app.conf.yml"` | Config file path |
-
-#### Storage Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `APP_STORAGE__TYPE` | `"file"` | Storage backend (`file` or `postgres`) |
-| `APP_STORAGE__DIRECTORY` | `".config"` | File storage directory |
-| `APP_STORAGE__POSTGRES__HOST` | - | PostgreSQL host |
-| `APP_STORAGE__POSTGRES__PORT` | - | PostgreSQL port |
-| `APP_STORAGE__POSTGRES__DATABASE` | - | PostgreSQL database name |
-| `APP_STORAGE__POSTGRES__USERNAME` | - | PostgreSQL username |
-| `APP_STORAGE__POSTGRES__PASSWORD` | - | PostgreSQL password |
-| `APP_STORAGE__SYNC__KEYCLOAK__BASE_URL` | - | Keycloak server URL |
-| `APP_STORAGE__SYNC__KEYCLOAK__REALM` | - | Keycloak realm |
-| `APP_STORAGE__SYNC__KEYCLOAK__USERNAME` | - | Keycloak admin username |
-| `APP_STORAGE__SYNC__KEYCLOAK__PASSWORD` | - | Keycloak admin password |
-
-#### Authentication Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `APP_AUTH__ADMIN_USERNAME` | - | Admin panel username |
-| `APP_AUTH__ADMIN_PASSWORD` | - | Admin panel password |
-| `APP_AUTH__SIGN_KEY` | - | JWT signing key (keep secure) |
-| `APP_AUTH__GITHUB__CLIENT_ID` | - | GitHub OAuth client ID |
-| `APP_AUTH__GITHUB__CLIENT_SECRET` | - | GitHub OAuth client secret |
-| `APP_AUTH__GITHUB__REDIRECT_URL` | - | GitHub OAuth callback URL |
-| `APP_AUTH__GOOGLE__CLIENT_ID` | - | Google OAuth client ID |
-| `APP_AUTH__GOOGLE__CLIENT_SECRET` | - | Google OAuth client secret |
-| `APP_AUTH__GOOGLE__PROVIDER_URL` | - | Google OIDC provider URL |
-| `APP_AUTH__GOOGLE__REDIRECT_URL` | - | Google OAuth callback URL |
-| `APP_AUTH__KEYCLOAK__CLIENT_ID` | - | Keycloak client ID |
-| `APP_AUTH__KEYCLOAK__CLIENT_SECRET` | - | Keycloak client secret |
-| `APP_AUTH__KEYCLOAK__PROVIDER_URL` | - | Keycloak OIDC provider URL |
-| `APP_AUTH__KEYCLOAK__REDIRECT_URL` | - | Keycloak OAuth callback URL |
-| `APP_AUTH__GOOGLE_WORKSPACES` | - | Comma-separated allowed Google Workspace domains |
-
-### AWS Credentials
-
-The application uses AWS SDK environment variables with custom prefixes for assuming roles:
-
-| Prefix | Variables |
-|--------|-----------|
-| `ASSUMER_AWS_*` | AWS credentials for assuming roles |
-| `S3_AWS_*` | AWS credentials for S3 operations |
-
-Example:
-```bash
-export ASSUMER_AWS_ACCESS_KEY_ID=AKIA...
-export ASSUMER_AWS_SECRET_ACCESS_KEY=...
-export ASSUMER_AWS_REGION=us-east-1
-```
-
-### YAML Configuration File
-
-#### Example Configuration
+`CONFIG_FILE` (default `config`) points to a YAML or JSON file, or a
+directory of them, each shaped like:
 
 ```yaml
-name: Aws Login
-root_url: http://localhost:8090
-listen_addr: 0.0.0.0:8090
-metrics_addr: localhost:8099
-
-storage:
-  type: postgres
-  postgres:
-    host: localhost
-    database: postgres
-    username: postgres
-    password: postgres
-  sync:
-    keycloak:
-      base_url: http://localhost:8180
-      realm: master
-      username: admin
-      password: admin
-
-auth:
-  admin_username: admin
-  admin_password: admin
-  github:
-    client_id: your-github-client-id
-    client_secret: your-github-client-secret
-    redirect_url: http://localhost:8090/oauth2/github/idpresponse
-  google:
-    client_id: your-google-client-id
-    client_secret: your-google-client-secret
-    provider_url: https://accounts.google.com
-    redirect_url: https://localhost:9000/oauth2/google/idpresponse
-  google_workspaces:
-    - example.com
-  keycloak:
-    client_secret: your-keycloak-secret
-    provider_url: http://localhost:8080/realms/grafana
-    redirect_url: http://localhost:8090/oauth2/keycloak/idpresponse
-
-development_mode: true
+roles:
+  - name: readonly
+    account_id: "111111111111"
+    managed_policies:
+      - arn:aws:iam::aws:policy/ReadOnlyAccess
+    policies:               # optional inline policies, name -> JSON document
+    tags:
+      production: "true"
+    claim:                  # OIDC group/claim values that may assume this role
+      - developers
+    max_session_duration: 8h  # optional, defaults to 8h
+    no_boundary: false         # optional, skip the IAM permission boundary
 ```
 
-#### File Storage Structure
+See [example.yaml](example.yaml).
 
-When using file-based storage (`storage.type: file`), the following directory structure is used:
+### Environment variables
 
-```
-.config/
-├── accounts.yml
-├── roles.yml
-├── policies.yml
-├── users.yml
-├── role_account_attachments.yml
-├── role_policy_attachments.yml
-└── role_user_attachments.yml
-```
+| Variable | Default | Description |
+|----------|---------|--------------|
+| `CONFIG_FILE` | `config` | Path to the role config file or directory |
+| `OIDC_ISSUER_URL` | — (required) | OIDC provider issuer URL |
+| `OIDC_REDIRECT_URL` | — (required) | OAuth2 callback URL, e.g. `https://host/oauth2/callback` |
+| `OIDC_CLIENT_ID` | — (required) | OIDC client ID |
+| `OIDC_SECRET` | — (required) | OIDC client secret |
+| `OIDC_LOGOUT_URL` | discovered from `.well-known/openid-configuration` | End-session endpoint override |
+| `OIDC_SCOPES` | — | Extra comma-separated scopes (`openid email profile` are always included) |
+| `OIDC_GROUP_CLAIMSPATH` | `groups` | Dotted path to the groups/roles claim in the ID token |
+| `OIDC_USERNAME_CLAIMSPATH` | `username` | Dotted path to the username claim |
+| `OIDC_DISPLAYNAME_CLAIMSPATH` | `preferred_name` | Dotted path to the display-name claim |
+| `OIDC_SECURE_COOKIES` | `false` | Set `true` to mark cookies `Secure` (needs HTTPS) |
+| `ENCRYPTION_KEY` | — (required) | Key used to sign the session JWT cookie |
+| `BASE_URL` | `/` | Path to redirect to after login/logout |
+| `APP_TITLE` | `aws-login` | Title shown in the UI |
 
-## OAuth Provider Setup
+AWS credentials/region are picked up the standard way via the AWS SDK
+(env vars, shared config, instance/task role, etc.) — used both to run
+`bootstrap`/`web` and, per target account, via `sts:AssumeRole` on the
+bootstrap role created there.
 
-### GitHub OAuth App
+## Local development
 
-1. Go to GitHub Settings > Developer settings > OAuth Apps
-2. Create a new OAuth App
-3. Set the callback URL to: `http://your-domain/oauth2/github/idpresponse`
-4. Copy Client ID and Client Secret to configuration
-
-### Google OAuth
-
-1. Go to Google Cloud Console > APIs & Services > Credentials
-2. Create an OAuth 2.0 Client ID
-3. Set the callback URL to: `http://your-domain/oauth2/google/idpresponse`
-4. Copy Client ID and Client Secret to configuration
-
-### Keycloak
-
-1. Create a new client in your Keycloak realm
-2. Set Client Protocol to `openid-connect`
-3. Set Valid Redirect URIs to your application URL
-4. Copy the client secret and realm details to configuration
-
-## Storage Backends
-
-### File Storage (Default)
-
-Simple YAML file-based storage. Suitable for development and small deployments.
-
-```yaml
-storage:
-  type: file
-  dir: .config
-```
-
-### PostgreSQL
-
-Recommended for production use with better performance and concurrency.
-
-```yaml
-storage:
-  type: postgres
-  postgres:
-    host: localhost
-    database: postgres
-    username: postgres
-    password: postgres
-```
-
-## Development
+`docker-compose.yml` starts a bare Keycloak instance for testing OIDC login
+against:
 
 ```bash
-# Build
-go build -o aws-login .
-
-# Run with custom config
-./aws-login -config-file app.conf.yml
+docker compose up -d
+# Keycloak admin console: http://localhost:8180 (admin/admin)
 ```
 
-## Production Considerations
+Point `OIDC_ISSUER_URL` at the realm you create there, add role entries to
+`sample.yaml` (or your own config file) matching your Keycloak groups, then:
 
-1. Set `APP_ENVIRONMENT=production` in production
-2. Disable `development_mode`
-3. Use a strong `sign_key` for JWT tokens
-4. Use PostgreSQL for storage
-5. Configure TLS/HTTPS
-6. Set secure passwords for all admin accounts
-7. Store sensitive credentials in secrets management
+```bash
+go build -o aws-login ./cmd/cli
+CONFIG_FILE=sample.yaml OIDC_ISSUER_URL=... OIDC_REDIRECT_URL=... \
+  OIDC_CLIENT_ID=... OIDC_SECRET=... ENCRYPTION_KEY=... ./aws-login web
+```
 
+## How role assumption works
 
-#### This readme was totally gene.. created by a human
+For every AWS account referenced in the role config, `aws-login` (via the
+identity running `web`) assumes a per-account `aws-login-bootstrap` role
+(created by the `bootstrap` command) and uses it to create/update:
+
+- one IAM role per config entry, trusted to be assumed by that same identity
+- a shared permission boundary policy, attached to every role it manages,
+  that prevents those roles from being used to escalate IAM permissions
+  outside of what aws-login itself grants
+
+At request time, the web app itself calls `sts:AssumeRole` directly on the
+target role (not through the bootstrap role) using the caller identity the
+server is running as.
