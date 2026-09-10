@@ -152,7 +152,6 @@
   <h1>{{.Title}}</h1>
   <div class="user-box">
     <span class="name">{{.User.Username}}</span>
-    {{if .User.Claims}}<span class="principals">({{join .User.Claims ", "}})</span>{{end}}
     <a class="logout" href="/logout">Log out</a>
   </div>
 </header>
