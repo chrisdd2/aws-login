@@ -6,15 +6,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
-	"log/slog"
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -26,20 +24,27 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Println("provide a command")
+		fmt.Fprintln(os.Stderr, "provide a command")
 		return
 	}
 
 	ctx := context.Background()
+	if err := handleCommand(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func handleCommand(ctx context.Context) error {
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
-		log.Fatalln(err)
+		return internal.WrapError(err, "aws.LoadDefaultConfig")
 	}
 
 	stsSvc := sts.NewFromConfig(cfg)
 	whoami, err := stsSvc.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	if err != nil {
-		log.Fatalln(err)
+		return internal.WrapError(err, "sts.GetCallerIdentity")
 	}
 
 	command := os.Args[1]
@@ -48,34 +53,30 @@ func main() {
 		bootstrapFlags := flag.NewFlagSet("bootstrap", flag.ExitOnError)
 		principalArn := bootstrapFlags.String("principal", "", "aws user arn that will be able to assume the bootstrap role in this account")
 		if err := bootstrapFlags.Parse(os.Args[2:]); err != nil {
-			fmt.Println(err)
-			return
+			return internal.WrapError(err, "bootstrapFlags.Parse")
 		}
 		if *principalArn == "" {
-			fmt.Println("must provide --principal")
-			return
+			return errors.New("must provide --principal")
 		}
 		fmt.Printf("bootstrapping in account [%s] as [%s]\n", *whoami.Account, *principalArn)
 		iamSvc := iam.NewFromConfig(cfg)
-		if err := CreateBootstrapRole(ctx, iamSvc, *principalArn); err != nil {
-			fmt.Println(err)
-		} else {
-			fmt.Printf("bootstrap role created [%s]\n", bootstrapRoleArn(*whoami.Account))
+		if err := internal.CreateBootstrapRole(ctx, iamSvc, *principalArn); err != nil {
+			return internal.WrapError(err, "CreateBootstrapRole")
 		}
-		return
+		fmt.Printf("bootstrap role created [%s]\n", internal.BootstrapRoleArn(*whoami.Account))
+		return nil
 	case "web":
 		ctx, cancelCtx := shutdownContext(context.Background())
 		configDir := getOrDefault("CONFIG_FILE", "config")
 		rt, err := loadConfig(configDir)
 		if err != nil {
-			log.Fatalln(err)
+			return internal.WrapError(err, "loadConfig")
 		}
 		defer cancelCtx(errors.New("program exit"))
 		webFlags := flag.NewFlagSet("web", flag.ExitOnError)
 		addr := webFlags.String("address", ":8080", "address to listen for http requests")
 		if err := webFlags.Parse(os.Args[2:]); err != nil {
-			fmt.Println(err)
-			return
+			return internal.WrapError(err, "webFlags.Parse")
 		}
 		opts := OidcOptions{
 			IssuerUrl:             getOrDie("OIDC_ISSUER_URL"),
@@ -94,23 +95,23 @@ func main() {
 
 		oidcSrv, err := NewOpenId(ctx, &opts)
 		if err != nil {
-			fmt.Println(err)
-			return
+			return internal.WrapError(err, "NewOpenID")
 		}
+		router := Router(ctx, oidcSrv, rootUrl, []byte(tokenKey), opts.SecureCookies, rt, stsSvc)
 
-		router := Router(context.Background(), oidcSrv, rootUrl, []byte(tokenKey), opts.SecureCookies, rt, stsSvc)
-		srv := http.Server{Addr: *addr, Handler: router}
+		srv := http.Server{Addr: *addr, Handler: router, ReadTimeout: time.Second * 30, WriteTimeout: time.Second * 30}
 		go func() {
 			err := srv.ListenAndServe()
 			if err != nil {
-				log.Println(err)
+				fmt.Fprintln(os.Stderr, err)
 			}
 		}()
+		fmt.Printf("listening on [%s]\n", *addr)
 		<-ctx.Done()
 	default:
 		fmt.Printf("unhandled command %s\n", command)
 	}
-
+	return nil
 }
 
 func shutdownContext(parent context.Context) (context.Context, context.CancelCauseFunc) {
@@ -130,25 +131,6 @@ func shutdownContext(parent context.Context) (context.Context, context.CancelCau
 	return ctx, cancel
 }
 
-type gracefullServer struct {
-	Name   string
-	Server http.Server
-}
-
-func (g *gracefullServer) Listen(cancel context.CancelCauseFunc) {
-	slog.Info(g.Name, "address", g.Server.Addr, "url", fmt.Sprintf("http://%s", g.Server.Addr))
-	err := g.Server.ListenAndServe()
-	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		slog.Info("http", "error", err.Error())
-		cancel(err)
-	}
-}
-func (g *gracefullServer) Shutdown(ctx context.Context) {
-	if err := g.Server.Shutdown(ctx); err != nil {
-		slog.Info(g.Name, "shutdown_error", err.Error())
-	}
-}
-
 func getOrDie(key string) string {
 	v := os.Getenv(key)
 	if v == "" {
@@ -166,40 +148,21 @@ func getOrDefault(key string, def string) string {
 	return v
 }
 
-func loadConfig(fp string) (*internal.RuntimeConfig, error) {
-
-	if strings.HasPrefix(fp, "http://") || strings.HasPrefix(fp, "https://") {
-		// its a url
-		resp, err := http.Get(fp)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			buf, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("loadConfig http error %d: %s", resp.StatusCode, string(buf))
-		}
-		rt := internal.RuntimeConfig{}
-		if err := json.NewDecoder(resp.Body).Decode(&rt); err != nil {
-			return nil, err
-		}
-		return &rt, nil
-	}
-
+func loadConfig(fp string) ([]internal.Role, error) {
 	f, err := os.Open(fp)
 	if err != nil {
-		return nil, err
+		return nil, internal.WrapError(err, "os.Open")
 	}
 	defer f.Close()
 	nfo, err := f.Stat()
 	if err != nil {
-		return nil, err
+		return nil, internal.WrapError(err, "f.Stat")
 	}
 	fileList := []string{}
 	if nfo.IsDir() {
 		entries, err := os.ReadDir(fp)
 		if err != nil {
-			return nil, err
+			return nil, internal.WrapError(err, "os.ReadDir")
 		}
 		for _, e := range entries {
 			if e.IsDir() {
@@ -211,32 +174,35 @@ func loadConfig(fp string) (*internal.RuntimeConfig, error) {
 		fileList = []string{fp}
 		f.Close()
 	}
-	ret := internal.RuntimeConfig{}
+	ret := []internal.Role{}
 	for _, filename := range fileList {
 		f, err := os.Open(filename)
 		if err != nil {
-			return nil, err
+			return nil, internal.WrapError(err, "os.Open")
 		}
-		rt := internal.RuntimeConfig{}
+		rt := struct {
+			Roles []internal.Role `json:"roles,omitempty"`
+		}{}
 		ext := filepath.Ext(filename)
+		var loadErr error
 		switch ext {
 		case ".yml":
 		case ".yaml":
-			err = yaml.NewDecoder(f).Decode(&rt)
+			if err := yaml.NewDecoder(f).Decode(&rt); err != nil {
+				loadErr = internal.WrapError(err, "yaml.Decode")
+			}
 		case ".json":
-			err = json.NewDecoder(f).Decode(&rt)
+			if err := json.NewDecoder(f).Decode(&rt); err != nil {
+				loadErr = internal.WrapError(err, "json.Decode")
+			}
 		default:
-			return nil, fmt.Errorf("unknown extension %s", ext)
+			loadErr = internal.WrapError(errors.New(ext), "unknown extension")
 		}
 		f.Close()
 		if err != nil {
-			return nil, err
+			return nil, loadErr
 		}
-		ret.Accounts = append(ret.Accounts, rt.Accounts...)
-		ret.Policies = append(ret.Policies, rt.Policies...)
-		ret.Principals = append(ret.Principals, rt.Principals...)
-		ret.Roles = append(ret.Roles, rt.Roles...)
-		ret.SsmActions = append(ret.SsmActions, rt.SsmActions...)
+		ret = append(ret, rt.Roles...)
 	}
-	return &ret, nil
+	return ret, nil
 }

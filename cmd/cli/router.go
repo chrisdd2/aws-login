@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -25,20 +26,22 @@ func loginErrorString(queryParams url.Values) string {
 		return ""
 	}
 	switch errorValue {
+	case "user_not_found":
+		return fmt.Sprintf("User [%s] has no accessible role", queryParams.Get("username"))
 	case "invalid_cookie":
 		return "Authentication cookie is invalid, log out and retry"
-	case "user_not_found":
-		return fmt.Sprintf("User [%s] not found in database.\nContact an administrator", queryParams.Get("username"))
 	case "wrong_credentials":
-		return "Invalid username/password"
+		return fmt.Sprintf("Authentication failed [%s].\nContact an administrator", queryParams.Get("message"))
+	case "token_expired":
+		return "Login session expired, log in again"
 	default:
-		return fmt.Sprintf("Interval server error [%s]", queryParams.Get("message"))
+		return fmt.Sprintf("Internal server error [%s]", queryParams.Get("message"))
 	}
 }
 
 var ErrNoCookie = errors.New("no auth cookie")
-var ErrTokenParse = errors.New("invalid auth token")
-var ErrTokenExpired = errors.New("expired auth token")
+var ErrTokenParse = errors.New("invalid_cookie")
+var ErrTokenExpired = errors.New("token_expired")
 
 func getLogin(key []byte, r *http.Request) (*internal.UserClaims, error) {
 	cookie, err := r.Cookie(authCookie)
@@ -63,6 +66,10 @@ func (l *LoggedInWrapper) Wrap(h AuthenticatedRoute) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token, err := getLogin(*l, r)
 		if err != nil {
+			if err == ErrNoCookie {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+				return
+			}
 			vals := url.Values{}
 			vals.Add("error", err.Error())
 			http.Redirect(w, r, "/login?"+vals.Encode(), http.StatusSeeOther)
@@ -72,15 +79,24 @@ func (l *LoggedInWrapper) Wrap(h AuthenticatedRoute) http.HandlerFunc {
 	}
 }
 
+type RoleMap map[string][]*internal.Role
+
 func Router(
 	ctx context.Context,
 	auth *OpenIdService,
 	rootUrl string,
 	tokenKey []byte,
 	secureCookies bool,
-	rt *internal.RuntimeConfig,
+	roles []internal.Role,
 	stsCl *sts.Client,
 ) *http.ServeMux {
+
+	claimToRoleMap := RoleMap{}
+	for _, r := range roles {
+		for _, c := range r.Claim {
+			claimToRoleMap[c] = append(claimToRoleMap[c], &r)
+		}
+	}
 
 	if rootUrl == "" {
 		rootUrl = "/"
@@ -88,6 +104,14 @@ func Router(
 	r := http.ServeMux{}
 
 	r.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
+		queryParams := r.URL.Query()
+		if errMsg := loginErrorString(queryParams); errMsg != "" {
+			w.Header().Add("Content-Type", "text/html; charset=utf-8")
+			if err := templates.ExecuteTemplate(w, "login", struct{ Error string }{Error: errMsg}); err != nil {
+				writeJsonError(w, http.StatusInternalServerError, err.Error())
+			}
+			return
+		}
 		_, err := getLogin(tokenKey, r)
 		if err == nil {
 			// logged in already
@@ -97,12 +121,54 @@ func Router(
 		auth.Login(w, r)
 	})
 
+	r.HandleFunc("GET /oauth2/callback", func(w http.ResponseWriter, r *http.Request) {
+		userInfo, err := auth.CallbackHandler(r)
+		if err != nil {
+			vals := url.Values{}
+			vals.Add("error", "wrong_credentials")
+			vals.Add("message", err.Error())
+			http.Redirect(w, r, "/login?"+vals.Encode(), http.StatusSeeOther)
+			return
+		}
+
+		validClaim := []string{}
+		for _, g := range userInfo.Groups {
+			_, ok := claimToRoleMap[g]
+			if ok {
+				validClaim = append(validClaim, g)
+			}
+		}
+		if len(validClaim) == 0 {
+			fmt.Fprintf(os.Stderr, "user %s with groups [%s] not matching\n", userInfo.DisplayName, userInfo.Groups)
+			vals := url.Values{}
+			vals.Add("error", "user_not_found")
+			vals.Add("username", userInfo.Username)
+			http.Redirect(w, r, "/login?"+vals.Encode(), http.StatusSeeOther)
+			return
+		}
+
+		signed, err := internal.SignToken(tokenKey, userInfo.Username, validClaim, userInfo.IdToken, 8*time.Hour)
+		if err != nil {
+			writeJsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     authCookie,
+			Value:    signed,
+			HttpOnly: true,
+			Secure:   secureCookies,
+			SameSite: http.SameSiteLaxMode,
+			Path:     "/",
+		})
+		http.Redirect(w, r, rootUrl, http.StatusSeeOther)
+	})
+
 	guard := LoggedInWrapper(tokenKey)
 
-	indexPage := guard.Wrap(indexPage())
-	r.HandleFunc("GET /", indexPage)
-	r.HandleFunc("POST /", indexPage)
-	r.HandleFunc("GET /role/{accountid}/{roleName}", guard.Wrap(assumeRole(stsCl, rt)))
+	index := guard.Wrap(indexPage(claimToRoleMap))
+	r.HandleFunc("GET /", index)
+	r.HandleFunc("POST /", index)
+	r.HandleFunc("GET /role/{accountId}/{roleName}", guard.Wrap(assumeRole(stsCl, claimToRoleMap)))
 	r.HandleFunc("GET /logout", func(w http.ResponseWriter, r *http.Request) {
 		uc, err := getLogin(tokenKey, r)
 		if err != nil {
@@ -121,31 +187,38 @@ func Router(
 	return &r
 }
 
-func assumeRole(stsCl internal.AssumeRoleClient, rt *internal.RuntimeConfig) AuthenticatedRoute {
+func assumeRole(stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute {
 	return func(w http.ResponseWriter, r *http.Request, uc *internal.UserClaims) {
 		accountId := r.PathValue("accountId")
 		roleName := r.PathValue("roleName")
 		queryParams := r.URL.Query()
 		redirectUrl := queryParams.Get("redirectUrl")
 
-		if !rt.HasIamRoleAccess(accountId, roleName, uc.Principals...) {
+		var role *internal.Role
+	outer:
+		for _, c := range uc.Claims {
+			roles := rt[c]
+			for _, r := range roles {
+				if r.AccountId == accountId && r.Name == roleName {
+					role = r
+					break outer
+				}
+			}
+		}
+		if role == nil {
 			writeJsonError(w, http.StatusUnauthorized, "no access to role")
 			return
 		}
-		awsAccountId, iamRoleName, ok := rt.RoleDetails(accountId, roleName)
-		if !ok {
-			writeJsonError(w, http.StatusInternalServerError, "role doesn't exist")
-			return
-		}
+
 		ctx := r.Context()
 
-		cfg, err := internal.AssumeRoleConfig(ctx, stsCl, bootstrapRoleArn(awsAccountId), "aws-login", time.Minute*15)
+		cfg, err := internal.AssumeRoleConfig(ctx, stsCl, internal.BootstrapRoleArn(accountId), "aws-login", time.Minute*15)
 		if err != nil {
 			writeJsonError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		assumedSts := sts.NewFromConfig(cfg)
-		creds, err := internal.GenerateCredentials(ctx, assumedSts, roleArn(awsAccountId, iamRoleName), uc.Username, time.Hour)
+		creds, err := internal.GenerateCredentials(ctx, assumedSts, internal.RoleArn(accountId, roleName), uc.Username, time.Hour)
 		if err != nil {
 			writeJsonError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -167,8 +240,46 @@ func assumeRole(stsCl internal.AssumeRoleClient, rt *internal.RuntimeConfig) Aut
 	}
 
 }
-func indexPage() func(w http.ResponseWriter, r *http.Request, uc *internal.UserClaims) {
+
+func indexPage(rt RoleMap) AuthenticatedRoute {
+	type roleView struct {
+		Name       string
+		AccountId  string
+		ConsoleURL string
+		CredURL    string
+		Tags       map[string]string
+	}
+
+	type indexData struct {
+		User  *internal.UserClaims
+		Roles []roleView
+	}
 	return func(w http.ResponseWriter, r *http.Request, uc *internal.UserClaims) {
+		userRoles := []roleView{}
+		for _, c := range uc.Claims {
+			roles := rt[c]
+			for _, role := range roles {
+				basePath := fmt.Sprintf("/role/%s/%s", url.PathEscape(role.AccountId), url.PathEscape(role.Name))
+				userRoles = append(userRoles, roleView{
+					Name:       role.Name,
+					AccountId:  role.AccountId,
+					ConsoleURL: basePath + "?redirectUrl=" + url.QueryEscape(awsConsole),
+					CredURL:    basePath + "?format=" + internal.CredentialFormatBash,
+					Tags:       role.Tags,
+				})
+			}
+		}
+		sort.Slice(userRoles, func(i, j int) bool {
+			if userRoles[i].AccountId == userRoles[i].AccountId {
+				return userRoles[i].Name < userRoles[j].Name
+			}
+			return userRoles[i].AccountId <= userRoles[i].AccountId
+		})
+
+		w.Header().Add("Content-Type", "text/html; charset=utf-8")
+		if err := templates.ExecuteTemplate(w, "index", indexData{User: uc, Roles: userRoles}); err != nil {
+			writeJsonError(w, http.StatusInternalServerError, err.Error())
+		}
 	}
 }
 

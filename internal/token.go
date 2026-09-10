@@ -2,8 +2,6 @@ package internal
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -11,18 +9,18 @@ import (
 
 type UserClaims struct {
 	jwt.RegisteredClaims
-	Username   string
-	Principals []string
-	IdpToken   string
+	Username string
+	Claims   []string
+	IdpToken string
 }
 
-func SignToken(key []byte, username string, principals []string, idpToken string, expiration time.Duration) (string, error) {
+func SignToken(key []byte, username string, claims []string, idpToken string, expiration time.Duration) (string, error) {
 	token := jwt.NewWithClaims(
 		jwt.SigningMethodHS256,
 		UserClaims{
-			Username:   username,
-			Principals: principals,
-			IdpToken:   idpToken,
+			Username: username,
+			Claims:   claims,
+			IdpToken: idpToken,
 			RegisteredClaims: jwt.RegisteredClaims{
 				ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(expiration)),
 			},
@@ -40,11 +38,11 @@ func ParseToken(ctx context.Context, key []byte, tokenStr string) (*UserClaims, 
 		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("jwt.ParseWithClaims: %w", err)
+		return nil, WrapError(err, "jwt.ParseWithClaims")
 	}
 	claims, ok := token.Claims.(*UserClaims)
 	if !ok {
-		return nil, errors.New("unable to parse claims")
+		return nil, WrapError(err, "unable to parse claims")
 	}
 	return claims, err
 }

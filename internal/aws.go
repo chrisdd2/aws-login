@@ -61,7 +61,7 @@ type AssumeRoleClient interface {
 func GenerateCredentials(ctx context.Context, cl AssumeRoleClient, roleArn string, sessionName string, duration time.Duration) (AwsCredentials, error) {
 	resp, err := cl.AssumeRole(ctx, &sts.AssumeRoleInput{RoleArn: &roleArn, RoleSessionName: &sessionName, DurationSeconds: aws.Int32(int32(duration.Seconds()))})
 	if err != nil {
-		return AwsCredentials{}, fmt.Errorf("AssumeRoleClient.AssumeRole: %w", err)
+		return AwsCredentials{}, WrapError(err, "AssumeRoleClient.AssumeRole")
 	}
 	return AwsCredentials{
 		AccessKeyId:     aws.ToString(resp.Credentials.AccessKeyId),
@@ -91,11 +91,11 @@ func GenerateSignedUrl(ctx context.Context, creds AwsCredentials, redirectUrl st
 
 	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s?%s", signInUrl, values.Encode()), nil)
 	if err != nil {
-		return "", fmt.Errorf("http.NewRequestWithContext: %w", err)
+		return "", WrapError(err, "http.NewRequestWithContext")
 	}
 	awsResp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("http.Get: %w", err)
+		return "", WrapError(err, "http.Get")
 	}
 	defer awsResp.Body.Close()
 	if awsResp.StatusCode != http.StatusOK {
@@ -108,7 +108,7 @@ func GenerateSignedUrl(ctx context.Context, creds AwsCredentials, redirectUrl st
 	}{}
 	err = json.NewDecoder(awsResp.Body).Decode(&signinToken)
 	if err != nil {
-		return "", fmt.Errorf("json.Decode: %w", err)
+		return "", WrapError(err, "json.Decode")
 	}
 	// construct signin url
 	values = url.Values{
@@ -126,18 +126,17 @@ func AssumeRoleConfig(ctx context.Context, stsCl AssumeRoleClient, roleArn strin
 		aro.Duration = duration
 	})))
 	if err != nil {
-		return aws.Config{}, fmt.Errorf("config.LoadDefaultConfig: %w", err)
+		return aws.Config{}, WrapError(err, "config.LoadDefaultConfig")
 	}
 	// sanity check for assume role permissions
 	if _, err := sts.NewFromConfig(cfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{}); err != nil {
 		// check if its an authorization error
-		var o *smithy.GenericAPIError
-		if errors.As(err, &o) {
+		if o, ok := errors.AsType[*smithy.GenericAPIError](err); ok {
 			if o.Code == "AccessDenied" && strings.Contains(o.Message, "sts:AssumeRole") {
 				return cfg, ErrNotAuthorized
 			}
 		}
-		return cfg, fmt.Errorf("sts.GetCallerIdentity: %w", err)
+		return cfg, WrapError(err, "sts.GetCallerIdentity")
 	}
 	return cfg, nil
 }
@@ -156,7 +155,7 @@ func ListEc2Instances(ctx context.Context, cl ec2.DescribeInstancesAPIClient, ta
 	for pager.HasMorePages() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("describeInstances.NextPage: %w", err)
+			return nil, WrapError(err, "describeInstances.NextPage")
 		}
 		for _, res := range page.Reservations {
 			for _, inst := range res.Instances {

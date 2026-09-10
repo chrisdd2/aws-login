@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/chrisdd2/aws-login/internal"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 )
@@ -22,6 +23,7 @@ var (
 	ErrMissingPkceVerifier = errors.New("missing pkce verifier")
 	ErrMissingAuthCode     = errors.New("missing code parameter")
 	ErrMissingIdToken      = errors.New("missing id_token in token")
+	ErrNotFound            = errors.New("not found")
 )
 
 type OpenIdService struct {
@@ -48,6 +50,7 @@ type UserInfo struct {
 	DisplayName string
 	Username    string
 	Groups      []string
+	IdToken     string
 }
 
 func joinArrays(a []string, b []string) []string {
@@ -64,7 +67,7 @@ func NewOpenId(ctx context.Context, opts *OidcOptions) (*OpenIdService, error) {
 
 	provider, err := oidc.NewProvider(ctx, opts.IssuerUrl)
 	if err != nil {
-		return nil, fmt.Errorf("oidc.NewProvider %w", err)
+		return nil, internal.WrapError(err, "oidc.NewProvider")
 	}
 
 	verifier := provider.VerifierContext(ctx, &oidc.Config{
@@ -98,6 +101,7 @@ func NewOpenId(ctx context.Context, opts *OidcOptions) (*OpenIdService, error) {
 		oauthCfg: &cfg,
 		verifier: verifier,
 		provider: provider,
+		opts:     opts,
 	}, nil
 }
 
@@ -111,7 +115,7 @@ func (g *OpenIdService) Login(w http.ResponseWriter, r *http.Request) {
 		Value:    state,
 		HttpOnly: true,
 		Secure:   g.opts.SecureCookies,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 	})
 
@@ -124,7 +128,7 @@ func (g *OpenIdService) Login(w http.ResponseWriter, r *http.Request) {
 		Value:    codeVerifier,
 		HttpOnly: true,
 		Secure:   g.opts.SecureCookies,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 	})
 
@@ -160,7 +164,7 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*UserInfo, error) {
 		oauth2.VerifierOption(pkceCookie.Value),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("oauth2.Exchange %w", err)
+		return nil, internal.WrapError(err, "oauth2.Exchange")
 	}
 	idTokenRaw, ok := token.Extra("id_token").(string)
 	if !ok {
@@ -168,55 +172,53 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*UserInfo, error) {
 	}
 	idToken, err := g.verifier.Verify(ctx, idTokenRaw)
 	if err != nil {
-		return nil, fmt.Errorf("oidc.Verify %w", err)
+		return nil, internal.WrapError(err, "oidc.Verify")
 	}
 
 	claims := map[string]interface{}{}
 
-	if err := idToken.Claims(claims); err != nil {
-		return nil, fmt.Errorf("idToken.Claims %w", err)
+	if err := idToken.Claims(&claims); err != nil {
+		return nil, internal.WrapError(err, "idToken.Claims")
 	}
 	userInfo := UserInfo{}
 
-	userInfo.DisplayName, err = jsonExtract[string](claims, g.opts.DisplayNameClaimsPath)
+	userInfo.DisplayName, err = jsonExtract(claims, g.opts.DisplayNameClaimsPath)
 	if err != nil {
 		return nil, err
 	}
-	userInfo.Groups, err = jsonExtract[[]string](claims, g.opts.GroupClaimsPath)
+	groups, err := jsonExtract(claims, g.opts.GroupClaimsPath)
 	if err != nil {
 		return nil, err
 	}
-	userInfo.Username, err = jsonExtract[string](claims, g.opts.UsernameClaimsPath)
+	userInfo.Groups = strings.Split(strings.TrimSuffix(strings.TrimPrefix(groups, "["), "]"), ",")
+	userInfo.Username, err = jsonExtract(claims, g.opts.UsernameClaimsPath)
 	if err != nil {
 		return nil, err
 	}
+	userInfo.IdToken = idTokenRaw
 	return &userInfo, nil
 }
 
-func jsonExtract[T any](j map[string]interface{}, path string) (ret T, err error) {
+func jsonExtract(j map[string]interface{}, path string) (ret string, err error) {
 	parts := strings.Split(path, ".")
-	key := parts[len(parts)-1]
-	parts = parts[:len(parts)-1]
+	key := parts[0]
+	parts = parts[1:]
 	for _, i := range parts {
 		v, ok := j[i]
 		if !ok {
-			return ret, errors.New("not found")
+			return ret, ErrNotFound
 		}
 		j2, ok := v.(map[string]interface{})
 		if !ok {
-			return ret, errors.New("not found")
+			return ret, ErrNotFound
 		}
 		j = j2
 	}
 	v, ok := j[key]
 	if !ok {
-		return *new(T), errors.New("not found")
+		return "", ErrNotFound
 	}
-	ret, ok = v.(T)
-	if !ok {
-		return *new(T), errors.New("not found")
-	}
-	return ret, nil
+	return fmt.Sprint(v), nil
 }
 
 func (g *OpenIdService) LogoutUrl(redirectUrl string, idpToken string) string {
@@ -234,11 +236,11 @@ func findLogoutUrl(issuer string) (string, error) {
 	}{}
 	resp, err := http.Get(wellKnown)
 	if err != nil {
-		return "", fmt.Errorf("http.Get: %w", err)
+		return "", internal.WrapError(err, "http.Get: %w")
 	}
 	defer resp.Body.Close()
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return "", fmt.Errorf("json.Decode: %w", err)
+		return "", internal.WrapError(err, "json.Decode")
 	}
 	return info.EndSessionEndpoint, nil
 }
