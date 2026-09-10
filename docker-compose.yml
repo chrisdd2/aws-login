@@ -1,31 +1,16 @@
 services:
-  traefik:
-    image: traefik:v3.6
-    command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--entrypoints.web.address=:80"
-    ports:
-      - "8100:80"
-      - "8080:8080"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-  # whoami:
-  #   image: nginx
-  #   labels:
-  #     - "traefik.http.routers.whoami.rule=Host(`whoami.localhost`)"
-  
-  postgres:
-      image: postgres:16
+  keycloak:
+      image: quay.io/keycloak/keycloak:26.0
       restart: unless-stopped
+      command: start-dev --import-realm
       environment:
-        POSTGRES_DB: postgres
-        POSTGRES_USER: postgres
-        POSTGRES_PASSWORD: postgres
+        KEYCLOAK_ADMIN: admin
+        KEYCLOAK_ADMIN_PASSWORD: admin
       ports:
-        - "5432:5432"
+        # http://localhost:8180 - matches OIDC_ISSUER_URL in .env
+        - "8180:8080"
       volumes:
-        - postgres_data:/var/lib/postgresql/data
+        - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
 
 volumes:
   postgres_data:

@@ -5,11 +5,12 @@ import (
 	"crypto/md5"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
@@ -233,7 +234,7 @@ func SyncRoles(ctx context.Context, stsSvc *sts.Client, roles []Role) error {
 }
 
 func upsertPermissionBoundary(ctx context.Context, iamSvc *iam.Client, bootstrapRoleArn, permissionBoundaryArn string) error {
-	expectedPolicyDocument := boundaryPolicy(permissionBoundaryArn, bootstrapRoleArn)
+	expectedPolicyDocument := minimizePolicy(boundaryPolicy(permissionBoundaryArn, bootstrapRoleArn))
 
 	policyResp, err := iamSvc.GetPolicy(ctx, &iam.GetPolicyInput{PolicyArn: &permissionBoundaryArn})
 	if err != nil {
@@ -260,7 +261,25 @@ func upsertPermissionBoundary(ctx context.Context, iamSvc *iam.Client, bootstrap
 	if err != nil {
 		return WrapError(err, "iam.GetPolicyVersion")
 	}
-	if aws.ToString(resp.PolicyVersion.Document) != expectedPolicyDocument {
+	unescaped, _ := url.QueryUnescape(aws.ToString(resp.PolicyVersion.Document))
+	currentPolicy := minimizePolicy(unescaped)
+	if currentPolicy != expectedPolicyDocument {
+		// delete the earlier one
+		versionResp, err := iamSvc.ListPolicyVersions(ctx, &iam.ListPolicyVersionsInput{PolicyArn: policyResp.Policy.Arn})
+		if err != nil {
+			return WrapError(err, "ListPolicyVersions")
+		}
+		if len(versionResp.Versions) > 1 {
+			for _, v := range versionResp.Versions {
+				if aws.ToString(v.VersionId) == aws.ToString(resp.PolicyVersion.VersionId) {
+					continue
+				}
+				if _, err := iamSvc.DeletePolicyVersion(ctx, &iam.DeletePolicyVersionInput{PolicyArn: policyResp.Policy.Arn, VersionId: v.VersionId}); err != nil {
+					return WrapError(err, "DeletePolicyVersion")
+				}
+				break
+			}
+		}
 		// put ours
 		if _, err := iamSvc.CreatePolicyVersion(ctx, &iam.CreatePolicyVersionInput{PolicyArn: policyResp.Policy.Arn, PolicyDocument: &expectedPolicyDocument, SetAsDefault: true}); err != nil {
 			return WrapError(err, "CreatePolicyVersion")
@@ -298,6 +317,9 @@ func SyncAccount(ctx context.Context, stsSvc *sts.Client, accountId string, role
 			AssumeRoleDocument: assumeRoleDocument,
 			PermissionBoundary: permissionBoundaryArn,
 		}
+		if opts.MaxSessionDuration == 0 {
+			opts.MaxSessionDuration = time.Hour * 8
+		}
 		if r.NoIamBoundary {
 			opts.PermissionBoundary = ""
 		}
@@ -318,19 +340,11 @@ func shortRoleName(roleName string) string {
 }
 
 func boundaryPolicyArn(accountId string) string {
-	return arn.ARN{
-		Service:   "iam",
-		Resource:  fmt.Sprintf("policy/%s", permissionBoundaryName),
-		AccountID: accountId,
-	}.String()
+	return fmt.Sprintf("arn:aws:iam::%s:policy/%s", accountId, permissionBoundaryName)
 }
 
 func RoleArn(accountId string, roleName string) string {
-	return arn.ARN{
-		Service:   "iam",
-		Resource:  fmt.Sprintf("role/%s", roleName),
-		AccountID: accountId,
-	}.String()
+	return fmt.Sprintf("arn:aws:iam::%s:role/%s", accountId, roleName)
 }
 
 func BootstrapRoleArn(accountId string) string {
@@ -356,8 +370,7 @@ func mapToAwsTags(tagMap map[string]string) []iamTypes.Tag {
 }
 
 func boundaryPolicy(permissionBoundaryArn, bootstrapRoleArn string) string {
-	return fmt.Sprintf(`
-{
+	return fmt.Sprintf(`{
   "Version": "2012-10-17",
   "Statement": [
     {
@@ -399,7 +412,10 @@ func boundaryPolicy(permissionBoundaryArn, bootstrapRoleArn string) string {
       "Sid": "DenyBoundaryActions",
       "Effect": "Deny",
       "Action": [
-        "iam:*Boundary"
+        "iam:DeleteRolePermissionsBoundary",
+        "iam:PutRolePermissionsBoundary",
+        "iam:DeleteUserPermissionsBoundary",
+        "iam:PutUserPermissionsBoundary"
       ],
       "Resource": "*"
     },
@@ -412,14 +428,6 @@ func boundaryPolicy(permissionBoundaryArn, bootstrapRoleArn string) string {
         "iam:UpdateRole"
       ],
       "Resource": "%s"
-    },
-    {
-      "Sid": "AllowEverythingElse",
-      "Effect": "Allow",
-      "Action": [
-        "*"
-      ],
-      "Resource": "*"
     }
   ]
 }`, permissionBoundaryArn, permissionBoundaryArn, bootstrapRoleArn)
@@ -437,4 +445,12 @@ func trustPolicy(arn string) string {
 							}]
 							}
 					`, arn)
+}
+
+func minimizePolicy(policy string) string {
+	lines := []string{}
+	for line := range strings.SplitSeq(policy, "\n") {
+		lines = append(lines, strings.TrimSpace(line))
+	}
+	return strings.Join(lines, "")
 }

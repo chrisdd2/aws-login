@@ -85,6 +85,7 @@ func Router(
 	ctx context.Context,
 	auth *OpenIdService,
 	rootUrl string,
+	title string,
 	tokenKey []byte,
 	secureCookies bool,
 	roles []internal.Role,
@@ -107,7 +108,10 @@ func Router(
 		queryParams := r.URL.Query()
 		if errMsg := loginErrorString(queryParams); errMsg != "" {
 			w.Header().Add("Content-Type", "text/html; charset=utf-8")
-			if err := templates.ExecuteTemplate(w, "login", struct{ Error string }{Error: errMsg}); err != nil {
+			if err := templates.ExecuteTemplate(w, "login", struct {
+				Title string
+				Error string
+			}{Title: title, Error: errMsg}); err != nil {
 				writeJsonError(w, http.StatusInternalServerError, err.Error())
 			}
 			return
@@ -165,7 +169,7 @@ func Router(
 
 	guard := LoggedInWrapper(tokenKey)
 
-	index := guard.Wrap(indexPage(claimToRoleMap))
+	index := guard.Wrap(indexPage(title, claimToRoleMap))
 	r.HandleFunc("GET /", index)
 	r.HandleFunc("POST /", index)
 	r.HandleFunc("GET /role/{accountId}/{roleName}", guard.Wrap(assumeRole(stsCl, claimToRoleMap)))
@@ -212,17 +216,12 @@ func assumeRole(stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute 
 
 		ctx := r.Context()
 
-		cfg, err := internal.AssumeRoleConfig(ctx, stsCl, internal.BootstrapRoleArn(accountId), "aws-login", time.Minute*15)
+		creds, err := internal.GenerateCredentials(ctx, stsCl, internal.RoleArn(accountId, roleName), uc.Username, time.Hour)
 		if err != nil {
 			writeJsonError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		assumedSts := sts.NewFromConfig(cfg)
-		creds, err := internal.GenerateCredentials(ctx, assumedSts, internal.RoleArn(accountId, roleName), uc.Username, time.Hour)
-		if err != nil {
-			writeJsonError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
+
 		if redirectUrl != "" {
 			url, err := internal.GenerateSignedUrl(ctx, creds, awsConsole, time.Hour*8)
 			if err != nil {
@@ -241,7 +240,7 @@ func assumeRole(stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute 
 
 }
 
-func indexPage(rt RoleMap) AuthenticatedRoute {
+func indexPage(title string, rt RoleMap) AuthenticatedRoute {
 	type roleView struct {
 		Name       string
 		AccountId  string
@@ -251,6 +250,7 @@ func indexPage(rt RoleMap) AuthenticatedRoute {
 	}
 
 	type indexData struct {
+		Title string
 		User  *internal.UserClaims
 		Roles []roleView
 	}
@@ -270,14 +270,14 @@ func indexPage(rt RoleMap) AuthenticatedRoute {
 			}
 		}
 		sort.Slice(userRoles, func(i, j int) bool {
-			if userRoles[i].AccountId == userRoles[i].AccountId {
+			if userRoles[i].AccountId == userRoles[j].AccountId {
 				return userRoles[i].Name < userRoles[j].Name
 			}
-			return userRoles[i].AccountId <= userRoles[i].AccountId
+			return userRoles[i].AccountId < userRoles[j].AccountId
 		})
 
 		w.Header().Add("Content-Type", "text/html; charset=utf-8")
-		if err := templates.ExecuteTemplate(w, "index", indexData{User: uc, Roles: userRoles}); err != nil {
+		if err := templates.ExecuteTemplate(w, "index", indexData{User: uc, Roles: userRoles, Title: title}); err != nil {
 			writeJsonError(w, http.StatusInternalServerError, err.Error())
 		}
 	}

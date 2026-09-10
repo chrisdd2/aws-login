@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -85,7 +86,7 @@ func GenerateSignedUrl(ctx context.Context, creds AwsCredentials, redirectUrl st
 	tokenStr, _ := json.Marshal(token) // Error handled below; empty string is acceptable
 	values := url.Values{
 		"Action":          []string{"getSigninToken"},
-		"SessionDuration": []string{strconv.Itoa(int(duration))},
+		"SessionDuration": []string{strconv.Itoa(int(duration.Seconds()))},
 		"Session":         []string{string(tokenStr)},
 	}
 
@@ -99,8 +100,9 @@ func GenerateSignedUrl(ctx context.Context, creds AwsCredentials, redirectUrl st
 	}
 	defer awsResp.Body.Close()
 	if awsResp.StatusCode != http.StatusOK {
-		data, err := io.ReadAll(awsResp.Body)
-		return "", errors.Join(err, errors.New(string(data)))
+		data, _ := io.ReadAll(awsResp.Body)
+		fmt.Fprintf(os.Stderr, "status_code: %d\n:text: %s\n", awsResp.StatusCode, string(data))
+		return "", WrapError(errors.New(awsResp.Status), "aws.getSigninToken")
 	}
 
 	signinToken := struct {

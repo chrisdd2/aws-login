@@ -72,7 +72,11 @@ func handleCommand(ctx context.Context) error {
 		if err != nil {
 			return internal.WrapError(err, "loadConfig")
 		}
+
 		defer cancelCtx(errors.New("program exit"))
+		if err := internal.SyncRoles(ctx, stsSvc, rt); err != nil {
+			return internal.WrapError(err, "webFlags.Parse")
+		}
 		webFlags := flag.NewFlagSet("web", flag.ExitOnError)
 		addr := webFlags.String("address", ":8080", "address to listen for http requests")
 		if err := webFlags.Parse(os.Args[2:]); err != nil {
@@ -92,12 +96,13 @@ func handleCommand(ctx context.Context) error {
 		}
 		rootUrl := getOrDefault("BASE_URL", "/")
 		tokenKey := getOrDie("ENCRYPTION_KEY")
+		title := getOrDefault("APP_TITLE", "aws-login")
 
 		oidcSrv, err := NewOpenId(ctx, &opts)
 		if err != nil {
 			return internal.WrapError(err, "NewOpenID")
 		}
-		router := Router(ctx, oidcSrv, rootUrl, []byte(tokenKey), opts.SecureCookies, rt, stsSvc)
+		router := Router(ctx, oidcSrv, rootUrl, title, []byte(tokenKey), opts.SecureCookies, rt, stsSvc)
 
 		srv := http.Server{Addr: *addr, Handler: router, ReadTimeout: time.Second * 30, WriteTimeout: time.Second * 30}
 		go func() {
