@@ -1,5 +1,5 @@
 # Stage 1: Build the Go binary
-FROM golang:1.24 AS builder
+FROM golang:1.27 AS builder
 
 WORKDIR /app
 
@@ -9,7 +9,7 @@ RUN go mod download
 COPY . .
 
 # Build the Go binary
-RUN CGO_ENABLED=0 go build -o main .
+RUN CGO_ENABLED=0 go build -o main ./cmd/cli
 
 # Stage 2: Minimal runtime image with certificates
 FROM alpine:latest
