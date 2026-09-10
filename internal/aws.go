@@ -16,8 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	ec2Types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 )
@@ -143,29 +141,3 @@ func AssumeRoleConfig(ctx context.Context, stsCl AssumeRoleClient, roleArn strin
 	return cfg, nil
 }
 
-func ListEc2Instances(ctx context.Context, cl ec2.DescribeInstancesAPIClient, tagFilter map[string][]string) (ids []string, err error) {
-	filters := []ec2Types.Filter{}
-	for tagKey, tagValues := range tagFilter {
-		// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/filtering-the-list-by-tag.html
-		tagKey := fmt.Sprintf("tag:%s", tagKey)
-		filters = append(filters, ec2Types.Filter{
-			Name:   &tagKey,
-			Values: tagValues,
-		})
-	}
-	pager := ec2.NewDescribeInstancesPaginator(cl, &ec2.DescribeInstancesInput{Filters: filters})
-	for pager.HasMorePages() {
-		page, err := pager.NextPage(ctx)
-		if err != nil {
-			return nil, WrapError(err, "describeInstances.NextPage")
-		}
-		for _, res := range page.Reservations {
-			for _, inst := range res.Instances {
-				if inst.State.Name == ec2Types.InstanceStateNameRunning {
-					ids = append(ids, aws.ToString(inst.InstanceId))
-				}
-			}
-		}
-	}
-	return ids, nil
-}
