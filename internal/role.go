@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -189,14 +188,11 @@ func CreateBootstrapRole(ctx context.Context, iamSvc *iam.Client, principalArn s
 		MaxSessionDuration: time.Hour,
 		Tags:               map[string]string{"aws-login:role": "bootstrap"},
 		InlinePolicies: map[string]string{
-			"iam": `{
-					"Version": "2012-10-17",
-					"Statement": [{
-						"Effect": "Allow",
-						"Action": "iam:*",
-						"Resource": "*"
-					}]
-				}`,
+			"iam": marshalPolicy(policyStatement{
+				Effect:   "Allow",
+				Action:   []string{"iam:*"},
+				Resource: []string{"*"},
+			}),
 		},
 		AssumeRoleDocument: trustPolicy(principalArn),
 	})
@@ -365,147 +361,4 @@ func mapToAwsTags(tagMap map[string]string) []iamTypes.Tag {
 		tags = append(tags, iamTypes.Tag{Key: &k, Value: &v})
 	}
 	return tags
-}
-
-func boundaryPolicy(permissionBoundaryArn, bootstrapRoleArn string) string {
-	return fmt.Sprintf(`{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "AllowEverythingElse",
-      "Effect": "Allow",
-      "Action": "*",
-      "Resource": "*"
-    },
-    {
-      "Sid": "DenyAllIAMUserActions",
-      "Effect": "Deny",
-      "Action": [
-        "iam:CreateUser",
-        "iam:DeleteUser",
-        "iam:CreateAccessKey",
-        "iam:CreateLoginProfile",
-        "iam:UpdateLoginProfile",
-        "iam:AttachUserPolicy",
-        "iam:DetachUserPolicy",
-        "iam:PutUserPolicy",
-        "iam:DeleteUserPolicy"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "DenyAllIAMGroupActions",
-      "Effect": "Deny",
-      "Action": [
-        "iam:CreateGroup",
-        "iam:DeleteGroup",
-        "iam:AddUserToGroup",
-        "iam:RemoveUserFromGroup",
-        "iam:AttachGroupPolicy",
-        "iam:DetachGroupPolicy",
-        "iam:PutGroupPolicy",
-        "iam:DeleteGroupPolicy"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "DenyCreateRoleWithoutBoundary",
-      "Effect": "Deny",
-      "Action": [
-        "iam:CreateRole"
-      ],
-      "Resource": "*",
-      "Condition": {
-        "StringNotEqualsIfExists": {
-          "iam:PermissionsBoundary": "%s"
-        }
-      }
-    },
-    {
-      "Sid": "DenyUpdateRoleToRemoveBoundary",
-      "Effect": "Deny",
-      "Action": [
-        "iam:UpdateRole"
-      ],
-      "Resource": "*",
-      "Condition": {
-        "StringNotEqualsIfExists": {
-          "iam:PermissionsBoundary": "%s"
-        }
-      }
-    },
-    {
-      "Sid": "DenyBoundaryActions",
-      "Effect": "Deny",
-      "Action": [
-        "iam:DeleteRolePermissionsBoundary",
-        "iam:PutRolePermissionsBoundary",
-        "iam:DeleteUserPermissionsBoundary",
-        "iam:PutUserPermissionsBoundary"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "DenyManagementRoleModification",
-      "Effect": "Deny",
-      "Action": [
-        "iam:CreateRole",
-        "iam:DeleteRole",
-        "iam:UpdateRole",
-        "iam:UpdateAssumeRolePolicy",
-        "iam:PutRolePolicy",
-        "iam:DeleteRolePolicy",
-        "iam:AttachRolePolicy",
-        "iam:DetachRolePolicy",
-        "iam:TagRole",
-        "iam:UntagRole"
-      ],
-      "Resource": "%s"
-    },
-    {
-      "Sid": "DenyPassRoleToService",
-      "Effect": "Deny",
-      "Action": "iam:PassRole",
-      "Resource": "%s",
-      "Condition": {
-        "StringLike": {
-          "iam:PassedToService": "*"
-        }
-      }
-    },
-    {
-      "Sid": "DenyPassRoleOfBoundedRoles",
-      "Effect": "Deny",
-      "Action": "iam:PassRole",
-      "Resource": "*",
-      "Condition": {
-        "StringEquals": {
-          "iam:PermissionsBoundary": "%s"
-        }
-      }
-    }
-  ]
-}`, permissionBoundaryArn, permissionBoundaryArn, bootstrapRoleArn, bootstrapRoleArn, permissionBoundaryArn)
-}
-
-func trustPolicy(arn string) string {
-	return fmt.Sprintf(`{
-							"Version": "2012-10-17",
-							"Statement": [{
-								"Effect": "Allow",
-								"Principal": {
-								"AWS": "%s"
-								},
-								"Action": "sts:AssumeRole"
-							}]
-							}
-					`, arn)
-}
-
-func minimizePolicy(policy string) string {
-	lines := []string{}
-	for line := range strings.SplitSeq(policy, "\n") {
-		lines = append(lines, strings.TrimSpace(line))
-	}
-	return strings.Join(lines, "")
 }
