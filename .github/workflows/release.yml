@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: 0
+        run: go build -o dist/aws-login ./cmd/cli
+
+      - name: Upsert master release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: master
+          name: master
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          files: dist/aws-login
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
