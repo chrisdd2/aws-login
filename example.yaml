@@ -1,0 +1,9 @@
+roles:
+  - name: readonly
+    account_id: 111111111111
+    managed_policies:
+      - arn:aws:iam::aws:policy/ReadOnlyAccess
+    tags:
+      production: true
+    claim:
+      - developers

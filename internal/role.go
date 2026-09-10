@@ -49,9 +49,7 @@ func SyncRole(ctx context.Context, iamSvc *iam.Client, opts *RoleOptions) error 
 			// role doesn't exist
 			return MaybeWrap(createRole(ctx, iamSvc, opts), "createRole")
 		}
-		if _, ok := errors.AsType[*iamTypes.EntityAlreadyExistsException](err); !ok {
-			return WrapError(err, "iam.GetRole")
-		}
+		return WrapError(err, "iam.GetRole")
 	}
 	// check if the basic stuff of the role need update
 	if opts.Description != aws.ToString(resp.Role.Description) || int32(opts.MaxSessionDuration.Seconds()) != aws.ToInt32(resp.Role.MaxSessionDuration) {
@@ -333,8 +331,8 @@ func SyncAccount(ctx context.Context, stsSvc *sts.Client, accountId string, role
 func shortRoleName(roleName string) string {
 	roleName = fmt.Sprintf("%s-%s", uniqPrefix, roleName)
 	if len(roleName) > 64 {
-		hash := md5.Sum([]byte(roleName))
-		roleName = roleName[:64-len(hash)] + string(hash[:])
+		hash := fmt.Sprintf("%x", md5.Sum([]byte(roleName)))
+		roleName = roleName[:64-len(hash)] + hash
 	}
 	return roleName
 }

@@ -75,7 +75,7 @@ func handleCommand(ctx context.Context) error {
 
 		defer cancelCtx(errors.New("program exit"))
 		if err := internal.SyncRoles(ctx, stsSvc, rt); err != nil {
-			return internal.WrapError(err, "webFlags.Parse")
+			return internal.WrapError(err, "SyncRoles")
 		}
 		webFlags := flag.NewFlagSet("web", flag.ExitOnError)
 		addr := webFlags.String("address", ":8080", "address to listen for http requests")
@@ -191,8 +191,7 @@ func loadConfig(fp string) ([]internal.Role, error) {
 		ext := filepath.Ext(filename)
 		var loadErr error
 		switch ext {
-		case ".yml":
-		case ".yaml":
+		case ".yaml", ".yml":
 			if err := yaml.NewDecoder(f).Decode(&rt); err != nil {
 				loadErr = internal.WrapError(err, "yaml.Decode")
 			}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"net/http"
 	"net/url"
 	"os"
@@ -80,6 +81,27 @@ func (l *LoggedInWrapper) Wrap(h AuthenticatedRoute) http.HandlerFunc {
 }
 
 type RoleMap map[string][]*internal.Role
+
+func (rt RoleMap) RolesFor(claims []string) iter.Seq[*internal.Role] {
+	return func(yield func(*internal.Role) bool) {
+		for _, c := range claims {
+			for _, r := range rt[c] {
+				if !yield(r) {
+					return
+				}
+			}
+		}
+	}
+}
+
+func (rt RoleMap) Find(claims []string, accountId, roleName string) *internal.Role {
+	for r := range rt.RolesFor(claims) {
+		if r.AccountId == accountId && r.Name == roleName {
+			return r
+		}
+	}
+	return nil
+}
 
 func Router(
 	ctx context.Context,
@@ -198,17 +220,7 @@ func assumeRole(stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute 
 		queryParams := r.URL.Query()
 		redirectUrl := queryParams.Get("redirectUrl")
 
-		var role *internal.Role
-	outer:
-		for _, c := range uc.Claims {
-			roles := rt[c]
-			for _, r := range roles {
-				if r.AccountId == accountId && r.Name == roleName {
-					role = r
-					break outer
-				}
-			}
-		}
+		role := rt.Find(uc.Claims, accountId, roleName)
 		if role == nil {
 			writeJsonError(w, http.StatusUnauthorized, "no access to role")
 			return
@@ -256,18 +268,15 @@ func indexPage(title string, rt RoleMap) AuthenticatedRoute {
 	}
 	return func(w http.ResponseWriter, r *http.Request, uc *internal.UserClaims) {
 		userRoles := []roleView{}
-		for _, c := range uc.Claims {
-			roles := rt[c]
-			for _, role := range roles {
-				basePath := fmt.Sprintf("/role/%s/%s", url.PathEscape(role.AccountId), url.PathEscape(role.Name))
-				userRoles = append(userRoles, roleView{
-					Name:       role.Name,
-					AccountId:  role.AccountId,
-					ConsoleURL: basePath + "?redirectUrl=" + url.QueryEscape(awsConsole),
-					CredURL:    basePath + "?format=" + internal.CredentialFormatBash,
-					Tags:       role.Tags,
-				})
-			}
+		for role := range rt.RolesFor(uc.Claims) {
+			basePath := fmt.Sprintf("/role/%s/%s", url.PathEscape(role.AccountId), url.PathEscape(role.Name))
+			userRoles = append(userRoles, roleView{
+				Name:       role.Name,
+				AccountId:  role.AccountId,
+				ConsoleURL: basePath + "?redirectUrl=" + url.QueryEscape(awsConsole),
+				CredURL:    basePath + "?format=" + internal.CredentialFormatBash,
+				Tags:       role.Tags,
+			})
 		}
 		sort.Slice(userRoles, func(i, j int) bool {
 			if userRoles[i].AccountId == userRoles[j].AccountId {

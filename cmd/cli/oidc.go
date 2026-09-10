@@ -85,7 +85,7 @@ func NewOpenId(ctx context.Context, opts *OidcOptions) (*OpenIdService, error) {
 		opts.GroupClaimsPath = "roles"
 	}
 	if opts.UsernameClaimsPath == "" {
-		opts.GroupClaimsPath = "email"
+		opts.UsernameClaimsPath = "email"
 	}
 	if opts.DisplayNameClaimsPath == "" {
 		opts.DisplayNameClaimsPath = "preferred_username"
@@ -186,11 +186,10 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*UserInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	groups, err := jsonExtract(claims, g.opts.GroupClaimsPath)
+	userInfo.Groups, err = jsonExtractStrings(claims, g.opts.GroupClaimsPath)
 	if err != nil {
 		return nil, err
 	}
-	userInfo.Groups = strings.Split(strings.TrimSuffix(strings.TrimPrefix(groups, "["), "]"), ",")
 	userInfo.Username, err = jsonExtract(claims, g.opts.UsernameClaimsPath)
 	if err != nil {
 		return nil, err
@@ -199,26 +198,48 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*UserInfo, error) {
 	return &userInfo, nil
 }
 
-func jsonExtract(j map[string]interface{}, path string) (ret string, err error) {
+func jsonExtractValue(j map[string]interface{}, path string) (interface{}, error) {
 	parts := strings.Split(path, ".")
-	key := parts[0]
-	parts = parts[1:]
-	for _, i := range parts {
-		v, ok := j[i]
+	for _, p := range parts[:len(parts)-1] {
+		v, ok := j[p]
 		if !ok {
-			return ret, ErrNotFound
+			return nil, ErrNotFound
 		}
-		j2, ok := v.(map[string]interface{})
+		next, ok := v.(map[string]interface{})
 		if !ok {
-			return ret, ErrNotFound
+			return nil, ErrNotFound
 		}
-		j = j2
+		j = next
 	}
-	v, ok := j[key]
+	v, ok := j[parts[len(parts)-1]]
 	if !ok {
-		return "", ErrNotFound
+		return nil, ErrNotFound
+	}
+	return v, nil
+}
+
+func jsonExtract(j map[string]interface{}, path string) (string, error) {
+	v, err := jsonExtractValue(j, path)
+	if err != nil {
+		return "", err
 	}
 	return fmt.Sprint(v), nil
+}
+
+func jsonExtractStrings(j map[string]interface{}, path string) ([]string, error) {
+	v, err := jsonExtractValue(j, path)
+	if err != nil {
+		return nil, err
+	}
+	items, ok := v.([]interface{})
+	if !ok {
+		return []string{fmt.Sprint(v)}, nil
+	}
+	out := make([]string, len(items))
+	for i, item := range items {
+		out[i] = fmt.Sprint(item)
+	}
+	return out, nil
 }
 
 func (g *OpenIdService) LogoutUrl(redirectUrl string, idpToken string) string {

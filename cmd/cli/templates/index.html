@@ -5,39 +5,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title>
+{{template "styles"}}
 <style>
-  :root {
-    --bg: #f4f5f7;
-    --surface: #ffffff;
-    --border: #dfe2e6;
-    --text: #1c2126;
-    --muted: #6b7280;
-    --accent: #2563eb;
-    --accent-contrast: #ffffff;
-    --secondary: #f1f3f5;
-    --secondary-text: #1c2126;
-    --radius: 8px;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #14171a;
-      --surface: #1c2126;
-      --border: #2c333a;
-      --text: #e5e7eb;
-      --muted: #9aa2ad;
-      --accent: #3b82f6;
-      --accent-contrast: #ffffff;
-      --secondary: #262d34;
-      --secondary-text: #e5e7eb;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-  }
   header {
     display: flex;
     align-items: center;
@@ -145,26 +114,6 @@
     gap: .5rem;
     white-space: nowrap;
   }
-  .btn {
-    text-align: center;
-    padding: .5rem .6rem;
-    border-radius: var(--radius);
-    border: 1px solid transparent;
-    font-size: .85rem;
-    cursor: pointer;
-    text-decoration: none;
-  }
-  .btn-primary {
-    background: var(--accent);
-    color: var(--accent-contrast);
-  }
-  .btn-primary:hover { opacity: .9; }
-  .btn-secondary {
-    background: var(--secondary);
-    color: var(--secondary-text);
-    border-color: var(--border);
-  }
-  .btn-secondary:hover { background: var(--border); }
 
   .empty {
     color: var(--muted);
