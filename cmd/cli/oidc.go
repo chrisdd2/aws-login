@@ -137,6 +137,7 @@ func (g *OpenIdService) Login(w http.ResponseWriter, r *http.Request) {
 		oauth2.S256ChallengeOption(codeVerifier),
 	)
 
+	internal.Debugf("oidc.Login: redirecting to provider %s", url)
 	http.Redirect(w, r, url, http.StatusFound)
 }
 
@@ -180,6 +181,7 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*UserInfo, error) {
 	if err := idToken.Claims(&claims); err != nil {
 		return nil, internal.WrapError(err, "idToken.Claims")
 	}
+	internal.Debugf("oidc.CallbackHandler: raw id_token claims: %+v", claims)
 	userInfo := UserInfo{}
 
 	userInfo.DisplayName, err = jsonExtract(claims, g.opts.DisplayNameClaimsPath)
@@ -190,6 +192,7 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*UserInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	internal.Debugf("oidc.CallbackHandler: extracted groups from %q: %v", g.opts.GroupClaimsPath, userInfo.Groups)
 	userInfo.Username, err = jsonExtract(claims, g.opts.UsernameClaimsPath)
 	if err != nil {
 		return nil, err
@@ -240,6 +243,17 @@ func jsonExtractStrings(j map[string]interface{}, path string) ([]string, error)
 		out[i] = fmt.Sprint(item)
 	}
 	return out, nil
+}
+
+func (g *OpenIdService) PostLogoutRedirectUrl(path string, query url.Values) string {
+	u, err := url.Parse(g.opts.RedirectUrl)
+	if err != nil {
+		// fall back to whatever was configured, better than crashing
+		return path
+	}
+	u.Path = path
+	u.RawQuery = query.Encode()
+	return u.String()
 }
 
 func (g *OpenIdService) LogoutUrl(redirectUrl string, idpToken string) string {

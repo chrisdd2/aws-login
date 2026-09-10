@@ -26,6 +26,7 @@ func SignToken(key []byte, username string, claims []string, idpToken string, ex
 			},
 		},
 	)
+	Debugf("SignToken: issuing token for %q with groups %v, expires in %s", username, claims, expiration)
 	return token.SignedString(key)
 }
 
@@ -44,5 +45,6 @@ func ParseToken(ctx context.Context, key []byte, tokenStr string) (*UserClaims, 
 	if !ok {
 		return nil, WrapError(err, "unable to parse claims")
 	}
+	Debugf("ParseToken: user %q token parsed with groups %v", claims.Username, claims.Claims)
 	return claims, err
 }

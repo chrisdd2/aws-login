@@ -90,7 +90,7 @@ func handleCommand(ctx context.Context) error {
 			ClientSecret:          getOrDie("OIDC_SECRET"),
 			Scopes:                strings.Split(os.Getenv("OIDC_SCOPES"), ","),
 			GroupClaimsPath:       getOrDefault("OIDC_GROUP_CLAIMSPATH", "groups"),
-			UsernameClaimsPath:    getOrDefault("OIDC_USERNAME_CLAIMSPATH", "username"),
+			UsernameClaimsPath:    getOrDefault("OIDC_USERNAME_CLAIMSPATH", "name"),
 			DisplayNameClaimsPath: getOrDefault("OIDC_DISPLAYNAME_CLAIMSPATH", "preferred_name"),
 			SecureCookies:         getOrDefault("OIDC_SECURE_COOKIES", "false") == "true",
 		}

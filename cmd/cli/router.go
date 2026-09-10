@@ -22,6 +22,9 @@ const awsConsole = "https://console.aws.amazon.com/"
 const authCookie = "aws-login-cookie"
 
 func loginErrorString(queryParams url.Values) string {
+	if queryParams.Get("fromLogout") != "" {
+		return "logged out"
+	}
 	errorValue := queryParams.Get("error")
 	if errorValue == "" {
 		return ""
@@ -51,11 +54,14 @@ func getLogin(key []byte, r *http.Request) (*internal.UserClaims, error) {
 	}
 	token, err := internal.ParseToken(r.Context(), key, cookie.Value)
 	if err != nil {
+		internal.Debugf("getLogin: failed to parse token: %s", err)
 		return nil, ErrTokenParse
 	}
 	if token.ExpiresAt.Time.Before(time.Now().UTC()) {
+		internal.Debugf("getLogin: token for %q expired at %s", token.Username, token.ExpiresAt.Time)
 		return nil, ErrTokenExpired
 	}
+	internal.Debugf("getLogin: user %q logged in with groups %v", token.Username, token.Claims)
 	return token, nil
 }
 
@@ -148,14 +154,17 @@ func Router(
 	})
 
 	r.HandleFunc("GET /oauth2/callback", func(w http.ResponseWriter, r *http.Request) {
+		internal.Debugf("oauth2/callback: exchanging code for token")
 		userInfo, err := auth.CallbackHandler(r)
 		if err != nil {
+			internal.Debugf("oauth2/callback: CallbackHandler failed: %s", err)
 			vals := url.Values{}
 			vals.Add("error", "wrong_credentials")
 			vals.Add("message", err.Error())
 			http.Redirect(w, r, "/login?"+vals.Encode(), http.StatusSeeOther)
 			return
 		}
+		internal.Debugf("oauth2/callback: user %q (%s) logged in with groups %v", userInfo.Username, userInfo.DisplayName, userInfo.Groups)
 
 		validClaim := []string{}
 		for _, g := range userInfo.Groups {
@@ -164,6 +173,7 @@ func Router(
 				validClaim = append(validClaim, g)
 			}
 		}
+		internal.Debugf("oauth2/callback: groups matching a known role: %v", validClaim)
 		if len(validClaim) == 0 {
 			fmt.Fprintf(os.Stderr, "user %s with groups [%s] not matching\n", userInfo.DisplayName, userInfo.Groups)
 			vals := url.Values{}
@@ -175,6 +185,7 @@ func Router(
 
 		signed, err := internal.SignToken(tokenKey, userInfo.Username, validClaim, userInfo.IdToken, 8*time.Hour)
 		if err != nil {
+			internal.Debugf("oauth2/callback: SignToken failed: %s", err)
 			writeJsonError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -186,6 +197,7 @@ func Router(
 			SameSite: http.SameSiteLaxMode,
 			Path:     "/",
 		})
+		internal.Debugf("oauth2/callback: session cookie set for %q, redirecting to %s", userInfo.Username, rootUrl)
 		http.Redirect(w, r, rootUrl, http.StatusSeeOther)
 	})
 
@@ -207,7 +219,9 @@ func Router(
 			cookie.MaxAge = -1
 			http.SetCookie(w, cookie)
 		}
-		http.Redirect(w, r, auth.LogoutUrl(rootUrl, uc.IdpToken), http.StatusTemporaryRedirect)
+		logoutRedirect := auth.PostLogoutRedirectUrl("/login", url.Values{"fromLogout": {"1"}})
+		internal.Debugf("logout: user %q logging out, post_logout_redirect_uri=%s", uc.Username, logoutRedirect)
+		http.Redirect(w, r, auth.LogoutUrl(logoutRedirect, uc.IdpToken), http.StatusTemporaryRedirect)
 	})
 
 	return &r
@@ -222,6 +236,7 @@ func assumeRole(stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute 
 
 		role := rt.Find(uc.Claims, accountId, roleName)
 		if role == nil {
+			internal.Debugf("assumeRole: user %q with groups %v has no access to %s/%s", uc.Username, uc.Claims, accountId, roleName)
 			writeJsonError(w, http.StatusUnauthorized, "no access to role")
 			return
 		}
