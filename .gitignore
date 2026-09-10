@@ -4,3 +4,4 @@ terraform
 events.jsonl
 app.conf.yml
 .config
+.env

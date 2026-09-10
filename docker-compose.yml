@@ -9,8 +9,6 @@ services:
       ports:
         # http://localhost:8180 - matches OIDC_ISSUER_URL in .env
         - "8180:8080"
-      volumes:
-        - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
 
 volumes:
   postgres_data:
