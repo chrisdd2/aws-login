@@ -61,6 +61,7 @@ See [example.yaml](example.yaml).
 | `OIDC_USERNAME_CLAIMSPATH` | `username` | Dotted path to the username claim |
 | `OIDC_DISPLAYNAME_CLAIMSPATH` | `preferred_name` | Dotted path to the display-name claim |
 | `OIDC_SECURE_COOKIES` | `false` | Set `true` to mark cookies `Secure` (needs HTTPS) |
+| `DEBUG` | `false` | Set `true` to log debug output (login/token/role-lookup flow) to stderr |
 | `ENCRYPTION_KEY` | — (required) | Key used to sign the session JWT cookie |
 | `BASE_URL` | `/` | Path to redirect to after login/logout |
 | `APP_TITLE` | `aws-login` | Title shown in the UI |
