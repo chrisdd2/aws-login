@@ -148,6 +148,64 @@ func trustPolicy(arn string) string {
 	})
 }
 
+const builtinPolicyPrefix = "@builtin."
+
+func ssmSessionPolicy() string {
+	return marshalPolicy(
+		policyStatement{
+			Sid:    "ListInstances",
+			Effect: "Allow",
+			Action: []string{
+				"ssm:DescribeInstanceInformation",
+				"ssm:DescribeInstanceProperties",
+				"ssm:DescribeSessions",
+				"ssm:GetConnectionStatus",
+				"ec2:DescribeInstances",
+				"ec2:DescribeRegions",
+			},
+			Resource: []string{"*"},
+		},
+		policyStatement{
+			Sid:    "StartSession",
+			Effect: "Allow",
+			Action: []string{"ssm:StartSession"},
+			Resource: []string{
+				"arn:aws:ec2:*:*:instance/*",
+				"arn:aws:ssm:*:*:document/SSM-SessionManagerRunShell",
+			},
+		},
+		policyStatement{
+			Sid:      "ManageOwnSessions",
+			Effect:   "Allow",
+			Action:   []string{"ssm:TerminateSession", "ssm:ResumeSession"},
+			Resource: []string{"arn:aws:ssm:*:*:session/*"},
+		},
+	)
+}
+
+var builtinPolicies = map[string]func() string{
+	"ssm": ssmSessionPolicy,
+}
+
+func ResolveInlinePolicies(policies map[string]string) (map[string]string, error) {
+	if len(policies) == 0 {
+		return policies, nil
+	}
+	resolved := make(map[string]string, len(policies))
+	for name, document := range policies {
+		value := strings.TrimSpace(document)
+		if builtinName, ok := strings.CutPrefix(value, builtinPolicyPrefix); ok {
+			builtin, found := builtinPolicies[builtinName]
+			if !found {
+				return nil, fmt.Errorf("policy %q: unknown builtin %q", name, value)
+			}
+			document = builtin()
+		}
+		resolved[name] = document
+	}
+	return resolved, nil
+}
+
 func minimizePolicy(policy string) string {
 	lines := []string{}
 	for line := range strings.SplitSeq(policy, "\n") {

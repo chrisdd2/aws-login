@@ -10,11 +10,11 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/chrisdd2/aws-login/internal"
 )
 
@@ -164,7 +164,8 @@ func Router(
 	tokenKey []byte,
 	secureCookies bool,
 	roles []internal.Role,
-	stsCl *sts.Client,
+	stsCl internal.AssumeRoleClient,
+	ssmClients SsmClientFactory,
 ) *http.ServeMux {
 
 	claimToRoleMap := RoleMap{}
@@ -262,6 +263,9 @@ func Router(
 	r.HandleFunc("POST /", index)
 	r.HandleFunc("GET /role/{accountId}/{roleName}", guard.Wrap(assumeRole(stsCl, claimToRoleMap)))
 	r.HandleFunc("POST /role/{accountId}/{roleName}/link", guard.Wrap(createLink(tokenKey, rootUrl, claimToRoleMap)))
+	r.HandleFunc("GET /role/{accountId}/{roleName}/ssm/regions", guard.Wrap(listSsmRegions(stsCl, ssmClients, claimToRoleMap)))
+	r.HandleFunc("GET /role/{accountId}/{roleName}/ssm/instances", guard.Wrap(listSsmInstances(stsCl, ssmClients, claimToRoleMap)))
+	r.HandleFunc("GET /role/{accountId}/{roleName}/ssm/{instanceId}", guard.Wrap(ssmSession(stsCl, claimToRoleMap)))
 	r.HandleFunc("GET /{token}", guard.Wrap(followLink(tokenKey, stsCl, claimToRoleMap)))
 	r.HandleFunc("GET /logout", func(w http.ResponseWriter, r *http.Request) {
 		uc, err := getLogin(tokenKey, r)
@@ -379,6 +383,112 @@ func followLink(tokenKey []byte, stsCl internal.AssumeRoleClient, rt RoleMap) Au
 	}
 }
 
+type SsmClientFactory func(creds internal.AwsCredentials, region string) (internal.SsmClient, internal.Ec2Client)
+
+const ssmPageSize = 20
+
+func ssmRegionParam(r *http.Request) (string, bool) {
+	region := r.URL.Query().Get("region")
+	if region == "" {
+		return internal.DefaultSsmRegion, true
+	}
+	return region, internal.ValidSsmRegion(region)
+}
+
+func ssmRole(w http.ResponseWriter, r *http.Request, rt RoleMap, uc *internal.UserClaims) (*internal.Role, string, bool) {
+	role := rt.Find(uc.Claims, r.PathValue("accountId"), r.PathValue("roleName"))
+	if role == nil {
+		writeJsonError(w, http.StatusUnauthorized, "no access to role")
+		return nil, "", false
+	}
+	if !role.SsmEnabled {
+		writeJsonError(w, http.StatusNotFound, "ssm not enabled for role")
+		return nil, "", false
+	}
+	region, ok := ssmRegionParam(r)
+	if !ok {
+		writeJsonError(w, http.StatusBadRequest, "invalid region")
+		return nil, "", false
+	}
+	return role, region, true
+}
+
+func ssmRoleClients(w http.ResponseWriter, r *http.Request, stsCl internal.AssumeRoleClient, ssmClients SsmClientFactory, role *internal.Role, uc *internal.UserClaims, region string) (internal.SsmClient, internal.Ec2Client, bool) {
+	creds, err := internal.GenerateCredentials(r.Context(), stsCl, internal.RoleArn(role.AccountId, role.Name), uc.Username, time.Hour)
+	if err != nil {
+		writeJsonError(w, http.StatusInternalServerError, err.Error())
+		return nil, nil, false
+	}
+	ssmCl, ec2Cl := ssmClients(creds, region)
+	return ssmCl, ec2Cl, true
+}
+
+func listSsmRegions(stsCl internal.AssumeRoleClient, ssmClients SsmClientFactory, rt RoleMap) AuthenticatedRoute {
+	return func(w http.ResponseWriter, r *http.Request, uc *internal.UserClaims) {
+		role, region, ok := ssmRole(w, r, rt, uc)
+		if !ok {
+			return
+		}
+		_, ec2Cl, ok := ssmRoleClients(w, r, stsCl, ssmClients, role, uc, region)
+		if !ok {
+			return
+		}
+		regions, err := internal.ListEnabledRegions(r.Context(), ec2Cl)
+		if err != nil {
+			writeJsonError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		def := internal.DefaultSsmRegion
+		if !slices.Contains(regions, def) && len(regions) > 0 {
+			def = regions[0]
+		}
+		w.Header().Add("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(struct {
+			Regions []string `json:"regions"`
+			Default string   `json:"default"`
+		}{Regions: regions, Default: def})
+	}
+}
+
+func listSsmInstances(stsCl internal.AssumeRoleClient, ssmClients SsmClientFactory, rt RoleMap) AuthenticatedRoute {
+	return func(w http.ResponseWriter, r *http.Request, uc *internal.UserClaims) {
+		role, region, ok := ssmRole(w, r, rt, uc)
+		if !ok {
+			return
+		}
+		ssmCl, ec2Cl, ok := ssmRoleClients(w, r, stsCl, ssmClients, role, uc, region)
+		if !ok {
+			return
+		}
+		instances, next, err := internal.ListSsmInstances(r.Context(), ssmCl, ec2Cl, r.URL.Query().Get("next"), ssmPageSize)
+		if err != nil {
+			writeJsonError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		w.Header().Add("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(struct {
+			Region    string                 `json:"region"`
+			Instances []internal.SsmInstance `json:"instances"`
+			Next      string                 `json:"next"`
+		}{Region: region, Instances: instances, Next: next})
+	}
+}
+
+func ssmSession(stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute {
+	return func(w http.ResponseWriter, r *http.Request, uc *internal.UserClaims) {
+		role, region, ok := ssmRole(w, r, rt, uc)
+		if !ok {
+			return
+		}
+		instanceId := r.PathValue("instanceId")
+		if !internal.ValidInstanceId.MatchString(instanceId) {
+			writeJsonError(w, http.StatusBadRequest, "invalid instance id")
+			return
+		}
+		consoleRedirect(w, r, stsCl, uc, role.AccountId, role.Name, internal.SsmSessionUrl(region, instanceId))
+	}
+}
+
 func indexPage(title string, rt RoleMap) AuthenticatedRoute {
 	type roleView struct {
 		Name       string
@@ -386,6 +496,7 @@ func indexPage(title string, rt RoleMap) AuthenticatedRoute {
 		ConsoleURL string
 		CredURL    string
 		LinkURL    string
+		SsmURL     string
 		Tags       map[string]string
 	}
 
@@ -398,14 +509,18 @@ func indexPage(title string, rt RoleMap) AuthenticatedRoute {
 		userRoles := []roleView{}
 		for role := range rt.RolesFor(uc.Claims) {
 			basePath := fmt.Sprintf("/role/%s/%s", url.PathEscape(role.AccountId), url.PathEscape(role.Name))
-			userRoles = append(userRoles, roleView{
+			view := roleView{
 				Name:       role.Name,
 				AccountId:  role.AccountId,
 				ConsoleURL: basePath + "?redirectUrl=" + url.QueryEscape(awsConsole),
 				CredURL:    basePath + "?format=" + internal.CredentialFormatBash,
 				LinkURL:    basePath + "/link",
 				Tags:       role.Tags,
-			})
+			}
+			if role.SsmEnabled {
+				view.SsmURL = basePath + "/ssm"
+			}
+			userRoles = append(userRoles, view)
 		}
 		sort.Slice(userRoles, func(i, j int) bool {
 			if userRoles[i].AccountId == userRoles[j].AccountId {
@@ -425,5 +540,7 @@ func writeJsonError(w http.ResponseWriter, statusCode int, err string) {
 	fmt.Fprintf(os.Stderr, "Error %d: %s\n", statusCode, err)
 	w.Header().Add("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	fmt.Fprintf(w, `{ "error" : "%s"}`, err)
+	json.NewEncoder(w).Encode(struct {
+		Error string `json:"error"`
+	}{Error: err})
 }

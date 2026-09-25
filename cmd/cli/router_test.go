@@ -17,11 +17,18 @@ var testKey = []byte("test-key")
 
 func testRouter(t *testing.T) http.Handler {
 	t.Helper()
+	return testRouterWith(t, nil, nil)
+}
+
+func testRouterWith(t *testing.T, stsCl internal.AssumeRoleClient, ssmClients SsmClientFactory) http.Handler {
+	t.Helper()
 	roles := []internal.Role{
 		{Name: "dev", AccountId: "111111111111", Claim: []string{"devs"}},
 		{Name: "admin", AccountId: "222222222222", Claim: []string{"admins"}},
+		{Name: "ops", AccountId: "333333333333", Claim: []string{"devs"}, SsmEnabled: true},
+		{Name: "ops-admin", AccountId: "444444444444", Claim: []string{"admins"}, SsmEnabled: true},
 	}
-	return Router(context.Background(), nil, "/", "test", testKey, false, roles, nil)
+	return Router(context.Background(), nil, "/", "test", testKey, false, roles, stsCl, ssmClients)
 }
 
 func sessionCookie(t *testing.T, groups ...string) *http.Cookie {

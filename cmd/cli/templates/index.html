@@ -181,6 +181,50 @@
     color: var(--danger-text);
     font-size: .8rem;
   }
+  .dialog-body select {
+    padding: .45rem .6rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--text);
+    font-size: .85rem;
+  }
+  .ssm-list {
+    list-style: none;
+    margin: 0 0 .75rem;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    max-height: 22rem;
+    overflow-y: auto;
+  }
+  .ssm-list li + li { border-top: 1px solid var(--border); }
+  .ssm-list a {
+    display: block;
+    padding: .55rem .75rem;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .ssm-list a:hover { background: var(--secondary); }
+  .ssm-list .ssm-name { font-weight: 600; font-size: .9rem; }
+  .ssm-list .ssm-meta {
+    font-size: .75rem;
+    color: var(--muted);
+    margin-top: .15rem;
+  }
+  .ssm-status {
+    margin: 0 0 .75rem;
+    font-size: .85rem;
+    color: var(--muted);
+  }
+  .ssm-pager {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    margin-right: auto;
+  }
+  .ssm-pager .page { font-size: .8rem; color: var(--muted); }
+  .btn:disabled { opacity: .5; cursor: default; }
 </style>
 </head>
 <body>
@@ -224,6 +268,9 @@
             <a class="btn btn-primary" href="{{.ConsoleURL}}" target="_blank" rel="noopener">Console</a>
             <a class="btn btn-secondary" href="{{.CredURL}}" download="{{.AccountId}}-{{.Name}}.txt">Credentials</a>
             <button type="button" class="btn btn-secondary url-btn" data-link="{{.LinkURL}}" data-role="{{.AccountId}} / {{.Name}}">URL</button>
+            {{if .SsmURL}}
+            <button type="button" class="btn btn-secondary ssm-btn" data-ssm="{{.SsmURL}}" data-role="{{.AccountId}} / {{.Name}}">SSM</button>
+            {{end}}
           </div>
         </td>
       </tr>
@@ -254,6 +301,200 @@
     </div>
   </form>
 </dialog>
+
+<dialog id="ssm-dialog">
+  <div class="dialog-body">
+    <h3>SSM session for <span id="ssm-role"></span></h3>
+    <label class="field">
+      <span>Region</span>
+      <select id="ssm-region" disabled></select>
+    </label>
+    <p class="ssm-status" id="ssm-status"></p>
+    <p class="dialog-error" id="ssm-error" hidden></p>
+    <ul class="ssm-list" id="ssm-list" hidden></ul>
+    <div class="dialog-actions">
+      <div class="ssm-pager">
+        <button type="button" class="btn btn-secondary" id="ssm-prev" disabled>Prev</button>
+        <span class="page" id="ssm-page"></span>
+        <button type="button" class="btn btn-secondary" id="ssm-next" disabled>Next</button>
+      </div>
+      <button type="button" class="btn btn-secondary" id="ssm-close">Close</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+(function () {
+  const dialog = document.getElementById("ssm-dialog");
+  const roleLabel = document.getElementById("ssm-role");
+  const regionSelect = document.getElementById("ssm-region");
+  const status = document.getElementById("ssm-status");
+  const error = document.getElementById("ssm-error");
+  const list = document.getElementById("ssm-list");
+  const prev = document.getElementById("ssm-prev");
+  const next = document.getElementById("ssm-next");
+  const page = document.getElementById("ssm-page");
+  let base = "";
+  let tokens = [""];
+  let nextToken = "";
+  let requestId = 0;
+
+  function setStatus(msg) {
+    status.textContent = msg;
+    status.hidden = !msg;
+  }
+
+  function showError(msg) {
+    error.textContent = msg;
+    error.hidden = !msg;
+  }
+
+  function row(inst, region) {
+    const li = document.createElement("li");
+    const a = document.createElement("a");
+    a.href = base + "/" + encodeURIComponent(inst.id) + "?region=" + encodeURIComponent(region);
+    a.target = "_blank";
+    a.rel = "noopener";
+    const name = document.createElement("div");
+    name.className = "ssm-name";
+    name.textContent = inst.name || inst.id;
+    const meta = document.createElement("div");
+    meta.className = "ssm-meta";
+    meta.textContent = [inst.name ? inst.id : "", inst.computerName, inst.ipAddress, inst.platform]
+      .filter(Boolean).join(" · ");
+    a.appendChild(name);
+    a.appendChild(meta);
+    li.appendChild(a);
+    return li;
+  }
+
+  async function load() {
+    const id = ++requestId;
+    const region = regionSelect.value;
+    const token = tokens[tokens.length - 1];
+    list.replaceChildren();
+    list.hidden = true;
+    showError("");
+    setStatus("Loading…");
+    prev.disabled = true;
+    next.disabled = true;
+    page.textContent = "Page " + tokens.length;
+    try {
+      const params = new URLSearchParams({ region: region });
+      if (token) {
+        params.set("next", token);
+      }
+      const resp = await fetch(base + "/instances?" + params.toString(), { credentials: "same-origin" });
+      const data = await resp.json().catch(function () { return {}; });
+      if (id !== requestId) {
+        return;
+      }
+      if (!resp.ok) {
+        setStatus("");
+        showError(data.error || ("Request failed (" + resp.status + ")"));
+        prev.disabled = tokens.length <= 1;
+        return;
+      }
+      const instances = data.instances || [];
+      nextToken = data.next || "";
+      if (instances.length === 0) {
+        setStatus("No SSM-managed instances online in " + region + ".");
+      } else {
+        setStatus("");
+        instances.forEach(function (inst) { list.appendChild(row(inst, region)); });
+        list.hidden = false;
+      }
+      prev.disabled = tokens.length <= 1;
+      next.disabled = !nextToken;
+    } catch (e) {
+      if (id === requestId) {
+        setStatus("");
+        showError(String(e));
+      }
+    }
+  }
+
+  function reset() {
+    tokens = [""];
+    nextToken = "";
+    load();
+  }
+
+  async function loadRegions() {
+    const id = ++requestId;
+    regionSelect.disabled = true;
+    regionSelect.replaceChildren();
+    list.replaceChildren();
+    list.hidden = true;
+    prev.disabled = true;
+    next.disabled = true;
+    page.textContent = "";
+    showError("");
+    setStatus("Loading regions…");
+    try {
+      const resp = await fetch(base + "/regions", { credentials: "same-origin" });
+      const data = await resp.json().catch(function () { return {}; });
+      if (id !== requestId) {
+        return;
+      }
+      if (!resp.ok) {
+        setStatus("");
+        showError(data.error || ("Request failed (" + resp.status + ")"));
+        return;
+      }
+      const regions = data.regions || [];
+      if (regions.length === 0) {
+        setStatus("No enabled regions found.");
+        return;
+      }
+      regions.forEach(function (r) {
+        const opt = document.createElement("option");
+        opt.value = r;
+        opt.textContent = r;
+        regionSelect.appendChild(opt);
+      });
+      regionSelect.value = regions.includes(data.default) ? data.default : regions[0];
+      regionSelect.disabled = false;
+      reset();
+    } catch (e) {
+      if (id === requestId) {
+        setStatus("");
+        showError(String(e));
+      }
+    }
+  }
+
+  document.querySelectorAll(".ssm-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      base = btn.dataset.ssm;
+      roleLabel.textContent = btn.dataset.role;
+      dialog.showModal();
+      loadRegions();
+    });
+  });
+
+  regionSelect.addEventListener("change", reset);
+
+  next.addEventListener("click", function () {
+    if (nextToken) {
+      tokens.push(nextToken);
+      load();
+    }
+  });
+
+  prev.addEventListener("click", function () {
+    if (tokens.length > 1) {
+      tokens.pop();
+      load();
+    }
+  });
+
+  document.getElementById("ssm-close").addEventListener("click", function () {
+    requestId++;
+    dialog.close();
+  });
+})();
+</script>
 
 <script>
 (function () {

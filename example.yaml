@@ -7,3 +7,10 @@ roles:
       production: true
     claim:
       - developers
+  - name: ssm-operator
+    account_id: 111111111111
+    ssm_enabled: true
+    policies:
+      ssm-session: "@builtin.ssm"
+    claim:
+      - operators

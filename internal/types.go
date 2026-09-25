@@ -13,4 +13,5 @@ type Role struct {
 	Tags               map[string]string `json:"tags,omitempty" yaml:"tags,omitempty"`
 	Claim              []string          `json:"claim,omitempty" yaml:"claim,omitempty"`
 	NoIamBoundary      bool              `json:"no_boundary,omitempty" yaml:"no_boundary,omitempty"`
+	SsmEnabled         bool              `json:"ssm_enabled,omitempty" yaml:"ssm_enabled,omitempty"`
 }

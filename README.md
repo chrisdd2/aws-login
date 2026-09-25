@@ -42,7 +42,17 @@ roles:
       - developers
     max_session_duration: 8h  # optional, defaults to 8h
     no_boundary: false         # optional, skip the IAM permission boundary
+    ssm_enabled: false         # optional, show the SSM button to open Session Manager on EC2 instances
 ```
+
+`ssm_enabled` lists the online SSM-managed EC2 instances in a region picked in
+the dialog (the account's enabled regions, default `eu-central-1`) and opens a
+Session Manager console session on the chosen one. aws-login does not grant any
+permissions for this: the role itself needs `ec2:DescribeRegions`,
+`ssm:DescribeInstanceInformation`, `ec2:DescribeInstances`, `ssm:StartSession`
+and friends. Setting an inline policy value to `"@builtin.ssm"` (quoted, `@`
+is reserved in YAML) makes aws-login fill in a policy with exactly those
+permissions (see the `ssm-operator` role).
 
 See [example.yaml](example.yaml).
 

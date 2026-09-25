@@ -102,7 +102,7 @@ func handleCommand(ctx context.Context) error {
 		if err != nil {
 			return internal.WrapError(err, "NewOpenID")
 		}
-		router := Router(ctx, oidcSrv, rootUrl, title, []byte(tokenKey), opts.SecureCookies, rt, stsSvc)
+		router := Router(ctx, oidcSrv, rootUrl, title, []byte(tokenKey), opts.SecureCookies, rt, stsSvc, internal.NewSsmClients)
 
 		srv := http.Server{Addr: *addr, Handler: router, ReadTimeout: time.Second * 30, WriteTimeout: time.Second * 30}
 		go func() {
@@ -203,7 +203,7 @@ func loadConfig(fp string) ([]internal.Role, error) {
 			loadErr = internal.WrapError(errors.New(ext), "unknown extension")
 		}
 		f.Close()
-		if err != nil {
+		if loadErr != nil {
 			return nil, loadErr
 		}
 		ret = append(ret, rt.Roles...)
