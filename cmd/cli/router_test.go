@@ -66,6 +66,42 @@ func TestValidAwsUrl(t *testing.T) {
 	}
 }
 
+func TestNormalizeAwsUrl(t *testing.T) {
+	cases := map[string]string{
+		"https://123456789012-abc12xyz.eu-west-1.console.aws.amazon.com/s3/buckets/b?region=eu-west-1": "https://eu-west-1.console.aws.amazon.com/s3/buckets/b?region=eu-west-1",
+		"https://123456789012-ABC12XYZ.us-east-1.console.aws.amazon.com/iam/home#/roles":               "https://us-east-1.console.aws.amazon.com/iam/home#/roles",
+		"https://eu-west-1.console.aws.amazon.com/s3/home":                                             "https://eu-west-1.console.aws.amazon.com/s3/home",
+		"https://s3.console.aws.amazon.com/s3/buckets/b":                                               "https://s3.console.aws.amazon.com/s3/buckets/b",
+		"https://12345-abc.eu-west-1.console.aws.amazon.com/":                                          "https://12345-abc.eu-west-1.console.aws.amazon.com/",
+		"https://123456789012-abc.aws.amazon.com/":                                                     "https://123456789012-abc.aws.amazon.com/",
+	}
+	for in, want := range cases {
+		if got := normalizeAwsUrl(in); got != want {
+			t.Errorf("normalizeAwsUrl(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestCreateLinkStripsMultiSession(t *testing.T) {
+	rec := postLink(t, testRouter(t), "/role/111111111111/dev/link", "https://111111111111-x9y8z7.eu-west-1.console.aws.amazon.com/s3/buckets/b", sessionCookie(t, "devs"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+	}
+	resp := struct {
+		Url string `json:"url"`
+	}{}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	claims, err := internal.ParseLinkToken(testKey, strings.TrimPrefix(resp.Url, "/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claims.Url != "https://eu-west-1.console.aws.amazon.com/s3/buckets/b" {
+		t.Fatalf("unexpected url %q", claims.Url)
+	}
+}
+
 func TestSafeReturnPath(t *testing.T) {
 	cases := map[string]bool{
 		"/abc":             true,

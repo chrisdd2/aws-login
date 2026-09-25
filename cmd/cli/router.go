@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -32,6 +33,21 @@ func validAwsUrl(s string) bool {
 	}
 	host := u.Hostname()
 	return host == "aws.amazon.com" || strings.HasSuffix(host, ".aws.amazon.com")
+}
+
+var multiSessionLabel = regexp.MustCompile(`^[0-9]{12}-[a-z0-9]+$`)
+
+func normalizeAwsUrl(s string) string {
+	u, err := url.Parse(s)
+	if err != nil {
+		return s
+	}
+	labels := strings.Split(u.Host, ".")
+	if len(labels) > 5 && multiSessionLabel.MatchString(strings.ToLower(labels[0])) {
+		u.Host = strings.Join(labels[1:], ".")
+		return u.String()
+	}
+	return s
 }
 
 func safeReturnPath(p string) bool {
@@ -324,7 +340,7 @@ func createLink(tokenKey []byte, rootUrl string, rt RoleMap) AuthenticatedRoute 
 			writeJsonError(w, http.StatusUnauthorized, "no access to role")
 			return
 		}
-		destination := strings.TrimSpace(r.FormValue("url"))
+		destination := normalizeAwsUrl(strings.TrimSpace(r.FormValue("url")))
 		if !validAwsUrl(destination) {
 			writeJsonError(w, http.StatusBadRequest, "url must be an https aws.amazon.com address")
 			return
@@ -354,11 +370,12 @@ func followLink(tokenKey []byte, stsCl internal.AssumeRoleClient, rt RoleMap) Au
 			writeJsonError(w, http.StatusUnauthorized, "no access to role")
 			return
 		}
-		if !validAwsUrl(link.Url) {
+		destination := normalizeAwsUrl(link.Url)
+		if !validAwsUrl(destination) {
 			writeJsonError(w, http.StatusBadRequest, "invalid destination url")
 			return
 		}
-		consoleRedirect(w, r, stsCl, uc, link.Account, link.Role, link.Url)
+		consoleRedirect(w, r, stsCl, uc, link.Account, link.Role, destination)
 	}
 }
 
