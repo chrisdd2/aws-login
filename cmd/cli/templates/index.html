@@ -145,6 +145,42 @@
     gap: .5rem;
     margin-top: .75rem;
   }
+  dialog {
+    background: var(--surface);
+    color: var(--text);
+  }
+  dialog [hidden] { display: none !important; }
+  .dialog-body .field {
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+    margin-bottom: .75rem;
+    font-size: .8rem;
+    color: var(--muted);
+  }
+  .dialog-body .row {
+    display: flex;
+    gap: .5rem;
+  }
+  .dialog-body input {
+    flex: 1;
+    min-width: 0;
+    padding: .5rem .6rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--text);
+    font-size: .85rem;
+  }
+  .dialog-error {
+    margin: 0 0 .5rem;
+    padding: .5rem .6rem;
+    border: 1px solid var(--danger-border);
+    border-radius: var(--radius);
+    background: var(--danger-bg);
+    color: var(--danger-text);
+    font-size: .8rem;
+  }
 </style>
 </head>
 <body>
@@ -187,6 +223,7 @@
           <div class="actions">
             <a class="btn btn-primary" href="{{.ConsoleURL}}" target="_blank" rel="noopener">Console</a>
             <a class="btn btn-secondary" href="{{.CredURL}}" download="{{.AccountId}}-{{.Name}}.txt">Credentials</a>
+            <button type="button" class="btn btn-secondary url-btn" data-link="{{.LinkURL}}" data-role="{{.AccountId}} / {{.Name}}">URL</button>
           </div>
         </td>
       </tr>
@@ -195,6 +232,98 @@
   </table>
   {{end}}
 </main>
+
+<dialog id="url-dialog">
+  <form class="dialog-body" id="url-form" method="dialog">
+    <h3>Create URL for <span id="url-role"></span></h3>
+    <label class="field">
+      <span>AWS page URL</span>
+      <input type="url" id="url-input" placeholder="https://s3.console.aws.amazon.com/s3/buckets/..." required>
+    </label>
+    <div class="field" id="url-result" hidden>
+      <span>Link</span>
+      <div class="row">
+        <input type="text" id="url-output" readonly>
+        <button type="button" class="btn btn-secondary" id="url-copy">Copy</button>
+      </div>
+    </div>
+    <p class="dialog-error" id="url-error" hidden></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn btn-secondary" id="url-cancel">Close</button>
+      <button type="submit" class="btn btn-primary" id="url-generate">Generate</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  const dialog = document.getElementById("url-dialog");
+  const form = document.getElementById("url-form");
+  const roleLabel = document.getElementById("url-role");
+  const input = document.getElementById("url-input");
+  const result = document.getElementById("url-result");
+  const output = document.getElementById("url-output");
+  const copy = document.getElementById("url-copy");
+  const error = document.getElementById("url-error");
+  let target = "";
+
+  function showError(msg) {
+    error.textContent = msg;
+    error.hidden = !msg;
+  }
+
+  document.querySelectorAll(".url-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      target = btn.dataset.link;
+      roleLabel.textContent = btn.dataset.role;
+      input.value = "";
+      output.value = "";
+      result.hidden = true;
+      copy.textContent = "Copy";
+      showError("");
+      dialog.showModal();
+      input.focus();
+    });
+  });
+
+  document.getElementById("url-cancel").addEventListener("click", function () {
+    dialog.close();
+  });
+
+  form.addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    showError("");
+    result.hidden = true;
+    try {
+      const resp = await fetch(target, {
+        method: "POST",
+        body: new URLSearchParams({ url: input.value.trim() }),
+        credentials: "same-origin",
+      });
+      const data = await resp.json().catch(function () { return {}; });
+      if (!resp.ok) {
+        showError(data.error || ("Request failed (" + resp.status + ")"));
+        return;
+      }
+      output.value = new URL(data.url, location.href).href;
+      copy.textContent = "Copy";
+      result.hidden = false;
+      output.select();
+    } catch (e) {
+      showError(String(e));
+    }
+  });
+
+  copy.addEventListener("click", async function () {
+    try {
+      await navigator.clipboard.writeText(output.value);
+      copy.textContent = "Copied";
+    } catch (e) {
+      output.select();
+    }
+  });
+})();
+</script>
 </body>
 </html>
 {{end}}

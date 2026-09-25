@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -20,6 +22,21 @@ var ErrNotSupported = errors.New("not supported")
 const awsConsole = "https://console.aws.amazon.com/"
 
 const authCookie = "aws-login-cookie"
+
+const returnCookie = "aws-login-return"
+
+func validAwsUrl(s string) bool {
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme != "https" || u.User != nil {
+		return false
+	}
+	host := u.Hostname()
+	return host == "aws.amazon.com" || strings.HasSuffix(host, ".aws.amazon.com")
+}
+
+func safeReturnPath(p string) bool {
+	return strings.HasPrefix(p, "/") && !strings.HasPrefix(p, "//") && !strings.HasPrefix(p, "/\\")
+}
 
 func loginErrorString(queryParams url.Values) string {
 	if queryParams.Get("fromLogout") != "" {
@@ -67,12 +84,26 @@ func getLogin(key []byte, r *http.Request) (*internal.UserClaims, error) {
 
 type AuthenticatedRoute func(http.ResponseWriter, *http.Request, *internal.UserClaims)
 
-type LoggedInWrapper []byte
+type LoggedInWrapper struct {
+	key    []byte
+	secure bool
+}
 
 func (l *LoggedInWrapper) Wrap(h AuthenticatedRoute) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token, err := getLogin(*l, r)
+		token, err := getLogin(l.key, r)
 		if err != nil {
+			if r.Method == http.MethodGet {
+				http.SetCookie(w, &http.Cookie{
+					Name:     returnCookie,
+					Value:    r.URL.RequestURI(),
+					MaxAge:   600,
+					HttpOnly: true,
+					Secure:   l.secure,
+					SameSite: http.SameSiteLaxMode,
+					Path:     "/",
+				})
+			}
 			if err == ErrNoCookie {
 				http.Redirect(w, r, "/login", http.StatusSeeOther)
 				return
@@ -197,16 +228,25 @@ func Router(
 			SameSite: http.SameSiteLaxMode,
 			Path:     "/",
 		})
-		internal.Debugf("oauth2/callback: session cookie set for %q, redirecting to %s", userInfo.Username, rootUrl)
-		http.Redirect(w, r, rootUrl, http.StatusSeeOther)
+		target := rootUrl
+		if c, err := r.Cookie(returnCookie); err == nil {
+			if safeReturnPath(c.Value) {
+				target = c.Value
+			}
+			http.SetCookie(w, &http.Cookie{Name: returnCookie, Path: "/", MaxAge: -1})
+		}
+		internal.Debugf("oauth2/callback: session cookie set for %q, redirecting to %s", userInfo.Username, target)
+		http.Redirect(w, r, target, http.StatusSeeOther)
 	})
 
-	guard := LoggedInWrapper(tokenKey)
+	guard := LoggedInWrapper{key: tokenKey, secure: secureCookies}
 
 	index := guard.Wrap(indexPage(title, claimToRoleMap))
 	r.HandleFunc("GET /", index)
 	r.HandleFunc("POST /", index)
 	r.HandleFunc("GET /role/{accountId}/{roleName}", guard.Wrap(assumeRole(stsCl, claimToRoleMap)))
+	r.HandleFunc("POST /role/{accountId}/{roleName}/link", guard.Wrap(createLink(tokenKey, rootUrl, claimToRoleMap)))
+	r.HandleFunc("GET /{token}", guard.Wrap(followLink(tokenKey, stsCl, claimToRoleMap)))
 	r.HandleFunc("GET /logout", func(w http.ResponseWriter, r *http.Request) {
 		uc, err := getLogin(tokenKey, r)
 		if err != nil {
@@ -241,21 +281,14 @@ func assumeRole(stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute 
 			return
 		}
 
-		ctx := r.Context()
-
-		creds, err := internal.GenerateCredentials(ctx, stsCl, internal.RoleArn(accountId, roleName), uc.Username, time.Hour)
-		if err != nil {
-			writeJsonError(w, http.StatusInternalServerError, err.Error())
+		if redirectUrl != "" {
+			consoleRedirect(w, r, stsCl, uc, accountId, roleName, awsConsole)
 			return
 		}
 
-		if redirectUrl != "" {
-			url, err := internal.GenerateSignedUrl(ctx, creds, awsConsole, time.Hour*8)
-			if err != nil {
-				writeJsonError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+		creds, err := internal.GenerateCredentials(r.Context(), stsCl, internal.RoleArn(accountId, roleName), uc.Username, time.Hour)
+		if err != nil {
+			writeJsonError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		formatType := queryParams.Get("format")
@@ -267,12 +300,75 @@ func assumeRole(stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute 
 
 }
 
+func consoleRedirect(w http.ResponseWriter, r *http.Request, stsCl internal.AssumeRoleClient, uc *internal.UserClaims, accountId string, roleName string, destination string) {
+	ctx := r.Context()
+	creds, err := internal.GenerateCredentials(ctx, stsCl, internal.RoleArn(accountId, roleName), uc.Username, time.Hour)
+	if err != nil {
+		writeJsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	signed, err := internal.GenerateSignedUrl(ctx, creds, destination, time.Hour*8)
+	if err != nil {
+		writeJsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	http.Redirect(w, r, signed, http.StatusTemporaryRedirect)
+}
+
+func createLink(tokenKey []byte, rootUrl string, rt RoleMap) AuthenticatedRoute {
+	return func(w http.ResponseWriter, r *http.Request, uc *internal.UserClaims) {
+		accountId := r.PathValue("accountId")
+		roleName := r.PathValue("roleName")
+		if rt.Find(uc.Claims, accountId, roleName) == nil {
+			internal.Debugf("createLink: user %q with groups %v has no access to %s/%s", uc.Username, uc.Claims, accountId, roleName)
+			writeJsonError(w, http.StatusUnauthorized, "no access to role")
+			return
+		}
+		destination := strings.TrimSpace(r.FormValue("url"))
+		if !validAwsUrl(destination) {
+			writeJsonError(w, http.StatusBadRequest, "url must be an https aws.amazon.com address")
+			return
+		}
+		token, err := internal.SignLinkToken(tokenKey, accountId, roleName, destination)
+		if err != nil {
+			writeJsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Add("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(struct {
+			Url string `json:"url"`
+		}{Url: strings.TrimSuffix(rootUrl, "/") + "/" + token})
+	}
+}
+
+func followLink(tokenKey []byte, stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute {
+	return func(w http.ResponseWriter, r *http.Request, uc *internal.UserClaims) {
+		link, err := internal.ParseLinkToken(tokenKey, r.PathValue("token"))
+		if err != nil {
+			internal.Debugf("followLink: invalid token: %s", err)
+			writeJsonError(w, http.StatusNotFound, "not found")
+			return
+		}
+		if rt.Find(uc.Claims, link.Account, link.Role) == nil {
+			internal.Debugf("followLink: user %q with groups %v has no access to %s/%s", uc.Username, uc.Claims, link.Account, link.Role)
+			writeJsonError(w, http.StatusUnauthorized, "no access to role")
+			return
+		}
+		if !validAwsUrl(link.Url) {
+			writeJsonError(w, http.StatusBadRequest, "invalid destination url")
+			return
+		}
+		consoleRedirect(w, r, stsCl, uc, link.Account, link.Role, link.Url)
+	}
+}
+
 func indexPage(title string, rt RoleMap) AuthenticatedRoute {
 	type roleView struct {
 		Name       string
 		AccountId  string
 		ConsoleURL string
 		CredURL    string
+		LinkURL    string
 		Tags       map[string]string
 	}
 
@@ -290,6 +386,7 @@ func indexPage(title string, rt RoleMap) AuthenticatedRoute {
 				AccountId:  role.AccountId,
 				ConsoleURL: basePath + "?redirectUrl=" + url.QueryEscape(awsConsole),
 				CredURL:    basePath + "?format=" + internal.CredentialFormatBash,
+				LinkURL:    basePath + "/link",
 				Tags:       role.Tags,
 			})
 		}
