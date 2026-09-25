@@ -12,39 +12,37 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 1rem;
+    background: hsl(var(--muted) / 0.4);
   }
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 2rem;
-    width: 90%;
-    max-width: 360px;
-    text-align: center;
+  .login {
+    width: 100%;
+    max-width: 380px;
+    padding: 1.5rem;
   }
-  .card h1 {
-    font-size: 1.1rem;
-    margin: 0 0 1.25rem;
+  .login-header {
+    display: flex;
+    flex-direction: column;
+    gap: .375rem;
+    margin-bottom: 1.5rem;
   }
-  .error {
-    background: var(--danger-bg);
-    border: 1px solid var(--danger-border);
-    color: var(--danger-text);
-    border-radius: var(--radius);
-    padding: .75rem 1rem;
-    font-size: .85rem;
-    margin-bottom: 1.25rem;
-    white-space: pre-line;
-    text-align: left;
+  .login-header h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
   }
-  .btn { padding: .6rem 1.5rem; font-size: .9rem; }
+  .login .alert-destructive { margin-bottom: 1rem; }
 </style>
 </head>
 <body>
-  <div class="card">
-    <h1>{{.Title}}</h1>
-    {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-    <a class="btn" href="/login">Log in</a>
+  <div class="card login">
+    <div class="login-header">
+      <h1>{{.Title}}</h1>
+      <p class="muted">Sign in with your identity provider to access your AWS roles.</p>
+    </div>
+    {{if .Error}}<div class="alert-destructive" role="alert">{{.Error}}</div>{{end}}
+    <a class="btn btn-block" href="/login">Log in</a>
   </div>
 </body>
 </html>
