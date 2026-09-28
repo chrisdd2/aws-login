@@ -109,7 +109,7 @@ func handleCommand(ctx context.Context) error {
 		if err != nil {
 			return internal.WrapError(err, "NewOpenID")
 		}
-		router := Router(ctx, oidcSrv, rootUrl, title, []byte(tokenKey), opts.SecureCookies, sessionRefresh, rt, stsSvc, internal.NewSsmClients)
+		router := Router(ctx, oidcSrv, rootUrl, title, []byte(tokenKey), opts.SecureCookies, sessionRefresh, rt, stsSvc)
 
 		srv := http.Server{Addr: *addr, Handler: router, ReadTimeout: time.Second * 30, WriteTimeout: time.Second * 30}
 		go func() {

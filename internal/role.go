@@ -250,9 +250,6 @@ func SyncRoles(ctx context.Context, stsSvc *sts.Client, roles []Role) error {
 
 	accounts := map[string][]Role{}
 	for _, r := range roles {
-		if _, err := ResolveInlinePolicies(r.Policies); err != nil {
-			return WrapError(err, fmt.Sprintf("role %s/%s", r.AccountId, r.Name))
-		}
 		accounts[r.AccountId] = append(accounts[r.AccountId], r)
 	}
 
@@ -344,14 +341,10 @@ func SyncAccount(ctx context.Context, stsSvc *sts.Client, accountId string, role
 
 	// create all roles
 	for _, r := range roles {
-		inlinePolicies, err := ResolveInlinePolicies(r.Policies)
-		if err != nil {
-			return WrapError(err, "ResolveInlinePolicies")
-		}
 		opts := RoleOptions{
 			RoleName:           r.Name,
 			MaxSessionDuration: ternary(r.MaxSessionDuration == 0, time.Hour*8, r.MaxSessionDuration),
-			InlinePolicies:     inlinePolicies,
+			InlinePolicies:     r.Policies,
 			ManagedPolicies:    r.ManagedPolicies,
 			Tags:               r.Tags,
 			AssumeRoleDocument: assumeRoleDocument,

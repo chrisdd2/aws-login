@@ -62,7 +62,7 @@ func serve(h http.Handler, path string, cookie *http.Cookie) *httptest.ResponseR
 
 func TestSecurityHeaders(t *testing.T) {
 	stsCl := &recordingSts{}
-	h := testRouterWith(t, stsCl, nil)
+	h := testRouterWith(t, stsCl)
 	for _, p := range []string{"/", "/role/111111111111/dev?format=bash", "/login?error=token_expired"} {
 		rec := serve(h, p, sessionCookie(t, "devs"))
 		want := map[string]string{
@@ -85,7 +85,7 @@ func TestSecurityHeaders(t *testing.T) {
 }
 
 func TestSecurityHeadersHstsWhenSecure(t *testing.T) {
-	h := Router(context.Background(), nil, "/", "test", testKey, true, time.Hour, nil, nil, nil)
+	h := Router(context.Background(), nil, "/", "test", testKey, true, time.Hour, nil, nil)
 	rec := serve(h, "/login?error=token_expired", nil)
 	if rec.Header().Get("Strict-Transport-Security") == "" {
 		t.Fatal("expected hsts header when cookies are secure")
@@ -141,7 +141,7 @@ func TestLoginErrorDoesNotReflectInput(t *testing.T) {
 
 func TestInternalErrorsAreNotExposed(t *testing.T) {
 	stsCl := &recordingSts{err: errors.New("AccessDenied: arn:aws:iam::111111111111:role/secret-internal")}
-	rec := serve(testRouterWith(t, stsCl, nil), "/role/111111111111/dev?format=bash", sessionCookie(t, "devs"))
+	rec := serve(testRouterWith(t, stsCl), "/role/111111111111/dev?format=bash", sessionCookie(t, "devs"))
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status %d", rec.Code)
 	}
@@ -152,7 +152,7 @@ func TestInternalErrorsAreNotExposed(t *testing.T) {
 
 func TestCredentialsUseSanitizedSessionName(t *testing.T) {
 	stsCl := &recordingSts{}
-	rec := serve(testRouterWith(t, stsCl, nil), "/role/111111111111/dev?format=bash", tokenCookie(t, "John Smith", time.Now(), "devs"))
+	rec := serve(testRouterWith(t, stsCl), "/role/111111111111/dev?format=bash", tokenCookie(t, "John Smith", time.Now(), "devs"))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
 	}
