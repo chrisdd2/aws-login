@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -57,8 +58,22 @@ type AssumeRoleClient interface {
 	AssumeRole(ctx context.Context, params *sts.AssumeRoleInput, optFns ...func(*sts.Options)) (*sts.AssumeRoleOutput, error)
 }
 
+var invalidSessionNameChars = regexp.MustCompile(`[^\w+=,.@-]`)
+
+func SessionName(username string) string {
+	name := invalidSessionNameChars.ReplaceAllString(username, "-")
+	if len(name) > 64 {
+		name = name[:64]
+	}
+	if len(name) < 2 {
+		name = "aws-login-" + name
+	}
+	return name
+}
+
 func GenerateCredentials(ctx context.Context, cl AssumeRoleClient, roleArn string, sessionName string, duration time.Duration) (AwsCredentials, error) {
 	duration = ternary(duration == 0, time.Hour, duration)
+	sessionName = SessionName(sessionName)
 	resp, err := cl.AssumeRole(ctx, &sts.AssumeRoleInput{RoleArn: &roleArn, RoleSessionName: &sessionName, DurationSeconds: aws.Int32(int32(duration.Seconds()))})
 	if err != nil {
 		return AwsCredentials{}, WrapError(err, "AssumeRoleClient.AssumeRole")

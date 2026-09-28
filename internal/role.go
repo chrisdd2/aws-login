@@ -36,8 +36,38 @@ var (
 	permissionBoundaryName = shortRoleName("aws-login-iam-boundary")
 )
 
+const managedTagKey = "aws-login"
+
 var defaultTags = map[string]string{
-	"aws-login": "true",
+	managedTagKey: "true",
+}
+
+func managedByAwsLogin(tags []iamTypes.Tag) bool {
+	for _, t := range tags {
+		if aws.ToString(t.Key) == managedTagKey && aws.ToString(t.Value) == "true" {
+			return true
+		}
+	}
+	return false
+}
+
+type boundaryAction int
+
+const (
+	boundaryKeep boundaryAction = iota
+	boundaryPut
+	boundaryDelete
+)
+
+func boundaryChange(current, want string) boundaryAction {
+	switch {
+	case current == want:
+		return boundaryKeep
+	case want == "":
+		return boundaryDelete
+	default:
+		return boundaryPut
+	}
 }
 
 func SyncRole(ctx context.Context, iamSvc *iam.Client, opts *RoleOptions) error {
@@ -50,6 +80,9 @@ func SyncRole(ctx context.Context, iamSvc *iam.Client, opts *RoleOptions) error 
 		}
 		return WrapError(err, "iam.GetRole")
 	}
+	if !managedByAwsLogin(resp.Role.Tags) {
+		return WrapError(fmt.Errorf("role %s exists but is not tagged %s=true, refusing to take it over", opts.RoleName, managedTagKey), "SyncRole")
+	}
 	// check if the basic stuff of the role need update
 	if opts.Description != aws.ToString(resp.Role.Description) || int32(opts.MaxSessionDuration.Seconds()) != aws.ToInt32(resp.Role.MaxSessionDuration) {
 		_, err := iamSvc.UpdateRole(ctx, &iam.UpdateRoleInput{RoleName: resp.Role.RoleName, Description: &opts.Description, MaxSessionDuration: durationToAwsTime(opts.MaxSessionDuration)})
@@ -58,12 +91,16 @@ func SyncRole(ctx context.Context, iamSvc *iam.Client, opts *RoleOptions) error 
 		}
 	}
 
+	currentBoundary := ""
 	if resp.Role.PermissionsBoundary != nil {
+		currentBoundary = aws.ToString(resp.Role.PermissionsBoundary.PermissionsBoundaryArn)
+	}
+	switch boundaryChange(currentBoundary, opts.PermissionBoundary) {
+	case boundaryDelete:
 		if _, err := iamSvc.DeleteRolePermissionsBoundary(ctx, &iam.DeleteRolePermissionsBoundaryInput{RoleName: resp.Role.RoleName}); err != nil {
 			return WrapError(err, "iam.DeleteRolePermissionBoundary")
 		}
-	}
-	if opts.PermissionBoundary != "" {
+	case boundaryPut:
 		if _, err := iamSvc.PutRolePermissionsBoundary(ctx, &iam.PutRolePermissionsBoundaryInput{PermissionsBoundary: &opts.PermissionBoundary, RoleName: resp.Role.RoleName}); err != nil {
 			return WrapError(err, "iam.PutRolePermissionBoundary")
 		}

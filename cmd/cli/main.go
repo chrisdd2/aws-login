@@ -90,19 +90,26 @@ func handleCommand(ctx context.Context) error {
 			ClientSecret:          getOrDie("OIDC_SECRET"),
 			Scopes:                strings.Split(os.Getenv("OIDC_SCOPES"), ","),
 			GroupClaimsPath:       getOrDefault("OIDC_GROUP_CLAIMSPATH", "groups"),
-			UsernameClaimsPath:    getOrDefault("OIDC_USERNAME_CLAIMSPATH", "name"),
-			DisplayNameClaimsPath: getOrDefault("OIDC_DISPLAYNAME_CLAIMSPATH", "preferred_name"),
-			SecureCookies:         getOrDefault("OIDC_SECURE_COOKIES", "false") == "true",
+			UsernameClaimsPath:    getOrDefault("OIDC_USERNAME_CLAIMSPATH", "preferred_username"),
+			DisplayNameClaimsPath: getOrDefault("OIDC_DISPLAYNAME_CLAIMSPATH", "name"),
 		}
+		opts.SecureCookies = secureCookies(os.Getenv("OIDC_SECURE_COOKIES"), opts.RedirectUrl)
 		rootUrl := getOrDefault("BASE_URL", "/")
 		tokenKey := getOrDie("ENCRYPTION_KEY")
+		if err := validateTokenKey(tokenKey); err != nil {
+			return err
+		}
+		sessionRefresh, err := time.ParseDuration(getOrDefault("SESSION_REFRESH", "1h"))
+		if err != nil {
+			return internal.WrapError(err, "SESSION_REFRESH")
+		}
 		title := getOrDefault("APP_TITLE", "aws-login")
 
 		oidcSrv, err := NewOpenId(ctx, &opts)
 		if err != nil {
 			return internal.WrapError(err, "NewOpenID")
 		}
-		router := Router(ctx, oidcSrv, rootUrl, title, []byte(tokenKey), opts.SecureCookies, rt, stsSvc, internal.NewSsmClients)
+		router := Router(ctx, oidcSrv, rootUrl, title, []byte(tokenKey), opts.SecureCookies, sessionRefresh, rt, stsSvc, internal.NewSsmClients)
 
 		srv := http.Server{Addr: *addr, Handler: router, ReadTimeout: time.Second * 30, WriteTimeout: time.Second * 30}
 		go func() {
@@ -134,6 +141,22 @@ func shutdownContext(parent context.Context) (context.Context, context.CancelCau
 		signal.Stop(sigChan)
 	}()
 	return ctx, cancel
+}
+
+const minTokenKeyLength = 32
+
+func validateTokenKey(key string) error {
+	if len(key) < minTokenKeyLength {
+		return fmt.Errorf("ENCRYPTION_KEY must be at least %d characters, got %d", minTokenKeyLength, len(key))
+	}
+	return nil
+}
+
+func secureCookies(setting string, redirectUrl string) bool {
+	if setting != "" {
+		return setting == "true"
+	}
+	return strings.HasPrefix(strings.ToLower(redirectUrl), "https://")
 }
 
 func getOrDie(key string) string {

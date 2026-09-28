@@ -20,7 +20,8 @@ aws-login web [--address :8080]
 ```
 
 `web` also syncs the IAM roles/policies described in the config into every
-account referenced there before it starts listening.
+account referenced there before it starts listening. It refuses to take over
+an existing role unless that role is tagged `aws-login=true`.
 
 ## Configuration
 
@@ -68,11 +69,12 @@ See [example.yaml](example.yaml).
 | `OIDC_LOGOUT_URL` | discovered from `.well-known/openid-configuration` | End-session endpoint override |
 | `OIDC_SCOPES` | — | Extra comma-separated scopes (`openid email profile` are always included) |
 | `OIDC_GROUP_CLAIMSPATH` | `groups` | Dotted path to the groups/roles claim in the ID token |
-| `OIDC_USERNAME_CLAIMSPATH` | `username` | Dotted path to the username claim |
-| `OIDC_DISPLAYNAME_CLAIMSPATH` | `preferred_name` | Dotted path to the display-name claim |
-| `OIDC_SECURE_COOKIES` | `false` | Set `true` to mark cookies `Secure` (needs HTTPS) |
+| `OIDC_USERNAME_CLAIMSPATH` | `preferred_username` | Dotted path to the username claim. Used as the AWS role session name, so pick a unique claim users can't edit; characters AWS doesn't allow are replaced with `-` |
+| `OIDC_DISPLAYNAME_CLAIMSPATH` | `name` | Dotted path to the display-name claim; falls back to the username if missing |
+| `OIDC_SECURE_COOKIES` | `true` if `OIDC_REDIRECT_URL` is https, else `false` | Mark cookies `Secure` and send HSTS |
 | `DEBUG` | `false` | Set `true` to log debug output (login/token/role-lookup flow) to stderr |
-| `ENCRYPTION_KEY` | — (required) | Key used to sign the session JWT cookie |
+| `ENCRYPTION_KEY` | — (required) | Key used to sign (not encrypt) the session cookie and links; at least 32 characters |
+| `SESSION_REFRESH` | `1h` | How long a login is trusted before aws-login silently re-checks it with the OIDC provider, picking up group changes and IdP logouts |
 | `BASE_URL` | `/` | Path to redirect to after login/logout |
 | `APP_TITLE` | `aws-login` | Title shown in the UI |
 
@@ -110,6 +112,15 @@ identity running `web`) assumes a per-account `aws-login-bootstrap` role
 - a shared permission boundary policy, attached to every role it manages,
   that prevents those roles from being used to escalate IAM permissions
   outside of what aws-login itself grants
+
+Roles with the boundary can only create roles that also carry it, cannot
+modify roles without it or the boundary policy itself, and can only pass or
+assume (within the same account) roles under the `/aws-login-bounded/` path.
+IAM paths are fixed at creation, so a role that bounded users create for
+Lambda, EC2 and so on must be created with `--path /aws-login-bounded/` to be
+usable. Service-linked roles can still be passed. Tools that assume
+same-account roles outside that path (for example the CDK bootstrap roles)
+won't work from bounded roles.
 
 At request time, the web app itself calls `sts:AssumeRole` directly on the
 target role (not through the bootstrap role) using the caller identity the

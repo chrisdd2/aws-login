@@ -64,23 +64,24 @@ func loginErrorString(queryParams url.Values) string {
 	}
 	switch errorValue {
 	case "user_not_found":
-		return fmt.Sprintf("User [%s] has no accessible role", queryParams.Get("username"))
+		return "Your account has no accessible role"
 	case "invalid_cookie":
 		return "Authentication cookie is invalid, log out and retry"
 	case "wrong_credentials":
-		return fmt.Sprintf("Authentication failed [%s].\nContact an administrator", queryParams.Get("message"))
+		return "Authentication failed.\nContact an administrator"
 	case "token_expired":
 		return "Login session expired, log in again"
 	default:
-		return fmt.Sprintf("Internal server error [%s]", queryParams.Get("message"))
+		return "Internal server error"
 	}
 }
 
 var ErrNoCookie = errors.New("no auth cookie")
 var ErrTokenParse = errors.New("invalid_cookie")
 var ErrTokenExpired = errors.New("token_expired")
+var ErrTokenStale = errors.New("token_stale")
 
-func getLogin(key []byte, r *http.Request) (*internal.UserClaims, error) {
+func getLogin(key []byte, refresh time.Duration, r *http.Request) (*internal.UserClaims, error) {
 	cookie, err := r.Cookie(authCookie)
 	if err != nil {
 		return nil, ErrNoCookie
@@ -94,6 +95,10 @@ func getLogin(key []byte, r *http.Request) (*internal.UserClaims, error) {
 		internal.Debugf("getLogin: token for %q expired at %s", token.Username, token.ExpiresAt.Time)
 		return nil, ErrTokenExpired
 	}
+	if refresh > 0 && (token.IssuedAt == nil || token.IssuedAt.Time.Add(refresh).Before(time.Now().UTC())) {
+		internal.Debugf("getLogin: token for %q is older than %s, re-authenticating", token.Username, refresh)
+		return nil, ErrTokenStale
+	}
 	internal.Debugf("getLogin: user %q logged in with groups %v", token.Username, token.Claims)
 	return token, nil
 }
@@ -101,13 +106,14 @@ func getLogin(key []byte, r *http.Request) (*internal.UserClaims, error) {
 type AuthenticatedRoute func(http.ResponseWriter, *http.Request, *internal.UserClaims)
 
 type LoggedInWrapper struct {
-	key    []byte
-	secure bool
+	key     []byte
+	refresh time.Duration
+	secure  bool
 }
 
 func (l *LoggedInWrapper) Wrap(h AuthenticatedRoute) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token, err := getLogin(l.key, r)
+		token, err := getLogin(l.key, l.refresh, r)
 		if err != nil {
 			if r.Method == http.MethodGet {
 				http.SetCookie(w, &http.Cookie{
@@ -120,7 +126,7 @@ func (l *LoggedInWrapper) Wrap(h AuthenticatedRoute) http.HandlerFunc {
 					Path:     "/",
 				})
 			}
-			if err == ErrNoCookie {
+			if err == ErrNoCookie || err == ErrTokenStale {
 				http.Redirect(w, r, "/login", http.StatusSeeOther)
 				return
 			}
@@ -163,10 +169,11 @@ func Router(
 	title string,
 	tokenKey []byte,
 	secureCookies bool,
+	sessionRefresh time.Duration,
 	roles []internal.Role,
 	stsCl internal.AssumeRoleClient,
 	ssmClients SsmClientFactory,
-) *http.ServeMux {
+) http.Handler {
 
 	claimToRoleMap := RoleMap{}
 	for _, r := range roles {
@@ -188,11 +195,11 @@ func Router(
 				Title string
 				Error string
 			}{Title: title, Error: errMsg}); err != nil {
-				writeJsonError(w, http.StatusInternalServerError, err.Error())
+				writeInternalError(w, http.StatusInternalServerError, err)
 			}
 			return
 		}
-		_, err := getLogin(tokenKey, r)
+		_, err := getLogin(tokenKey, sessionRefresh, r)
 		if err == nil {
 			// logged in already
 			http.Redirect(w, r, rootUrl, http.StatusTemporaryRedirect)
@@ -205,10 +212,9 @@ func Router(
 		internal.Debugf("oauth2/callback: exchanging code for token")
 		userInfo, err := auth.CallbackHandler(r)
 		if err != nil {
-			internal.Debugf("oauth2/callback: CallbackHandler failed: %s", err)
+			fmt.Fprintf(os.Stderr, "oauth2/callback: login failed: %s\n", err)
 			vals := url.Values{}
 			vals.Add("error", "wrong_credentials")
-			vals.Add("message", err.Error())
 			http.Redirect(w, r, "/login?"+vals.Encode(), http.StatusSeeOther)
 			return
 		}
@@ -226,15 +232,13 @@ func Router(
 			fmt.Fprintf(os.Stderr, "user %s with groups [%s] not matching\n", userInfo.DisplayName, userInfo.Groups)
 			vals := url.Values{}
 			vals.Add("error", "user_not_found")
-			vals.Add("username", userInfo.Username)
 			http.Redirect(w, r, "/login?"+vals.Encode(), http.StatusSeeOther)
 			return
 		}
 
 		signed, err := internal.SignToken(tokenKey, userInfo.Username, validClaim, userInfo.IdToken, 8*time.Hour)
 		if err != nil {
-			internal.Debugf("oauth2/callback: SignToken failed: %s", err)
-			writeJsonError(w, http.StatusInternalServerError, err.Error())
+			writeInternalError(w, http.StatusInternalServerError, err)
 			return
 		}
 		http.SetCookie(w, &http.Cookie{
@@ -256,7 +260,7 @@ func Router(
 		http.Redirect(w, r, target, http.StatusSeeOther)
 	})
 
-	guard := LoggedInWrapper{key: tokenKey, secure: secureCookies}
+	guard := LoggedInWrapper{key: tokenKey, refresh: sessionRefresh, secure: secureCookies}
 
 	index := guard.Wrap(indexPage(title, claimToRoleMap))
 	r.HandleFunc("GET /", index)
@@ -268,23 +272,33 @@ func Router(
 	r.HandleFunc("GET /role/{accountId}/{roleName}/ssm/{instanceId}", guard.Wrap(ssmSession(stsCl, claimToRoleMap)))
 	r.HandleFunc("GET /{token}", guard.Wrap(followLink(tokenKey, stsCl, claimToRoleMap)))
 	r.HandleFunc("GET /logout", func(w http.ResponseWriter, r *http.Request) {
-		uc, err := getLogin(tokenKey, r)
+		uc, err := getLogin(tokenKey, 0, r)
+		http.SetCookie(w, &http.Cookie{Name: authCookie, Path: "/", MaxAge: -1, HttpOnly: true, Secure: secureCookies, SameSite: http.SameSiteLaxMode})
 		if err != nil {
-			// no valid login, go to main
 			http.Redirect(w, r, rootUrl, http.StatusTemporaryRedirect)
 			return
-		}
-		cookie, _ := r.Cookie(authCookie)
-		if cookie != nil {
-			cookie.MaxAge = -1
-			http.SetCookie(w, cookie)
 		}
 		logoutRedirect := auth.PostLogoutRedirectUrl("/login", url.Values{"fromLogout": {"1"}})
 		internal.Debugf("logout: user %q logging out, post_logout_redirect_uri=%s", uc.Username, logoutRedirect)
 		http.Redirect(w, r, auth.LogoutUrl(logoutRedirect, uc.IdpToken), http.StatusTemporaryRedirect)
 	})
 
-	return &r
+	return securityHeaders(&r, secureCookies)
+}
+
+func securityHeaders(h http.Handler, secure bool) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hdr := w.Header()
+		hdr.Set("Cache-Control", "no-store")
+		hdr.Set("X-Content-Type-Options", "nosniff")
+		hdr.Set("X-Frame-Options", "DENY")
+		hdr.Set("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'none'; object-src 'none'")
+		hdr.Set("Referrer-Policy", "same-origin")
+		if secure {
+			hdr.Set("Strict-Transport-Security", "max-age=31536000")
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 func assumeRole(stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute {
@@ -308,7 +322,7 @@ func assumeRole(stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute 
 
 		creds, err := internal.GenerateCredentials(r.Context(), stsCl, internal.RoleArn(accountId, roleName), uc.Username, role.MaxSessionDuration)
 		if err != nil {
-			writeJsonError(w, http.StatusInternalServerError, err.Error())
+			writeInternalError(w, http.StatusInternalServerError, err)
 			return
 		}
 		formatType := queryParams.Get("format")
@@ -324,12 +338,12 @@ func consoleRedirect(w http.ResponseWriter, r *http.Request, stsCl internal.Assu
 	ctx := r.Context()
 	creds, err := internal.GenerateCredentials(ctx, stsCl, internal.RoleArn(role.AccountId, role.Name), uc.Username, role.MaxSessionDuration)
 	if err != nil {
-		writeJsonError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, http.StatusInternalServerError, err)
 		return
 	}
 	signed, err := internal.GenerateSignedUrl(ctx, creds, destination, time.Hour*8)
 	if err != nil {
-		writeJsonError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, http.StatusInternalServerError, err)
 		return
 	}
 	http.Redirect(w, r, signed, http.StatusTemporaryRedirect)
@@ -351,7 +365,7 @@ func createLink(tokenKey []byte, rootUrl string, rt RoleMap) AuthenticatedRoute 
 		}
 		token, err := internal.SignLinkToken(tokenKey, accountId, roleName, destination)
 		if err != nil {
-			writeJsonError(w, http.StatusInternalServerError, err.Error())
+			writeInternalError(w, http.StatusInternalServerError, err)
 			return
 		}
 		w.Header().Add("Content-Type", "application/json")
@@ -417,7 +431,7 @@ func ssmRole(w http.ResponseWriter, r *http.Request, rt RoleMap, uc *internal.Us
 func ssmRoleClients(w http.ResponseWriter, r *http.Request, stsCl internal.AssumeRoleClient, ssmClients SsmClientFactory, role *internal.Role, uc *internal.UserClaims, region string) (internal.SsmClient, internal.Ec2Client, bool) {
 	creds, err := internal.GenerateCredentials(r.Context(), stsCl, internal.RoleArn(role.AccountId, role.Name), uc.Username, time.Hour)
 	if err != nil {
-		writeJsonError(w, http.StatusInternalServerError, err.Error())
+		writeInternalError(w, http.StatusInternalServerError, err)
 		return nil, nil, false
 	}
 	ssmCl, ec2Cl := ssmClients(creds, region)
@@ -532,13 +546,22 @@ func indexPage(title string, rt RoleMap) AuthenticatedRoute {
 
 		w.Header().Add("Content-Type", "text/html; charset=utf-8")
 		if err := templates.ExecuteTemplate(w, "index", indexData{User: uc, Roles: userRoles, Title: title}); err != nil {
-			writeJsonError(w, http.StatusInternalServerError, err.Error())
+			writeInternalError(w, http.StatusInternalServerError, err)
 		}
 	}
 }
 
+func writeInternalError(w http.ResponseWriter, statusCode int, err error) {
+	fmt.Fprintf(os.Stderr, "Error %d: %s\n", statusCode, err)
+	writeJsonBody(w, statusCode, http.StatusText(statusCode))
+}
+
 func writeJsonError(w http.ResponseWriter, statusCode int, err string) {
 	fmt.Fprintf(os.Stderr, "Error %d: %s\n", statusCode, err)
+	writeJsonBody(w, statusCode, err)
+}
+
+func writeJsonBody(w http.ResponseWriter, statusCode int, err string) {
 	w.Header().Add("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(struct {

@@ -22,6 +22,7 @@ func SignToken(key []byte, username string, claims []string, idpToken string, ex
 			Claims:   claims,
 			IdpToken: idpToken,
 			RegisteredClaims: jwt.RegisteredClaims{
+				IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
 				ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(expiration)),
 			},
 		},

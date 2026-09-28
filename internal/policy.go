@@ -204,7 +204,10 @@ func ssmSessionPolicy() string {
 			Sid:      "ManageOwnSessions",
 			Effect:   "Allow",
 			Action:   []string{"ssm:TerminateSession", "ssm:ResumeSession"},
-			Resource: []string{"arn:aws:ssm:*:*:session/*"},
+			Resource: []string{"*"},
+			Condition: map[string]map[string]any{
+				"StringLike": {"ssm:resourceTag/aws:ssmmessages:session-id": "${aws:userid}*"},
+			},
 		},
 	)
 }

@@ -85,10 +85,10 @@ func NewOpenId(ctx context.Context, opts *OidcOptions) (*OpenIdService, error) {
 		opts.GroupClaimsPath = "roles"
 	}
 	if opts.UsernameClaimsPath == "" {
-		opts.UsernameClaimsPath = "email"
+		opts.UsernameClaimsPath = "preferred_username"
 	}
 	if opts.DisplayNameClaimsPath == "" {
-		opts.DisplayNameClaimsPath = "preferred_username"
+		opts.DisplayNameClaimsPath = "name"
 	}
 	if opts.LogoutUrl == "" {
 		logoutUrl, err := findLogoutUrl(opts.IssuerUrl)
@@ -184,10 +184,6 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*UserInfo, error) {
 	internal.Debugf("oidc.CallbackHandler: raw id_token claims: %+v", claims)
 	userInfo := UserInfo{}
 
-	userInfo.DisplayName, err = jsonExtract(claims, g.opts.DisplayNameClaimsPath)
-	if err != nil {
-		return nil, err
-	}
 	userInfo.Groups, err = jsonExtractStrings(claims, g.opts.GroupClaimsPath)
 	if err != nil {
 		return nil, err
@@ -196,6 +192,9 @@ func (g *OpenIdService) CallbackHandler(r *http.Request) (*UserInfo, error) {
 	userInfo.Username, err = jsonExtract(claims, g.opts.UsernameClaimsPath)
 	if err != nil {
 		return nil, err
+	}
+	if userInfo.DisplayName, err = jsonExtract(claims, g.opts.DisplayNameClaimsPath); err != nil {
+		userInfo.DisplayName = userInfo.Username
 	}
 	userInfo.IdToken = idTokenRaw
 	return &userInfo, nil

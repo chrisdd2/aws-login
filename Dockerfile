@@ -11,16 +11,11 @@ COPY . .
 # Build the Go binary
 RUN CGO_ENABLED=0 go build -o main ./cmd/cli
 
-# Stage 2: Minimal runtime image with certificates
-FROM alpine:latest
+# Stage 2: Minimal non-root runtime image with certificates
+FROM gcr.io/distroless/static-debian12:nonroot
 
-# Install CA certificates
-RUN apk --no-cache add ca-certificates
+COPY --from=builder /app/main /main
 
-WORKDIR /root/
+USER nonroot:nonroot
 
-# Copy binary from builder
-COPY --from=builder /app/main .
-
-
-CMD ["./main"]
+ENTRYPOINT ["/main"]

@@ -131,3 +131,20 @@ func TestBoundaryPolicyFitsManagedPolicyLimit(t *testing.T) {
 		t.Fatalf("boundary policy is %d characters, managed policy limit is 6144", n)
 	}
 }
+
+func TestSsmPolicyOnlyManagesOwnSessions(t *testing.T) {
+	doc := policyDocument{}
+	if err := json.Unmarshal([]byte(ssmSessionPolicy()), &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range doc.Statement {
+		if !slices.Contains(s.Action, "ssm:TerminateSession") {
+			continue
+		}
+		if s.Condition["StringLike"]["ssm:resourceTag/aws:ssmmessages:session-id"] != "${aws:userid}*" {
+			t.Fatalf("%s: terminate/resume not scoped to own sessions: %+v", s.Sid, s.Condition)
+		}
+		return
+	}
+	t.Fatal("no statement grants ssm:TerminateSession")
+}

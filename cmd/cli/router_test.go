@@ -28,7 +28,7 @@ func testRouterWith(t *testing.T, stsCl internal.AssumeRoleClient, ssmClients Ss
 		{Name: "ops", AccountId: "333333333333", Claim: []string{"devs"}, SsmEnabled: true},
 		{Name: "ops-admin", AccountId: "444444444444", Claim: []string{"admins"}, SsmEnabled: true},
 	}
-	return Router(context.Background(), nil, "/", "test", testKey, false, roles, stsCl, ssmClients)
+	return Router(context.Background(), nil, "/", "test", testKey, false, time.Hour, roles, stsCl, ssmClients)
 }
 
 func sessionCookie(t *testing.T, groups ...string) *http.Cookie {
