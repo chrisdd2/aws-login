@@ -58,6 +58,7 @@ type AssumeRoleClient interface {
 }
 
 func GenerateCredentials(ctx context.Context, cl AssumeRoleClient, roleArn string, sessionName string, duration time.Duration) (AwsCredentials, error) {
+	duration = ternary(duration == 0, time.Hour, duration)
 	resp, err := cl.AssumeRole(ctx, &sts.AssumeRoleInput{RoleArn: &roleArn, RoleSessionName: &sessionName, DurationSeconds: aws.Int32(int32(duration.Seconds()))})
 	if err != nil {
 		return AwsCredentials{}, WrapError(err, "AssumeRoleClient.AssumeRole")
@@ -140,4 +141,3 @@ func AssumeRoleConfig(ctx context.Context, stsCl AssumeRoleClient, roleArn strin
 	}
 	return cfg, nil
 }
-
