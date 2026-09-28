@@ -158,6 +158,7 @@ func createRole(ctx context.Context, iamSvc *iam.Client, opts *RoleOptions) erro
 		Description:              &opts.Description,
 		MaxSessionDuration:       durationToAwsTime(opts.MaxSessionDuration),
 		Tags:                     mapToAwsTags(opts.Tags),
+		PermissionsBoundary:      ternary(opts.PermissionBoundary == "", nil, &opts.PermissionBoundary),
 	})
 	if err != nil {
 		return WrapError(err, "iam.CreateRole")
@@ -230,8 +231,9 @@ func SyncRoles(ctx context.Context, stsSvc *sts.Client, roles []Role) error {
 	return MaybeWrap(eg.Wait(), "SyncAccount.Groups")
 }
 
-func upsertPermissionBoundary(ctx context.Context, iamSvc *iam.Client, bootstrapRoleArn, permissionBoundaryArn string) error {
-	expectedPolicyDocument := minimizePolicy(boundaryPolicy(permissionBoundaryArn, bootstrapRoleArn))
+func upsertPermissionBoundary(ctx context.Context, iamSvc *iam.Client, accountId string) error {
+	permissionBoundaryArn := boundaryPolicyArn(accountId)
+	expectedPolicyDocument := minimizePolicy(boundaryPolicy(accountId))
 
 	policyResp, err := iamSvc.GetPolicy(ctx, &iam.GetPolicyInput{PolicyArn: &permissionBoundaryArn})
 	if err != nil {
@@ -299,7 +301,7 @@ func SyncAccount(ctx context.Context, stsSvc *sts.Client, accountId string, role
 	iamSvc := iam.NewFromConfig(cfg)
 	// make sure permission boundary exists
 	permissionBoundaryArn := boundaryPolicyArn(accountId)
-	if err := upsertPermissionBoundary(ctx, iamSvc, bootstrapRole, permissionBoundaryArn); err != nil {
+	if err := upsertPermissionBoundary(ctx, iamSvc, accountId); err != nil {
 		return WrapError(err, "unsertPermissionBoundary")
 	}
 
@@ -311,18 +313,12 @@ func SyncAccount(ctx context.Context, stsSvc *sts.Client, accountId string, role
 		}
 		opts := RoleOptions{
 			RoleName:           r.Name,
-			MaxSessionDuration: r.MaxSessionDuration,
+			MaxSessionDuration: ternary(r.MaxSessionDuration == 0, time.Hour*8, r.MaxSessionDuration),
 			InlinePolicies:     inlinePolicies,
 			ManagedPolicies:    r.ManagedPolicies,
 			Tags:               r.Tags,
 			AssumeRoleDocument: assumeRoleDocument,
-			PermissionBoundary: permissionBoundaryArn,
-		}
-		if opts.MaxSessionDuration == 0 {
-			opts.MaxSessionDuration = time.Hour * 8
-		}
-		if r.NoIamBoundary {
-			opts.PermissionBoundary = ""
+			PermissionBoundary: ternary(r.NoIamBoundary, "", permissionBoundaryArn),
 		}
 
 		if err := SyncRole(ctx, iamSvc, &opts); err != nil {
@@ -368,4 +364,11 @@ func mapToAwsTags(tagMap map[string]string) []iamTypes.Tag {
 		tags = append(tags, iamTypes.Tag{Key: &k, Value: &v})
 	}
 	return tags
+}
+
+func ternary[T any](cond bool, a, b T) T {
+	if cond {
+		return a
+	}
+	return b
 }

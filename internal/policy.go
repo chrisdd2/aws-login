@@ -15,12 +15,13 @@ type policyDocument struct {
 }
 
 type policyStatement struct {
-	Sid       string                    `json:"Sid,omitempty"`
-	Effect    string                    `json:"Effect"`
-	Action    []string                  `json:"Action"`
-	Resource  []string                  `json:"Resource,omitempty"`
-	Principal map[string]string         `json:"Principal,omitempty"`
-	Condition map[string]map[string]any `json:"Condition,omitempty"`
+	Sid         string                    `json:"Sid,omitempty"`
+	Effect      string                    `json:"Effect"`
+	Action      []string                  `json:"Action"`
+	Resource    []string                  `json:"Resource,omitempty"`
+	NotResource []string                  `json:"NotResource,omitempty"`
+	Principal   map[string]string         `json:"Principal,omitempty"`
+	Condition   map[string]map[string]any `json:"Condition,omitempty"`
 }
 
 // marshalPolicy renders a policy document to JSON. The statements are always
@@ -35,10 +36,16 @@ func marshalPolicy(statements ...policyStatement) string {
 	return string(buf)
 }
 
-func boundaryPolicy(permissionBoundaryArn, bootstrapRoleArn string) string {
+const BoundedRolePath = "/aws-login-bounded/"
+
+func boundaryPolicy(accountId string) string {
+	permissionBoundaryArn := boundaryPolicyArn(accountId)
+	bootstrapRoleArn := BootstrapRoleArn(accountId)
 	notBoundedCondition := map[string]map[string]any{
 		"StringNotEqualsIfExists": {"iam:PermissionsBoundary": permissionBoundaryArn},
 	}
+	boundedRoles := fmt.Sprintf("arn:aws:iam::%s:role%s*", accountId, BoundedRolePath)
+	serviceLinkedRoles := fmt.Sprintf("arn:aws:iam::%s:role/aws-service-role/*", accountId)
 	return marshalPolicy(
 		policyStatement{
 			Sid:      "AllowEverythingElse",
@@ -85,9 +92,18 @@ func boundaryPolicy(permissionBoundaryArn, bootstrapRoleArn string) string {
 			Condition: notBoundedCondition,
 		},
 		policyStatement{
-			Sid:       "DenyUpdateRoleToRemoveBoundary",
-			Effect:    "Deny",
-			Action:    []string{"iam:UpdateRole"},
+			Sid:    "DenyModifyUnboundedRoles",
+			Effect: "Deny",
+			Action: []string{
+				"iam:UpdateRole",
+				"iam:UpdateRoleDescription",
+				"iam:UpdateAssumeRolePolicy",
+				"iam:PutRolePolicy",
+				"iam:DeleteRolePolicy",
+				"iam:AttachRolePolicy",
+				"iam:DetachRolePolicy",
+				"iam:DeleteRole",
+			},
 			Resource:  []string{"*"},
 			Condition: notBoundedCondition,
 		},
@@ -101,6 +117,19 @@ func boundaryPolicy(permissionBoundaryArn, bootstrapRoleArn string) string {
 				"iam:PutUserPermissionsBoundary",
 			},
 			Resource: []string{"*"},
+		},
+		policyStatement{
+			Sid:    "DenyBoundaryPolicyModification",
+			Effect: "Deny",
+			Action: []string{
+				"iam:CreatePolicyVersion",
+				"iam:DeletePolicyVersion",
+				"iam:SetDefaultPolicyVersion",
+				"iam:DeletePolicy",
+				"iam:TagPolicy",
+				"iam:UntagPolicy",
+			},
+			Resource: []string{permissionBoundaryArn},
 		},
 		policyStatement{
 			Sid:    "DenyManagementRoleModification",
@@ -120,21 +149,18 @@ func boundaryPolicy(permissionBoundaryArn, bootstrapRoleArn string) string {
 			Resource: []string{bootstrapRoleArn},
 		},
 		policyStatement{
-			Sid:      "DenyPassRoleToService",
-			Effect:   "Deny",
-			Action:   []string{"iam:PassRole"},
-			Resource: []string{bootstrapRoleArn},
-			Condition: map[string]map[string]any{
-				"StringLike": {"iam:PassedToService": "*"},
-			},
+			Sid:         "DenyPassRoleOutsideBoundedPath",
+			Effect:      "Deny",
+			Action:      []string{"iam:PassRole"},
+			NotResource: []string{boundedRoles, serviceLinkedRoles},
 		},
 		policyStatement{
-			Sid:      "DenyPassRoleOfBoundedRoles",
-			Effect:   "Deny",
-			Action:   []string{"iam:PassRole"},
-			Resource: []string{"*"},
+			Sid:         "DenyAssumeRoleOutsideBoundedPath",
+			Effect:      "Deny",
+			Action:      []string{"sts:AssumeRole"},
+			NotResource: []string{boundedRoles},
 			Condition: map[string]map[string]any{
-				"StringEquals": {"iam:PermissionsBoundary": permissionBoundaryArn},
+				"StringEquals": {"aws:ResourceAccount": accountId},
 			},
 		},
 	)

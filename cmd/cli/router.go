@@ -302,11 +302,11 @@ func assumeRole(stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute 
 		}
 
 		if redirectUrl != "" {
-			consoleRedirect(w, r, stsCl, uc, accountId, roleName, awsConsole)
+			consoleRedirect(w, r, stsCl, uc, role, awsConsole)
 			return
 		}
 
-		creds, err := internal.GenerateCredentials(r.Context(), stsCl, internal.RoleArn(accountId, roleName), uc.Username, time.Hour)
+		creds, err := internal.GenerateCredentials(r.Context(), stsCl, internal.RoleArn(accountId, roleName), uc.Username, role.MaxSessionDuration)
 		if err != nil {
 			writeJsonError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -320,9 +320,9 @@ func assumeRole(stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute 
 
 }
 
-func consoleRedirect(w http.ResponseWriter, r *http.Request, stsCl internal.AssumeRoleClient, uc *internal.UserClaims, accountId string, roleName string, destination string) {
+func consoleRedirect(w http.ResponseWriter, r *http.Request, stsCl internal.AssumeRoleClient, uc *internal.UserClaims, role *internal.Role, destination string) {
 	ctx := r.Context()
-	creds, err := internal.GenerateCredentials(ctx, stsCl, internal.RoleArn(accountId, roleName), uc.Username, time.Hour)
+	creds, err := internal.GenerateCredentials(ctx, stsCl, internal.RoleArn(role.AccountId, role.Name), uc.Username, role.MaxSessionDuration)
 	if err != nil {
 		writeJsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -369,7 +369,8 @@ func followLink(tokenKey []byte, stsCl internal.AssumeRoleClient, rt RoleMap) Au
 			writeJsonError(w, http.StatusNotFound, "not found")
 			return
 		}
-		if rt.Find(uc.Claims, link.Account, link.Role) == nil {
+		role := rt.Find(uc.Claims, link.Account, link.Role)
+		if role == nil {
 			internal.Debugf("followLink: user %q with groups %v has no access to %s/%s", uc.Username, uc.Claims, link.Account, link.Role)
 			writeJsonError(w, http.StatusUnauthorized, "no access to role")
 			return
@@ -379,7 +380,7 @@ func followLink(tokenKey []byte, stsCl internal.AssumeRoleClient, rt RoleMap) Au
 			writeJsonError(w, http.StatusBadRequest, "invalid destination url")
 			return
 		}
-		consoleRedirect(w, r, stsCl, uc, link.Account, link.Role, destination)
+		consoleRedirect(w, r, stsCl, uc, role, destination)
 	}
 }
 
@@ -485,7 +486,7 @@ func ssmSession(stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute 
 			writeJsonError(w, http.StatusBadRequest, "invalid instance id")
 			return
 		}
-		consoleRedirect(w, r, stsCl, uc, role.AccountId, role.Name, internal.SsmSessionUrl(region, instanceId))
+		consoleRedirect(w, r, stsCl, uc, role, internal.SsmSessionUrl(region, instanceId))
 	}
 }
 
