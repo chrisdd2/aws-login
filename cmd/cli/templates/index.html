@@ -179,12 +179,41 @@
     font-size: .875rem;
     color: hsl(var(--muted-foreground));
   }
-  .field { display: block; }
-  .row {
+  .links {
     display: flex;
+    flex-direction: column;
     gap: .5rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
   }
-  .row .input { flex: 1; min-width: 0; }
+  .link-item {
+    display: flex;
+    flex-direction: column;
+    gap: .125rem;
+    padding: .625rem .75rem;
+    border: 1px solid hsl(var(--border));
+    border-radius: calc(var(--radius) - 2px);
+    color: inherit;
+    text-decoration: none;
+    transition: background-color .15s;
+  }
+  .link-item:hover { background: hsl(var(--muted) / 0.5); }
+  .link-item:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+  .link-title {
+    font-size: .875rem;
+    font-weight: 500;
+  }
+  .link-url {
+    font-size: .75rem;
+    color: hsl(var(--muted-foreground));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .dialog-actions {
     display: flex;
     align-items: center;
@@ -219,7 +248,7 @@
 <main>
   <div class="page-header">
     <h2>Roles</h2>
-    <p class="muted">Open the AWS console, download temporary credentials or share a deep link for any role you can assume.</p>
+    <p class="muted">Open the AWS console, download temporary credentials or jump to a saved link for any role you can assume.</p>
   </div>
   {{if not .Roles}}
   <div class="card empty">
@@ -238,7 +267,7 @@
         </tr>
       </thead>
       <tbody>
-        {{range .Roles}}
+        {{range $i, $r := .Roles}}
         <tr>
           <td class="role-account mono">{{.AccountId}}</td>
           <td class="role-name">{{.Name}}</td>
@@ -255,8 +284,33 @@
             <div class="actions">
               <a class="btn btn-sm" href="{{.ConsoleURL}}" target="_blank" rel="noopener">Console</a>
               <a class="btn btn-outline btn-sm" href="{{.CredURL}}" download="{{.AccountId}}-{{.Name}}.txt">Credentials</a>
-              <button type="button" class="btn btn-outline btn-sm url-btn" data-link="{{.LinkURL}}" data-role="{{.AccountId}} / {{.Name}}">URL</button>
+              {{if .Links}}
+              <button type="button" class="btn btn-outline btn-sm links-btn" data-dialog="links-{{$i}}">Links</button>
+              {{end}}
             </div>
+            {{if .Links}}
+            <dialog id="links-{{$i}}" class="links-dialog">
+              <div class="dialog-body">
+                <div class="dialog-header">
+                  <h3 class="dialog-title">Links for {{.AccountId}} / {{.Name}}</h3>
+                  <p class="dialog-description">Signs in with this role and opens the selected page.</p>
+                </div>
+                <ul class="links">
+                  {{range .Links}}
+                  <li>
+                    <a class="link-item" href="{{.Href}}" target="_blank" rel="noopener">
+                      <span class="link-title">{{if .Description}}{{.Description}}{{else}}{{.Url}}{{end}}</span>
+                      {{if .Description}}<span class="link-url mono">{{.Url}}</span>{{end}}
+                    </a>
+                  </li>
+                  {{end}}
+                </ul>
+                <div class="dialog-actions">
+                  <button type="button" class="btn btn-outline dialog-close">Close</button>
+                </div>
+              </div>
+            </dialog>
+            {{end}}
           </td>
         </tr>
         {{end}}
@@ -266,97 +320,23 @@
   {{end}}
 </main>
 
-<dialog id="url-dialog">
-  <form class="dialog-body" id="url-form" method="dialog">
-    <div class="dialog-header">
-      <h3 class="dialog-title">Create URL for <span id="url-role"></span></h3>
-      <p class="dialog-description">Paste an AWS console address. The generated link signs in with this role and opens that page.</p>
-    </div>
-    <label class="field">
-      <span class="label">AWS page URL</span>
-      <input class="input" type="url" id="url-input" placeholder="https://s3.console.aws.amazon.com/s3/buckets/..." required>
-    </label>
-    <div class="field" id="url-result" hidden>
-      <span class="label">Link</span>
-      <div class="row">
-        <input class="input mono" type="text" id="url-output" readonly>
-        <button type="button" class="btn btn-outline" id="url-copy">Copy</button>
-      </div>
-    </div>
-    <p class="alert-destructive" id="url-error" hidden></p>
-    <div class="dialog-actions">
-      <button type="button" class="btn btn-outline" id="url-cancel">Close</button>
-      <button type="submit" class="btn" id="url-generate">Generate</button>
-    </div>
-  </form>
-</dialog>
-
 <script>
 (function () {
-  const dialog = document.getElementById("url-dialog");
-  const form = document.getElementById("url-form");
-  const roleLabel = document.getElementById("url-role");
-  const input = document.getElementById("url-input");
-  const result = document.getElementById("url-result");
-  const output = document.getElementById("url-output");
-  const copy = document.getElementById("url-copy");
-  const error = document.getElementById("url-error");
-  let target = "";
-
-  function showError(msg) {
-    error.textContent = msg;
-    error.hidden = !msg;
-  }
-
-  document.querySelectorAll(".url-btn").forEach(function (btn) {
+  document.querySelectorAll(".links-btn").forEach(function (btn) {
     btn.addEventListener("click", function () {
-      target = btn.dataset.link;
-      roleLabel.textContent = btn.dataset.role;
-      input.value = "";
-      output.value = "";
-      result.hidden = true;
-      copy.textContent = "Copy";
-      showError("");
-      dialog.showModal();
-      input.focus();
+      document.getElementById(btn.dataset.dialog).showModal();
     });
   });
 
-  document.getElementById("url-cancel").addEventListener("click", function () {
-    dialog.close();
-  });
-
-  form.addEventListener("submit", async function (ev) {
-    ev.preventDefault();
-    showError("");
-    result.hidden = true;
-    try {
-      const resp = await fetch(target, {
-        method: "POST",
-        body: new URLSearchParams({ url: input.value.trim() }),
-        credentials: "same-origin",
+  document.querySelectorAll(".links-dialog").forEach(function (dialog) {
+    dialog.querySelector(".dialog-close").addEventListener("click", function () {
+      dialog.close();
+    });
+    dialog.querySelectorAll(".link-item").forEach(function (link) {
+      link.addEventListener("click", function () {
+        dialog.close();
       });
-      const data = await resp.json().catch(function () { return {}; });
-      if (!resp.ok) {
-        showError(data.error || ("Request failed (" + resp.status + ")"));
-        return;
-      }
-      output.value = new URL(data.url, location.href).href;
-      copy.textContent = "Copy";
-      result.hidden = false;
-      output.select();
-    } catch (e) {
-      showError(String(e));
-    }
-  });
-
-  copy.addEventListener("click", async function () {
-    try {
-      await navigator.clipboard.writeText(output.value);
-      copy.textContent = "Copied";
-    } catch (e) {
-      output.select();
-    }
+    });
   });
 })();
 </script>

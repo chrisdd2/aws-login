@@ -179,7 +179,6 @@ func Router(
 			claimToRoleMap[c] = append(claimToRoleMap[c], &r)
 		}
 	}
-
 	if rootUrl == "" {
 		rootUrl = "/"
 	}
@@ -264,8 +263,6 @@ func Router(
 	r.HandleFunc("GET /", index)
 	r.HandleFunc("POST /", index)
 	r.HandleFunc("GET /role/{accountId}/{roleName}", guard.Wrap(assumeRole(stsCl, claimToRoleMap)))
-	r.HandleFunc("POST /role/{accountId}/{roleName}/link", guard.Wrap(createLink(tokenKey, rootUrl, claimToRoleMap)))
-	r.HandleFunc("GET /{token}", guard.Wrap(followLink(tokenKey, stsCl, claimToRoleMap)))
 	r.HandleFunc("GET /logout", func(w http.ResponseWriter, r *http.Request) {
 		uc, err := getLogin(tokenKey, 0, r)
 		http.SetCookie(w, &http.Cookie{Name: authCookie, Path: "/", MaxAge: -1, HttpOnly: true, Secure: secureCookies, SameSite: http.SameSiteLaxMode})
@@ -311,7 +308,13 @@ func assumeRole(stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute 
 		}
 
 		if redirectUrl != "" {
-			consoleRedirect(w, r, stsCl, uc, role, awsConsole)
+			// validate url
+			redirectUrl = normalizeAwsUrl(redirectUrl)
+			if !validAwsUrl(redirectUrl) {
+				writeJsonError(w, http.StatusBadRequest, "invalid redirect url")
+				return
+			}
+			consoleRedirect(w, r, stsCl, uc, role, redirectUrl)
 			return
 		}
 
@@ -336,6 +339,7 @@ func consoleRedirect(w http.ResponseWriter, r *http.Request, stsCl internal.Assu
 		writeInternalError(w, http.StatusInternalServerError, err)
 		return
 	}
+
 	signed, err := internal.GenerateSignedUrl(ctx, creds, destination, time.Hour*8)
 	if err != nil {
 		writeInternalError(w, http.StatusInternalServerError, err)
@@ -344,62 +348,19 @@ func consoleRedirect(w http.ResponseWriter, r *http.Request, stsCl internal.Assu
 	http.Redirect(w, r, signed, http.StatusTemporaryRedirect)
 }
 
-func createLink(tokenKey []byte, rootUrl string, rt RoleMap) AuthenticatedRoute {
-	return func(w http.ResponseWriter, r *http.Request, uc *internal.UserClaims) {
-		accountId := r.PathValue("accountId")
-		roleName := r.PathValue("roleName")
-		if rt.Find(uc.Claims, accountId, roleName) == nil {
-			internal.Debugf("createLink: user %q with groups %v has no access to %s/%s", uc.Username, uc.Claims, accountId, roleName)
-			writeJsonError(w, http.StatusUnauthorized, "no access to role")
-			return
-		}
-		destination := normalizeAwsUrl(strings.TrimSpace(r.FormValue("url")))
-		if !validAwsUrl(destination) {
-			writeJsonError(w, http.StatusBadRequest, "url must be an https aws.amazon.com address")
-			return
-		}
-		token, err := internal.SignLinkToken(tokenKey, accountId, roleName, destination)
-		if err != nil {
-			writeInternalError(w, http.StatusInternalServerError, err)
-			return
-		}
-		w.Header().Add("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(struct {
-			Url string `json:"url"`
-		}{Url: strings.TrimSuffix(rootUrl, "/") + "/" + token})
-	}
-}
-
-func followLink(tokenKey []byte, stsCl internal.AssumeRoleClient, rt RoleMap) AuthenticatedRoute {
-	return func(w http.ResponseWriter, r *http.Request, uc *internal.UserClaims) {
-		link, err := internal.ParseLinkToken(tokenKey, r.PathValue("token"))
-		if err != nil {
-			internal.Debugf("followLink: invalid token: %s", err)
-			writeJsonError(w, http.StatusNotFound, "not found")
-			return
-		}
-		role := rt.Find(uc.Claims, link.Account, link.Role)
-		if role == nil {
-			internal.Debugf("followLink: user %q with groups %v has no access to %s/%s", uc.Username, uc.Claims, link.Account, link.Role)
-			writeJsonError(w, http.StatusUnauthorized, "no access to role")
-			return
-		}
-		destination := normalizeAwsUrl(link.Url)
-		if !validAwsUrl(destination) {
-			writeJsonError(w, http.StatusBadRequest, "invalid destination url")
-			return
-		}
-		consoleRedirect(w, r, stsCl, uc, role, destination)
-	}
-}
-
 func indexPage(title string, rt RoleMap) AuthenticatedRoute {
+	type linkView struct {
+		Href        string
+		Url         string
+		Description string
+	}
+
 	type roleView struct {
 		Name       string
 		AccountId  string
 		ConsoleURL string
 		CredURL    string
-		LinkURL    string
+		Links      []linkView
 		Tags       map[string]string
 	}
 
@@ -417,8 +378,14 @@ func indexPage(title string, rt RoleMap) AuthenticatedRoute {
 				AccountId:  role.AccountId,
 				ConsoleURL: basePath + "?redirectUrl=" + url.QueryEscape(awsConsole),
 				CredURL:    basePath + "?format=" + internal.CredentialFormatBash,
-				LinkURL:    basePath + "/link",
 				Tags:       role.Tags,
+			}
+			for _, l := range role.Links {
+				view.Links = append(view.Links, linkView{
+					Href:        basePath + "?redirectUrl=" + url.QueryEscape(l.Url),
+					Url:         l.Url,
+					Description: l.Description,
+				})
 			}
 			userRoles = append(userRoles, view)
 		}

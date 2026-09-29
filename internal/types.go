@@ -4,6 +4,11 @@ import (
 	"time"
 )
 
+type Link struct {
+	Url         string
+	Description string
+}
+
 type Role struct {
 	Name               string            `json:"name,omitempty" yaml:"name,omitempty" sql:"unique"`
 	AccountId          string            `json:"account_id,omitempty" yaml:"account_id,omitempty"`
@@ -13,4 +18,5 @@ type Role struct {
 	Tags               map[string]string `json:"tags,omitempty" yaml:"tags,omitempty"`
 	Claim              []string          `json:"claim,omitempty" yaml:"claim,omitempty"`
 	NoIamBoundary      bool              `json:"no_boundary,omitempty" yaml:"no_boundary,omitempty"`
+	Links              []Link            `json:"links,omitempty"`
 }
