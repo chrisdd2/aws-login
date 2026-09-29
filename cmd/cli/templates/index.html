@@ -207,6 +207,18 @@
     font-size: .875rem;
     font-weight: 500;
   }
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .5rem;
+  }
+  .pagination .muted { font-size: .875rem; }
+  .pagination-roles { margin-top: 1rem; }
+  .btn[aria-disabled="true"], .btn:disabled {
+    opacity: .5;
+    pointer-events: none;
+  }
   .link-url {
     font-size: .75rem;
     color: hsl(var(--muted-foreground));
@@ -295,7 +307,7 @@
                   <h3 class="dialog-title">Links for {{.AccountId}} / {{.Name}}</h3>
                   <p class="dialog-description">Signs in with this role and opens the selected page.</p>
                 </div>
-                <ul class="links">
+                <ul class="links" data-page-size="{{$.LinksPerPage}}">
                   {{range .Links}}
                   <li>
                     <a class="link-item" href="{{.Href}}" target="_blank" rel="noopener">
@@ -305,6 +317,11 @@
                   </li>
                   {{end}}
                 </ul>
+                <div class="pagination links-pager" hidden>
+                  <button type="button" class="btn btn-outline btn-sm links-prev">Previous</button>
+                  <span class="muted links-page"></span>
+                  <button type="button" class="btn btn-outline btn-sm links-next">Next</button>
+                </div>
                 <div class="dialog-actions">
                   <button type="button" class="btn btn-outline dialog-close">Close</button>
                 </div>
@@ -317,6 +334,13 @@
       </tbody>
     </table>
   </div>
+  {{if gt .Pager.Pages 1}}
+  <nav class="pagination pagination-roles" aria-label="Roles pagination">
+    {{if .Pager.PrevURL}}<a class="btn btn-outline btn-sm" href="{{.Pager.PrevURL}}">Previous</a>{{else}}<span class="btn btn-outline btn-sm" aria-disabled="true">Previous</span>{{end}}
+    <span class="muted">Page {{.Pager.Page}} of {{.Pager.Pages}}</span>
+    {{if .Pager.NextURL}}<a class="btn btn-outline btn-sm" href="{{.Pager.NextURL}}">Next</a>{{else}}<span class="btn btn-outline btn-sm" aria-disabled="true">Next</span>{{end}}
+  </nav>
+  {{end}}
   {{end}}
 </main>
 
@@ -332,6 +356,36 @@
     dialog.querySelector(".dialog-close").addEventListener("click", function () {
       dialog.close();
     });
+    const list = dialog.querySelector(".links");
+    const items = Array.from(list.children);
+    const size = parseInt(list.dataset.pageSize, 10) || items.length;
+    const pages = Math.max(Math.ceil(items.length / size), 1);
+    const pagerEl = dialog.querySelector(".links-pager");
+    const prev = dialog.querySelector(".links-prev");
+    const next = dialog.querySelector(".links-next");
+    const label = dialog.querySelector(".links-page");
+    let page = 1;
+
+    function render() {
+      items.forEach(function (item, i) {
+        item.hidden = i < (page - 1) * size || i >= page * size;
+      });
+      label.textContent = "Page " + page + " of " + pages;
+      prev.disabled = page <= 1;
+      next.disabled = page >= pages;
+    }
+
+    pagerEl.hidden = pages <= 1;
+    prev.addEventListener("click", function () {
+      page = Math.max(page - 1, 1);
+      render();
+    });
+    next.addEventListener("click", function () {
+      page = Math.min(page + 1, pages);
+      render();
+    });
+    render();
+
     dialog.querySelectorAll(".link-item").forEach(function (link) {
       link.addEventListener("click", function () {
         dialog.close();

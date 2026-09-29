@@ -11,6 +11,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -348,6 +349,32 @@ func consoleRedirect(w http.ResponseWriter, r *http.Request, stsCl internal.Assu
 	http.Redirect(w, r, signed, http.StatusTemporaryRedirect)
 }
 
+const rolesPerPage = 50
+
+const linksPerPage = 30
+
+type pager struct {
+	Page    int
+	Pages   int
+	PrevURL string
+	NextURL string
+}
+
+func paginate(total, page, size int) (start, end int, p pager) {
+	pages := max((total+size-1)/size, 1)
+	page = min(max(page, 1), pages)
+	start = (page - 1) * size
+	end = min(start+size, total)
+	p = pager{Page: page, Pages: pages}
+	if page > 1 {
+		p.PrevURL = "?page=" + strconv.Itoa(page-1)
+	}
+	if page < pages {
+		p.NextURL = "?page=" + strconv.Itoa(page+1)
+	}
+	return start, end, p
+}
+
 func indexPage(title string, rt RoleMap) AuthenticatedRoute {
 	type linkView struct {
 		Href        string
@@ -365,13 +392,28 @@ func indexPage(title string, rt RoleMap) AuthenticatedRoute {
 	}
 
 	type indexData struct {
-		Title string
-		User  *internal.UserClaims
-		Roles []roleView
+		Title        string
+		User         *internal.UserClaims
+		Roles        []roleView
+		Pager        pager
+		LinksPerPage int
 	}
 	return func(w http.ResponseWriter, r *http.Request, uc *internal.UserClaims) {
-		userRoles := []roleView{}
+		roles := []*internal.Role{}
 		for role := range rt.RolesFor(uc.Claims) {
+			roles = append(roles, role)
+		}
+		sort.Slice(roles, func(i, j int) bool {
+			if roles[i].AccountId == roles[j].AccountId {
+				return roles[i].Name < roles[j].Name
+			}
+			return roles[i].AccountId < roles[j].AccountId
+		})
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		start, end, pg := paginate(len(roles), page, rolesPerPage)
+
+		userRoles := []roleView{}
+		for _, role := range roles[start:end] {
 			basePath := fmt.Sprintf("/role/%s/%s", url.PathEscape(role.AccountId), url.PathEscape(role.Name))
 			view := roleView{
 				Name:       role.Name,
@@ -389,15 +431,9 @@ func indexPage(title string, rt RoleMap) AuthenticatedRoute {
 			}
 			userRoles = append(userRoles, view)
 		}
-		sort.Slice(userRoles, func(i, j int) bool {
-			if userRoles[i].AccountId == userRoles[j].AccountId {
-				return userRoles[i].Name < userRoles[j].Name
-			}
-			return userRoles[i].AccountId < userRoles[j].AccountId
-		})
 
 		w.Header().Add("Content-Type", "text/html; charset=utf-8")
-		if err := templates.ExecuteTemplate(w, "index", indexData{User: uc, Roles: userRoles, Title: title}); err != nil {
+		if err := templates.ExecuteTemplate(w, "index", indexData{User: uc, Roles: userRoles, Title: title, Pager: pg, LinksPerPage: linksPerPage}); err != nil {
 			writeInternalError(w, http.StatusInternalServerError, err)
 		}
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -140,6 +141,7 @@ func TestIndexLinksDialog(t *testing.T) {
 		`href="/role/111111111111/dev?redirectUrl=https%3A%2F%2Fs3.console.aws.amazon.com%2Fs3%2Fbuckets%2Fb%3Fregion%3Deu-west-1"`,
 		`href="/role/111111111111/dev?redirectUrl=https%3A%2F%2Fconsole.aws.amazon.com%2Flambda%2Fhome"`,
 		`Data bucket`,
+		fmt.Sprintf(`data-page-size="%d"`, linksPerPage),
 	}
 	for _, w := range want {
 		if !strings.Contains(body, w) {
@@ -148,5 +150,67 @@ func TestIndexLinksDialog(t *testing.T) {
 	}
 	if strings.Contains(body, `links-1"`) {
 		t.Errorf("role without links should not render a links dialog")
+	}
+}
+
+func TestPaginate(t *testing.T) {
+	cases := []struct {
+		total, page, size int
+		start, end        int
+		want              pager
+	}{
+		{0, 1, 50, 0, 0, pager{Page: 1, Pages: 1}},
+		{10, 0, 50, 0, 10, pager{Page: 1, Pages: 1}},
+		{120, 1, 50, 0, 50, pager{Page: 1, Pages: 3, NextURL: "?page=2"}},
+		{120, 2, 50, 50, 100, pager{Page: 2, Pages: 3, PrevURL: "?page=1", NextURL: "?page=3"}},
+		{120, 3, 50, 100, 120, pager{Page: 3, Pages: 3, PrevURL: "?page=2"}},
+		{120, 99, 50, 100, 120, pager{Page: 3, Pages: 3, PrevURL: "?page=2"}},
+		{120, -4, 50, 0, 50, pager{Page: 1, Pages: 3, NextURL: "?page=2"}},
+		{100, 2, 50, 50, 100, pager{Page: 2, Pages: 2, PrevURL: "?page=1"}},
+	}
+	for _, c := range cases {
+		start, end, p := paginate(c.total, c.page, c.size)
+		if start != c.start || end != c.end || p != c.want {
+			t.Errorf("paginate(%d, %d, %d) = %d, %d, %+v; want %d, %d, %+v", c.total, c.page, c.size, start, end, p, c.start, c.end, c.want)
+		}
+	}
+}
+
+func manyRolesRouter(t *testing.T, n int) http.Handler {
+	t.Helper()
+	roles := []internal.Role{}
+	for i := range n {
+		roles = append(roles, internal.Role{Name: fmt.Sprintf("role-%03d", i), AccountId: "111111111111", Claim: []string{"devs"}})
+	}
+	return Router(context.Background(), nil, "/", "test", testKey, false, time.Hour, roles, nil)
+}
+
+func TestIndexPaginatesRoles(t *testing.T) {
+	h := manyRolesRouter(t, rolesPerPage+5)
+
+	first := serve(h, "/", sessionCookie(t, "devs")).Body.String()
+	if !strings.Contains(first, "role-000") || !strings.Contains(first, fmt.Sprintf("role-%03d", rolesPerPage-1)) {
+		t.Errorf("first page missing its roles")
+	}
+	if strings.Contains(first, fmt.Sprintf("role-%03d", rolesPerPage)) {
+		t.Errorf("first page should not contain second page roles")
+	}
+	if !strings.Contains(first, "Page 1 of 2") || !strings.Contains(first, `href="?page=2"`) {
+		t.Errorf("first page missing pager")
+	}
+
+	second := serve(h, "/?page=2", sessionCookie(t, "devs")).Body.String()
+	if strings.Contains(second, "role-000") || !strings.Contains(second, fmt.Sprintf("role-%03d", rolesPerPage+4)) {
+		t.Errorf("second page has wrong roles")
+	}
+	if !strings.Contains(second, "Page 2 of 2") || !strings.Contains(second, `href="?page=1"`) {
+		t.Errorf("second page missing pager")
+	}
+}
+
+func TestIndexNoPagerForSinglePage(t *testing.T) {
+	body := serve(manyRolesRouter(t, 3), "/", sessionCookie(t, "devs")).Body.String()
+	if strings.Contains(body, "Roles pagination") {
+		t.Errorf("single page should not render a pager")
 	}
 }
