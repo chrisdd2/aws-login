@@ -4,3 +4,4 @@ terraform
 events.jsonl
 .config
 .env
+real.yaml
